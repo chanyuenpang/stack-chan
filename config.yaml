@@ -1,0 +1,8 @@
+tools:
+  web:
+    search:
+      enabled: true
+      provider: kimi
+      kimi:
+        apiKey: "sk-CwQYlNUFoRTFzk3sPT2cte9y3lsZ3aqRcot2RAiHTqi2AnUN"
+        baseUrl: "https://api.moonshot.cn/v1"

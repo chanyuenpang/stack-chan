@@ -1,0 +1,558 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.3.13",
+    "lastTouchedAt": "2026-03-14T13:26:24.532Z"
+  },
+  "wizard": {
+    "lastRunAt": "2026-03-14T13:26:24.524Z",
+    "lastRunVersion": "2026.3.13",
+    "lastRunCommand": "doctor",
+    "lastRunMode": "local"
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "volces-com": {
+        "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+        "apiKey": "1d2b2276-f0d7-4dfc-9b4d-93b22412bf7b",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "ark-code-latest",
+            "name": "ark-code-latest (Custom Provider)",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "volces-com/ark-code-latest"
+      },
+      "models": {
+        "volces-com/ark-code-latest": {
+          "alias": "auto"
+        }
+      },
+      "workspace": "/home/yankeeting/.openclaw/workspace",
+      "memorySearch": {
+        "enabled": true,
+        "provider": "local"
+      },
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "heartbeat": {
+        "every": "30m"
+      },
+      "maxConcurrent": 20,
+      "subagents": {
+        "maxConcurrent": 16,
+        "maxSpawnDepth": 2
+      }
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "skills": [
+          "task-status-tracker",
+          "orchestrator-constraint",
+          "spec-kit"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "WebSearch"
+          ]
+        }
+      },
+      {
+        "id": "plan-agent",
+        "skills": [
+          "spec-kit"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Grep",
+            "Glob",
+            "WebFetch"
+          ]
+        }
+      },
+      {
+        "id": "executor",
+        "tools": {
+          "allow": [
+            "Read",
+            "Write",
+            "Edit",
+            "Delete",
+            "Bash",
+            "WebFetch",
+            "WebSearch"
+          ]
+        }
+      },
+      {
+        "id": "explorer",
+        "tools": {
+          "allow": [
+            "Read",
+            "Grep",
+            "Glob",
+            "WebFetch",
+            "WebSearch"
+          ]
+        }
+      },
+      {
+        "id": "docx-converter-agent",
+        "skills": [
+          "docx-cn"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Write",
+            "Edit",
+            "Bash"
+          ]
+        }
+      },
+      {
+        "id": "feishu-organizer",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "adaptive-announcement-scraper",
+          "ai-ppt-presenter",
+          "automation-workflows",
+          "docx-cn",
+          "docx-converter-agent",
+          "executing-plans",
+          "executor",
+          "explorer",
+          "feishu-doc",
+          "feishu-drive",
+          "feishu-file-sender",
+          "feishu-markdown-helper",
+          "feishu-perm",
+          "feishu-wiki",
+          "multi-search-engine",
+          "orchestrator-constraint",
+          "plan-agent",
+          "playwright",
+          "self-improving-agent",
+          "skill-self-evolution-enhancer",
+          "spec-kit",
+          "summarize",
+          "task-status-tracker",
+          "explorer-agent"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "WebFetch",
+            "WebSearch"
+          ]
+        }
+      },
+      {
+        "id": "feishu-engineer",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "adaptive-announcement-scraper",
+          "ai-ppt-presenter",
+          "automation-workflows",
+          "docx-cn",
+          "docx-converter-agent",
+          "executing-plans",
+          "executor",
+          "explorer",
+          "feishu-doc",
+          "feishu-drive",
+          "feishu-file-sender",
+          "feishu-markdown-helper",
+          "feishu-perm",
+          "feishu-wiki",
+          "multi-search-engine",
+          "orchestrator-constraint",
+          "plan-agent",
+          "playwright",
+          "self-improving-agent",
+          "skill-self-evolution-enhancer",
+          "spec-kit",
+          "summarize",
+          "task-status-tracker",
+          "explorer-agent"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "WebFetch",
+            "WebSearch"
+          ]
+        }
+      },
+      {
+        "id": "feishu",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "adaptive-announcement-scraper",
+          "ai-ppt-presenter",
+          "automation-workflows",
+          "docx-cn",
+          "docx-converter-agent",
+          "executing-plans",
+          "executor",
+          "explorer",
+          "feishu-doc",
+          "feishu-drive",
+          "feishu-file-sender",
+          "feishu-markdown-helper",
+          "feishu-perm",
+          "feishu-wiki",
+          "multi-search-engine",
+          "orchestrator-constraint",
+          "plan-agent",
+          "playwright",
+          "self-improving-agent",
+          "skill-self-evolution-enhancer",
+          "spec-kit",
+          "summarize",
+          "task-status-tracker",
+          "explorer-agent"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "WebFetch",
+            "WebSearch"
+          ]
+        }
+      },
+      {
+        "id": "qqbot",
+        "skills": [
+          "orchestrator-constraint",
+          "task-status-tracker",
+          "executor",
+          "explorer",
+          "explorer-agent"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "WebFetch",
+            "WebSearch"
+          ]
+        }
+      }
+    ]
+  },
+  "tools": {
+    "profile": "coding",
+    "deny": [],
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "kimi",
+        "kimi": {
+          "apiKey": "sk-CwQYlNUFoRTFzk3sPT2cte9y3lsZ3aqRcot2RAiHTqi2AnUN",
+          "baseUrl": "https://api.moonshot.cn/v1"
+        }
+      }
+    },
+    "agentToAgent": {
+      "enabled": true
+    },
+    "subagents": {
+      "tools": {
+        "allow": [
+          "Bash",
+          "Read",
+          "Write",
+          "Edit",
+          "Delete",
+          "Grep",
+          "Glob",
+          "WebFetch",
+          "WebSearch"
+        ]
+      }
+    }
+  },
+  "bindings": [
+    {
+      "agentId": "feishu-organizer",
+      "match": {
+        "channel": "feishu",
+        "accountId": "organizer"
+      }
+    },
+    {
+      "agentId": "feishu-engineer",
+      "match": {
+        "channel": "feishu",
+        "accountId": "engineer"
+      }
+    },
+    {
+      "agentId": "feishu",
+      "match": {
+        "channel": "feishu",
+        "accountId": "original"
+      }
+    }
+  ],
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "session": {
+    "dmScope": "per-channel-peer",
+    "maintenance": {
+      "mode": "enforce",
+      "pruneAfter": "24h",
+      "maxEntries": 100
+    }
+  },
+  "cron": {
+    "sessionRetention": "10m"
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "connectionMode": "websocket",
+      "domain": "feishu",
+      "requireMention": false,
+      "groupSessionScope": "group_topic",
+      "replyInThread": "enabled",
+      "defaultAccount": "organizer",
+      "accounts": {
+        "organizer": {
+          "enabled": true,
+          "appId": "cli_a93fe7a22178dcba",
+          "appSecret": "vZutvl8b7Y1v3920PSOoKeimbwrAni6A",
+          "groupPolicy": "open",
+          "dmPolicy": "open",
+          "allowFrom": ["*"]
+        },
+        "engineer": {
+          "enabled": true,
+          "appId": "cli_a93862c1ea399cb5",
+          "appSecret": "XTfZhkKoeH7ODmN9ULhptf5LTwRHr6hp",
+          "groupPolicy": "open",
+          "dmPolicy": "open",
+          "allowFrom": ["*"]
+        },
+        "original": {
+          "enabled": true,
+          "appId": "cli_a938707520f89cbb",
+          "appSecret": "DdDHfouX01drOHQcdWwo7ciqWQXlSAfE",
+          "groupPolicy": "open",
+          "dmPolicy": "open",
+          "allowFrom": ["*"]
+        },
+        "default": {
+          "groupPolicy": "open",
+          "dmPolicy": "open",
+          "allowFrom": [
+            "*"
+          ]
+        }
+      },
+      "threadContextCarry": {
+        "enabled": true,
+        "lastNMessages": 3
+      },
+      "session": {
+        "dmScope": "per-channel-peer"
+      }
+    },
+    "qqbot": {
+      "enabled": true,
+      "appId": "1903448216",
+      "clientSecret": "LbeT4RcZHl13rRnw",
+      "accounts": {
+        "bot2": {
+          "appId": 1903460163,
+          "clientSecret": "Y6SaYHl11mMiplSy",
+          "enabled": true,
+          "allowFrom": [
+            "*"
+          ]
+        },
+        "default": {
+          "allowFrom": [
+            "*"
+          ]
+        },
+        "bot3": {
+          "appId": 1903460786,
+          "clientSecret": "qa6N8g2B5lDSTHrD",
+          "enabled": true,
+          "allowFrom": [
+            "*"
+          ]
+        }
+      },
+      "dmPolicy": "openclaw",
+      "session": {
+        "dmScope": "per-channel-peer"
+      }
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "controlUi": {
+      "allowedOrigins": [
+        "http://localhost:18789",
+        "http://127.0.0.1:18789",
+        "http://192.168.0.12:18789"
+      ]
+    },
+    "auth": {
+      "mode": "token",
+      "token": "91fe83a9cb69dda65d406fd391a7d50098ae00aa34de0631"
+    },
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send"
+      ]
+    }
+  },
+  "skills": {
+    "entries": {
+      "coding-agent": {
+        "enabled": false
+      },
+      "plan-agent": {
+        "enabled": true
+      },
+      "explorer-agent": {
+        "enabled": true
+      },
+      "docx-converter-agent": {
+        "enabled": true
+      },
+      "spec-kit": {
+        "enabled": true
+      },
+      "sherpa-onnx-tts": {
+        "enabled": true
+      },
+      "things-mac": {
+        "enabled": true
+      },
+      "self-improving-agent": {
+        "enabled": true
+      },
+      "summarize": {
+        "enabled": true
+      },
+      "multi-search-engine": {
+        "enabled": true
+      },
+      "playwright": {
+        "enabled": true
+      },
+      "automation-workflows": {
+        "enabled": true
+      },
+      "executing-plans": {
+        "enabled": true
+      },
+      "task-status-tracker": {
+        "enabled": true
+      },
+      "orchestrator-constraint": {
+        "enabled": true
+      },
+      "executor": {
+        "enabled": true
+      },
+      "explorer": {
+        "enabled": true
+      },
+      "feishu-doc": {
+        "enabled": true
+      },
+      "feishu-drive": {
+        "enabled": true
+      },
+      "feishu-wiki": {
+        "enabled": true
+      },
+      "feishu-perm": {
+        "enabled": true
+      },
+      "feishu-markdown-helper": {
+        "enabled": true
+      }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "openclaw-qqbot": {
+        "enabled": true
+      },
+      "feishu": {
+        "enabled": true
+      }
+    },
+    "installs": {
+      "openclaw-qqbot": {
+        "source": "npm",
+        "spec": "@tencent-connect/openclaw-qqbot@latest",
+        "installPath": "/home/yankeeting/.openclaw/extensions/openclaw-qqbot",
+        "version": "1.5.7",
+        "resolvedName": "@tencent-connect/openclaw-qqbot",
+        "resolvedVersion": "1.5.7",
+        "resolvedSpec": "@tencent-connect/openclaw-qqbot@1.5.7",
+        "integrity": "sha512-L7FmpZFRCPE8rx5T4QXeAKfoOv+UTkOBIyIcur4VPR4WVfEWAN+GMCa88VZYUf89zy834BaNzJNkHbYdasMqIg==",
+        "shasum": "e9ecfe9edd661bad52c78d01abd4f0817f3cbfae",
+        "resolvedAt": "2026-03-12T18:16:19.219Z",
+        "installedAt": "2026-03-12T18:16:59.473Z"
+      }
+    }
+  }
+}

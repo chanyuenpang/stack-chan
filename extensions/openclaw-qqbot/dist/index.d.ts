@@ -1,0 +1,17 @@
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+declare const plugin: {
+    id: string;
+    name: string;
+    description: string;
+    configSchema: unknown;
+    register(api: OpenClawPluginApi): void;
+};
+export default plugin;
+export { qqbotPlugin } from "./src/channel.js";
+export { setQQBotRuntime, getQQBotRuntime } from "./src/runtime.js";
+export { qqbotOnboardingAdapter } from "./src/onboarding.js";
+export * from "./src/types.js";
+export * from "./src/api.js";
+export * from "./src/config.js";
+export * from "./src/gateway.js";
+export * from "./src/outbound.js";

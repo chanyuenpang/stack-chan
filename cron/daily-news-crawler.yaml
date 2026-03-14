@@ -1,0 +1,105 @@
+# 每日政府网站新闻抓取任务
+# 创建时间: 2025-03-13
+# 更新时间: 2026-03-15
+# 任务类型: 周期性任务 (每天 6:00 执行)
+# 版本: 3.0
+
+name: daily-news-crawler
+description: "每日抓取政府网站的新闻和政策，生成日报并发送给用户"
+version: "3.0"
+
+# 定时配置
+schedule:
+  type: cron
+  expression: "0 6 * * *"  # 每天 6:00
+  timezone: "Asia/Shanghai"
+
+# 任务执行配置
+task:
+  # 执行模式
+  mode: skill
+  
+  # 使用的 Skill
+  skill: adaptive-announcement-scraper
+  
+  # 输入参数
+  inputs:
+    urls_config: "~/.openclaw/workspace/projects/daily-news-crawler/config/urls.json"
+    rules_dir: "~/.openclaw/workspace/projects/daily-news-crawler/config/rules"
+    output_dir: "~/.openclaw/workspace/projects/daily-news-crawler/output"
+
+# 通知配置
+notifications:
+  # 飞书通知
+  feishu:
+    group_id: "oc_00c2c690e5a60b6803a38b121568e4c1"
+    
+    on_success:
+      - type: feishu_message
+        channel: feishu
+        to: "${user_id}"
+        message: |
+          📋 政府网站公告日报
+          
+          📅 日期: {date}
+          📊 统计:
+          - 监控网站: {total_sites}个
+          - 成功抓取: {success_sites}个
+          - 新增公告: {announcement_count}条
+          
+          📎 详细报告见附件
+          
+      - type: feishu_file
+        channel: feishu
+        to: "${user_id}"
+        file_path: "~/.openclaw/workspace/projects/daily-news-crawler/output/{date}/日报.md"
+        
+    on_partial_success:  # 部分成功
+      - type: feishu_message
+        channel: feishu
+        to: "${user_id}"
+        message: |
+          ⚠️ 政府网站公告日报 (部分成功)
+          
+          📅 日期: {date}
+          📊 统计:
+          - 监控网站: {total_sites}个
+          - 成功抓取: {success_sites}个
+          - 失败网站: {fail_sites}个
+          - 新增公告: {announcement_count}条
+          
+          📎 详细报告和失败报告见附件
+          
+    on_failure:
+      - type: feishu_message
+        channel: feishu
+        to: "${user_id}"
+        message: |
+          ❌ 日报生成失败
+          
+          📅 日期: {date}
+          ❗ 错误: {error_message}
+
+# 资源限制
+resources:
+  timeout: 3600000  # 总超时1小时
+  max_retries: 1
+
+# 依赖检查
+dependencies:
+  check_commands:
+    - "playwright --version"
+    - "python3 --version"
+  check_files:
+    - "~/.openclaw/workspace/projects/daily-news-crawler/config/urls.json"
+
+# 启用/禁用
+enabled: true
+
+# 元数据
+metadata:
+  created_by: "用户陈元鹏"
+  created_at: "2025-03-13"
+  updated_at: "2026-03-15"
+  priority: "high"
+  tags: ["news", "government", "daily-report", "automation", "learning", "v3"]

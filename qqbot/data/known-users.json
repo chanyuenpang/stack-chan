@@ -1,0 +1,26 @@
+[
+  {
+    "openid": "0493ED82ED542A44295E4E193A2B9FC9",
+    "type": "c2c",
+    "accountId": "default",
+    "firstSeenAt": 1773339467135,
+    "lastSeenAt": 1773428404922,
+    "interactionCount": 157
+  },
+  {
+    "openid": "DF7879868EDF7FEC81F8177C29F75009",
+    "type": "c2c",
+    "accountId": "bot3",
+    "firstSeenAt": 1773382672221,
+    "lastSeenAt": 1773419346443,
+    "interactionCount": 74
+  },
+  {
+    "openid": "09BD41E94175E3041D7CF21D015ED103",
+    "type": "c2c",
+    "accountId": "bot2",
+    "firstSeenAt": 1773382903232,
+    "lastSeenAt": 1773402799656,
+    "interactionCount": 13
+  }
+]

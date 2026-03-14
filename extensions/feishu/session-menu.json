@@ -1,0 +1,137 @@
+{
+  "sessionMenu": {
+    "enabled": true,
+    "trigger": {
+      "type": "card_button",
+      "label": "会话管理",
+      "icon": "💬"
+    },
+    "mainCard": {
+      "header": {
+        "title": "会话管理",
+        "subtitle": "管理你的多个会话"
+      },
+      "elements": [
+        {
+          "type": "button",
+          "action": "create_session",
+          "text": "新建会话",
+          "icon": "➕",
+          "style": "primary"
+        },
+        {
+          "type": "button",
+          "action": "list_sessions",
+          "text": "会话列表",
+          "icon": "📋",
+          "style": "default"
+        },
+        {
+          "type": "button",
+          "action": "current_session",
+          "text": "当前会话",
+          "icon": "📍",
+          "style": "default"
+        }
+      ]
+    },
+    "sessionListCard": {
+      "header": {
+        "title": "会话列表",
+        "subtitle": "选择一个会话切换"
+      },
+      "elements": [
+        {
+          "type": "session_list",
+          "emptyText": "暂无其他会话",
+          "sessionTemplate": {
+            "name": "{session_name}",
+            "createdAt": "{created_at}",
+            "messageCount": "{message_count}",
+            "actions": [
+              {
+                "type": "button",
+                "action": "switch_session",
+                "text": "切换",
+                "sessionId": "{session_id}"
+              },
+              {
+                "type": "button",
+                "action": "close_session",
+                "text": "关闭",
+                "sessionId": "{session_id}",
+                "style": "danger",
+                "confirm": {
+                  "title": "确认关闭",
+                  "content": "确定要关闭这个会话吗？"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "createSessionCard": {
+      "header": {
+        "title": "新建会话",
+        "subtitle": "创建一个新的会话"
+      },
+      "elements": [
+        {
+          "type": "input",
+          "name": "session_name",
+          "placeholder": "输入会话名称（可选）",
+          "required": false
+        },
+        {
+          "type": "button",
+          "action": "confirm_create",
+          "text": "创建",
+          "style": "primary"
+        }
+      ]
+    },
+    "commands": {
+      "natural_language": {
+        "create": [
+          "新建会话",
+          "新建一个会话",
+          "创建会话",
+          "创建一个会话",
+          "开一个新的会话"
+        ],
+        "switch": [
+          "切换会话",
+          "切换到{session_name}",
+          "切换到{session_id}"
+        ],
+        "list": [
+          "列出会话",
+          "会话列表",
+          "我的会话",
+          "所有会话"
+        ],
+        "close": [
+          "关闭会话",
+          "关闭{session_name}",
+          "关闭{session_id}"
+        ]
+      },
+      "slash_commands": {
+        "create": "/session create",
+        "create_with_name": "/session create {name}",
+        "switch": "/session switch {id_or_name}",
+        "list": "/session list",
+        "close": "/session close {id}",
+        "help": "/session help"
+      }
+    },
+    "notifications": {
+      "session_created": "✅ 新会话已创建：{session_name}",
+      "session_switched": "✅ 已切换到会话：{session_name}",
+      "session_closed": "✅ 会话已关闭：{session_name}",
+      "session_not_found": "❌ 会话不存在：{session_id}",
+      "max_sessions_reached": "❌ 已达到最大会话数量（{max}个），请先关闭其他会话"
+    }
+  }
+}

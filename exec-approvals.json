@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "socket": {
+    "path": "/home/yankeeting/.openclaw/exec-approvals.sock",
+    "token": "E2_VZwvmh0ua28uF1MDQI9bPzWmpTkMf"
+  },
+  "defaults": {
+    "security": "full"
+  },
+  "agents": {}
+}

@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "6b23cc9b-711a-4bbf-b73d-d0f49a7f0a06",
+      "name": "群活跃度-10分钟",
+      "enabled": false,
+      "createdAtMs": 1773331579699,
+      "updatedAtMs": 1773331637167,
+      "schedule": {
+        "kind": "every",
+        "everyMs": 600000,
+        "anchorMs": 1773331579699
+      },
+      "sessionTarget": "main",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "（检查群消息）",
+        "timeoutSeconds": 10
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "feishu",
+        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
+      },
+      "state": {}
+    },
+    {
+      "id": "740bbb1f-12d5-4e8f-b139-35c93e4f64b5",
+      "name": "早安问候",
+      "enabled": true,
+      "createdAtMs": 1773331665748,
+      "updatedAtMs": 1773442923241,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 7 * * *",
+        "staggerMs": 120000
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "大家早上好！☀️ 新的一天开始了，有需要帮忙的吗？",
+        "timeoutSeconds": 10
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "feishu",
+        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
+      },
+      "state": {
+        "nextRunAtMs": 1773529313213,
+        "lastRunAtMs": 1773442913229,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 10012,
+        "lastErrorReason": "timeout",
+        "lastDeliveryStatus": "unknown",
+        "consecutiveErrors": 3,
+        "lastError": "cron: job execution timed out"
+      },
+      "agentId": "feishu"
+    },
+    {
+      "id": "72200a79-8836-4cdc-a2ef-1a016505ab74",
+      "name": "静默检查-10分钟",
+      "enabled": false,
+      "createdAtMs": 1773369810901,
+      "updatedAtMs": 1773372974837,
+      "schedule": {
+        "kind": "cron",
+        "expr": "*/10 * * * *",
+        "staggerMs": 60000
+      },
+      "sessionTarget": "main",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "（静默检查群消息）",
+        "timeoutSeconds": 15
+      },
+      "delivery": {
+        "mode": "none",
+        "channel": "feishu",
+        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
+      },
+      "state": {
+        "lastRunAtMs": 1773372959798,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 15039,
+        "lastErrorReason": "timeout",
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 5,
+        "lastError": "cron: job execution timed out"
+      }
+    },
+    {
+      "id": "b33fecc3-c430-482e-a69c-15b93673d761",
+      "agentId": "main",
+      "name": "daily-news-crawler",
+      "description": "每日抓取政府网站公告，生成日报发送（v3 Skill 架构）",
+      "enabled": true,
+      "createdAtMs": 1773413723365,
+      "updatedAtMs": 1773513600000,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6 * * *"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "抓取公告",
+        "timeoutSeconds": 1800
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "feishu",
+        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
+      },
+      "state": {
+        "nextRunAtMs": 1773525600000
+      }
+    },
+    {
+      "id": "39f87476-7afd-4ab6-a2cd-996b84b853d6",
+      "name": "喝水提醒",
+      "enabled": false,
+      "deleteAfterRun": true,
+      "createdAtMs": 1773419349678,
+      "updatedAtMs": 1773419655152,
+      "schedule": {
+        "kind": "at",
+        "at": "2026-03-13T16:34:09.641Z"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "⏰ 提醒时间到！该去喝水啦 💧"
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "last",
+        "to": "qqbot:c2c:0493ED82ED542A44295E4E193A2B9FC9"
+      },
+      "state": {
+        "lastRunAtMs": 1773419649656,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 5496,
+        "lastError": "Channel is required when multiple channels are configured: qqbot, feishu Set delivery.channel explicitly or use a main session with a previous channel.",
+        "lastDeliveryStatus": "unknown",
+        "consecutiveErrors": 1
+      }
+    }
+  ]
+}
