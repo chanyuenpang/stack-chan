@@ -31,7 +31,7 @@
       "name": "早安问候",
       "enabled": true,
       "createdAtMs": 1773331665748,
-      "updatedAtMs": 1773442923241,
+      "updatedAtMs": 1773547633739,
       "schedule": {
         "kind": "cron",
         "expr": "0 7 * * *",
@@ -50,15 +50,14 @@
         "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
       },
       "state": {
-        "nextRunAtMs": 1773529313213,
-        "lastRunAtMs": 1773442913229,
-        "lastRunStatus": "error",
-        "lastStatus": "error",
-        "lastDurationMs": 10012,
-        "lastErrorReason": "timeout",
-        "lastDeliveryStatus": "unknown",
-        "consecutiveErrors": 3,
-        "lastError": "cron: job execution timed out"
+        "nextRunAtMs": 1773615713213,
+        "lastRunAtMs": 1773547626683,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 7056,
+        "lastDeliveryStatus": "delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": true
       },
       "agentId": "feishu"
     },
@@ -98,12 +97,12 @@
     },
     {
       "id": "b33fecc3-c430-482e-a69c-15b93673d761",
-      "agentId": "main",
+      "agentId": "feishu",
       "name": "daily-news-crawler",
       "description": "每日抓取政府网站公告，生成日报发送（v3 Skill 架构）",
       "enabled": true,
       "createdAtMs": 1773413723365,
-      "updatedAtMs": 1773513600000,
+      "updatedAtMs": 1773547974852,
       "schedule": {
         "kind": "cron",
         "expr": "0 6 * * *"
@@ -121,7 +120,14 @@
         "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
       },
       "state": {
-        "nextRunAtMs": 1773525600000
+        "nextRunAtMs": 1773612000000,
+        "lastRunAtMs": 1773547633739,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 341113,
+        "lastDelivered": true,
+        "lastDeliveryStatus": "delivered",
+        "consecutiveErrors": 0
       }
     },
     {
@@ -154,6 +160,32 @@
         "lastError": "Channel is required when multiple channels are configured: qqbot, feishu Set delivery.channel explicitly or use a main session with a previous channel.",
         "lastDeliveryStatus": "unknown",
         "consecutiveErrors": 1
+      }
+    },
+    {
+      "id": "7cedb1d8-d6db-4808-aa84-ee2664e458ad",
+      "name": "subagent-cleanup",
+      "description": "每天 5:30 清理超过 24 小时的已完成 subagent session",
+      "enabled": true,
+      "createdAtMs": 1773552636562,
+      "updatedAtMs": 1773552636562,
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 5 * * *"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "执行 subagent session 清理任务",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "agentId": "feishu",
+      "state": {
+        "nextRunAtMs": 1773610200000
       }
     }
   ]

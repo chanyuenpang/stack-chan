@@ -78,7 +78,7 @@
             "Write",
             "Edit",
             "Delete",
-            "WebSearch"
+            "web_search"
           ]
         }
       },
@@ -92,7 +92,7 @@
             "Read",
             "Grep",
             "Glob",
-            "WebFetch"
+            "web_fetch"
           ]
         }
       },
@@ -105,8 +105,8 @@
             "Edit",
             "Delete",
             "Bash",
-            "WebFetch",
-            "WebSearch"
+            "web_fetch",
+            "web_search"
           ]
         }
       },
@@ -117,8 +117,8 @@
             "Read",
             "Grep",
             "Glob",
-            "WebFetch",
-            "WebSearch"
+            "web_fetch",
+            "web_search"
           ]
         }
       },
@@ -170,8 +170,8 @@
             "Write",
             "Edit",
             "Delete",
-            "WebFetch",
-            "WebSearch"
+            "web_fetch",
+            "web_search"
           ]
         }
       },
@@ -209,8 +209,8 @@
             "Write",
             "Edit",
             "Delete",
-            "WebFetch",
-            "WebSearch"
+            "web_fetch",
+            "web_search"
           ]
         }
       },
@@ -248,8 +248,8 @@
             "Write",
             "Edit",
             "Delete",
-            "WebFetch",
-            "WebSearch"
+            "web_fetch",
+            "web_search"
           ]
         }
       },
@@ -267,8 +267,8 @@
             "Write",
             "Edit",
             "Delete",
-            "WebFetch",
-            "WebSearch"
+            "web_fetch",
+            "web_search"
           ]
         }
       }
@@ -300,8 +300,8 @@
           "Delete",
           "Grep",
           "Glob",
-          "WebFetch",
-          "WebSearch"
+          "web_fetch",
+          "web_search"
         ]
       }
     }
