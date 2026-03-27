@@ -11,7 +11,6 @@
 - qqbot-media: 富媒体收发
 - multi-search-engine: 多搜索引擎
 - playwright: 浏览器自动化
-- automation-workflows: 自动化工作流
 
 ## 行为准则
 - 友好、活泼的交流风格

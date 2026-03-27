@@ -1,17 +1,56 @@
 {
   "meta": {
-    "lastTouchedVersion": "2026.3.11",
-    "lastTouchedAt": "2026-03-13T10:28:30.220Z"
+    "lastTouchedVersion": "2026.3.13",
+    "lastTouchedAt": "2026-03-14T13:26:24.532Z"
   },
   "wizard": {
-    "lastRunAt": "2026-03-13T06:12:38.488Z",
-    "lastRunVersion": "2026.3.11",
+    "lastRunAt": "2026-03-14T13:26:24.524Z",
+    "lastRunVersion": "2026.3.13",
     "lastRunCommand": "doctor",
     "lastRunMode": "local"
   },
   "models": {
     "mode": "merge",
     "providers": {
+      "zhipu": {
+        "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4",
+        "apiKey": "c7eb3bb4d382459e8c61492cf4d80bb7.oeuVZnrT5U3BF3GC",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "glm-5",
+            "name": "GLM-5",
+            "reasoning": true,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 200000,
+            "maxTokens": 65536
+          },
+          {
+            "id": "glm-4-flash",
+            "name": "GLM-4-Flash",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 131072,
+            "maxTokens": 4096
+          }
+        ]
+      },
       "volces-com": {
         "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
         "apiKey": "1d2b2276-f0d7-4dfc-9b4d-93b22412bf7b",
@@ -30,7 +69,7 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "contextWindow": 200000,
+            "contextWindow": 100000,
             "maxTokens": 8192
           }
         ]
@@ -60,39 +99,233 @@
       },
       "maxConcurrent": 20,
       "subagents": {
-        "maxConcurrent": 16
+        "maxConcurrent": 16,
+        "maxSpawnDepth": 2
       }
     },
     "list": [
       {
         "id": "main",
-        "default": true
+        "default": true,
+        "skills": [
+          "task-status-tracker",
+          "orchestrator-constraint",
+          "spec-kit"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "web_search"
+          ]
+        }
+      },
+      {
+        "id": "plan-agent",
+        "skills": [
+          "spec-kit"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Grep",
+            "Glob",
+            "web_fetch"
+          ]
+        }
+      },
+      {
+        "id": "executor",
+        "model": {
+          "primary": "zhipu/glm-5"
+        },
+        "tools": {
+          "allow": [
+            "Read",
+            "Write",
+            "Edit",
+            "Delete",
+            "Bash",
+            "web_fetch",
+            "web_search"
+          ]
+        }
+      },
+      {
+        "id": "explorer",
+        "tools": {
+          "allow": [
+            "Read",
+            "Grep",
+            "Glob",
+            "web_fetch",
+            "web_search"
+          ]
+        }
+      },
+      {
+        "id": "docx-converter-agent",
+        "skills": [
+          "docx-cn"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Write",
+            "Edit",
+            "Bash"
+          ]
+        }
+      },
+      {
+        "id": "vision-agent",
+        "tools": {
+          "allow": [
+            "Read",
+            "Glob"
+          ]
+        }
+      },
+      {
+        "id": "feishu-organizer",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "vision-agent",
+          "adaptive-announcement-scraper",
+          "ai-ppt-presenter",
+          "automation-workflows",
+          "docx-cn",
+          "docx-converter-agent",
+          "executing-plans",
+          "executor",
+          "explorer",
+          "feishu-doc",
+          "feishu-drive",
+          "feishu-file-sender",
+          "feishu-markdown-helper",
+          "feishu-perm",
+          "feishu-wiki",
+          "multi-search-engine",
+          "orchestrator-constraint",
+          "plan-agent",
+          "playwright",
+          "self-improving-agent",
+          "skill-self-evolution-enhancer",
+          "spec-kit",
+          "summarize",
+          "task-status-tracker",
+          "explorer-agent"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "web_fetch",
+            "web_search"
+          ]
+        }
+      },
+      {
+        "id": "feishu-engineer",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "vision-agent",
+          "adaptive-announcement-scraper",
+          "ai-ppt-presenter",
+          "automation-workflows",
+          "docx-cn",
+          "docx-converter-agent",
+          "executing-plans",
+          "executor",
+          "explorer",
+          "feishu-doc",
+          "feishu-drive",
+          "feishu-file-sender",
+          "feishu-markdown-helper",
+          "feishu-perm",
+          "feishu-wiki",
+          "multi-search-engine",
+          "orchestrator-constraint",
+          "plan-agent",
+          "playwright",
+          "self-improving-agent",
+          "skill-self-evolution-enhancer",
+          "spec-kit",
+          "summarize",
+          "task-status-tracker",
+          "explorer-agent"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "web_fetch",
+            "web_search"
+          ]
+        }
       },
       {
         "id": "feishu",
-        "workspace": "/home/yankeeting/.openclaw/workspace-feishu",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "vision-agent",
+          "adaptive-announcement-scraper",
+          "ai-ppt-presenter",
+          "automation-workflows",
+          "docx-cn",
+          "docx-converter-agent",
+          "executing-plans",
+          "executor",
+          "explorer",
+          "feishu-doc",
+          "feishu-drive",
+          "feishu-file-sender",
+          "feishu-markdown-helper",
+          "feishu-perm",
+          "feishu-wiki",
+          "multi-search-engine",
+          "orchestrator-constraint",
+          "plan-agent",
+          "playwright",
+          "self-improving-agent",
+          "skill-self-evolution-enhancer",
+          "spec-kit",
+          "summarize",
+          "task-status-tracker",
+          "explorer-agent"
+        ],
         "tools": {
-          "alsoAllow": [
-            "feishu_app_scopes",
-            "feishu_bitable_create_app",
-            "feishu_bitable_create_field",
-            "feishu_bitable_create_record",
-            "feishu_bitable_get_meta",
-            "feishu_bitable_get_record",
-            "feishu_bitable_list_fields",
-            "feishu_bitable_list_records",
-            "feishu_bitable_update_record",
-            "feishu_chat",
-            "feishu_doc",
-            "feishu_drive",
-            "feishu_wiki",
-            "message"
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "web_fetch",
+            "web_search"
           ]
         }
       },
       {
         "id": "qqbot",
-        "workspace": "/home/yankeeting/.openclaw/workspace-qqbot"
+        "skills": [
+          "vision-agent",
+          "orchestrator-constraint",
+          "task-status-tracker",
+          "executor",
+          "explorer",
+          "explorer-agent"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "web_fetch",
+            "web_search"
+          ]
+        }
       }
     ]
   },
@@ -104,22 +337,50 @@
         "enabled": true,
         "provider": "kimi",
         "kimi": {
-          "apiKey": "sk-CwQYlNUFoRTFzk3sPT2cte9y3lsZ3aqRcot2RAiHTqi2AnUN"
+          "apiKey": "sk-CwQYlNUFoRTFzk3sPT2cte9y3lsZ3aqRcot2RAiHTqi2AnUN",
+          "baseUrl": "https://api.moonshot.cn/v1"
         }
+      }
+    },
+    "agentToAgent": {
+      "enabled": true
+    },
+    "subagents": {
+      "tools": {
+        "allow": [
+          "Bash",
+          "Read",
+          "Write",
+          "Edit",
+          "Delete",
+          "Grep",
+          "Glob",
+          "web_fetch",
+          "web_search"
+        ]
       }
     }
   },
   "bindings": [
     {
-      "agentId": "feishu",
+      "agentId": "feishu-organizer",
       "match": {
-        "channel": "feishu"
+        "channel": "feishu",
+        "accountId": "organizer"
       }
     },
     {
-      "agentId": "qqbot",
+      "agentId": "feishu-engineer",
       "match": {
-        "channel": "qqbot"
+        "channel": "feishu",
+        "accountId": "engineer"
+      }
+    },
+    {
+      "agentId": "feishu",
+      "match": {
+        "channel": "feishu",
+        "accountId": "original"
       }
     }
   ],
@@ -130,6 +391,7 @@
     "ownerDisplay": "raw"
   },
   "session": {
+    "dmScope": "per-channel-peer",
     "maintenance": {
       "mode": "enforce",
       "pruneAfter": "24h",
@@ -142,18 +404,51 @@
   "channels": {
     "feishu": {
       "enabled": true,
-      "appId": "cli_a938707520f89cbb",
-      "appSecret": "DdDHfouX01drOHQcdWwo7ciqWQXlSAfE",
       "connectionMode": "websocket",
       "domain": "feishu",
-      "groupPolicy": "open",
       "requireMention": false,
-      "dmPolicy": "open",
-      "allowFrom": [
-        "*"
-      ],
+      "groupSessionScope": "group_topic",
+      "replyInThread": "enabled",
+      "defaultAccount": "organizer",
+      "accounts": {
+        "organizer": {
+          "enabled": true,
+          "appId": "cli_a93fe7a22178dcba",
+          "appSecret": "vZutvl8b7Y1v3920PSOoKeimbwrAni6A",
+          "groupPolicy": "open",
+          "dmPolicy": "open",
+          "allowFrom": ["*"]
+        },
+        "engineer": {
+          "enabled": true,
+          "appId": "cli_a93862c1ea399cb5",
+          "appSecret": "XTfZhkKoeH7ODmN9ULhptf5LTwRHr6hp",
+          "groupPolicy": "open",
+          "dmPolicy": "open",
+          "allowFrom": ["*"]
+        },
+        "original": {
+          "enabled": true,
+          "appId": "cli_a938707520f89cbb",
+          "appSecret": "DdDHfouX01drOHQcdWwo7ciqWQXlSAfE",
+          "groupPolicy": "open",
+          "dmPolicy": "open",
+          "allowFrom": ["*"]
+        },
+        "default": {
+          "groupPolicy": "open",
+          "dmPolicy": "open",
+          "allowFrom": [
+            "*"
+          ]
+        }
+      },
+      "threadContextCarry": {
+        "enabled": true,
+        "lastNMessages": 3
+      },
       "session": {
-        "dmScope": "per-peer"
+        "dmScope": "per-channel-peer"
       }
     },
     "qqbot": {
@@ -185,14 +480,14 @@
       },
       "dmPolicy": "openclaw",
       "session": {
-        "dmScope": "per-peer"
+        "dmScope": "per-channel-peer"
       }
     }
   },
   "gateway": {
     "port": 18789,
     "mode": "local",
-    "bind": "loopback",
+    "bind": "lan",
     "controlUi": {
       "allowedOrigins": [
         "http://localhost:18789",
@@ -222,8 +517,23 @@
   },
   "skills": {
     "entries": {
+      "vision-agent": {
+        "enabled": true
+      },
       "coding-agent": {
         "enabled": false
+      },
+      "plan-agent": {
+        "enabled": true
+      },
+      "explorer-agent": {
+        "enabled": true
+      },
+      "docx-converter-agent": {
+        "enabled": true
+      },
+      "spec-kit": {
+        "enabled": true
       },
       "sherpa-onnx-tts": {
         "enabled": true
@@ -248,6 +558,33 @@
       },
       "executing-plans": {
         "enabled": true
+      },
+      "task-status-tracker": {
+        "enabled": true
+      },
+      "orchestrator-constraint": {
+        "enabled": true
+      },
+      "executor": {
+        "enabled": true
+      },
+      "explorer": {
+        "enabled": true
+      },
+      "feishu-doc": {
+        "enabled": true
+      },
+      "feishu-drive": {
+        "enabled": true
+      },
+      "feishu-wiki": {
+        "enabled": true
+      },
+      "feishu-perm": {
+        "enabled": true
+      },
+      "feishu-markdown-helper": {
+        "enabled": true
       }
     }
   },
@@ -255,22 +592,12 @@
     "entries": {
       "openclaw-qqbot": {
         "enabled": true
+      },
+      "feishu": {
+        "enabled": true
       }
     },
     "installs": {
-      "feishu": {
-        "source": "npm",
-        "spec": "@openclaw/feishu",
-        "installPath": "/home/yankeeting/.openclaw/extensions/feishu",
-        "version": "2026.3.11",
-        "resolvedName": "@openclaw/feishu",
-        "resolvedVersion": "2026.3.11",
-        "resolvedSpec": "@openclaw/feishu@2026.3.11",
-        "integrity": "sha512-taayyfdoTUi0VStRKxS0uZNZXTjZaxakYS+HkpvSWfWvw/nx4ufz8YwVoIUy1yR/MeFvdsyUnpquS/YzaDmU3Q==",
-        "shasum": "d697d27a4d47cc5ce453656faa457d69b8d1ff71",
-        "resolvedAt": "2026-03-12T13:58:02.253Z",
-        "installedAt": "2026-03-12T13:59:00.110Z"
-      },
       "openclaw-qqbot": {
         "source": "npm",
         "spec": "@tencent-connect/openclaw-qqbot@latest",

@@ -6,3 +6,14 @@ tools:
       kimi:
         apiKey: "sk-CwQYlNUFoRTFzk3sPT2cte9y3lsZ3aqRcot2RAiHTqi2AnUN"
         baseUrl: "https://api.moonshot.cn/v1"
+
+homeassistant:
+  enabled: true
+  url: "http://localhost:8123"
+  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI2NGY4Nzg3ZjY3NTA0ZjZkODRmMGIzNmJjNzVkY2E2NCIsImlhdCI6MTc3MzgzOTIzOSwiZXhwIjoyMDg5MTk5MjM5fQ.flFMJ4ATQqx-k9Xitx6RmSKdpCwGSj3Q8EuBkD6BAvo"
+
+synology:
+  enabled: true
+  url: "http://192.168.0.10:5000"
+  account: "chanyuenpang"
+  passwd: "Yopom@126"

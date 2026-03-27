@@ -37,7 +37,7 @@ notifications:
     on_success:
       - type: feishu_message
         channel: feishu
-        to: "${user_id}"
+        to: "oc_00c2c690e5a60b6803a38b121568e4c1"
         message: |
           📋 政府网站公告日报
           
@@ -51,13 +51,13 @@ notifications:
           
       - type: feishu_file
         channel: feishu
-        to: "${user_id}"
+        to: "oc_00c2c690e5a60b6803a38b121568e4c1"
         file_path: "~/.openclaw/workspace/projects/daily-news-crawler/output/{date}/日报.md"
         
     on_partial_success:  # 部分成功
       - type: feishu_message
         channel: feishu
-        to: "${user_id}"
+        to: "oc_00c2c690e5a60b6803a38b121568e4c1"
         message: |
           ⚠️ 政府网站公告日报 (部分成功)
           
@@ -73,7 +73,7 @@ notifications:
     on_failure:
       - type: feishu_message
         channel: feishu
-        to: "${user_id}"
+        to: "oc_00c2c690e5a60b6803a38b121568e4c1"
         message: |
           ❌ 日报生成失败
           

@@ -31,7 +31,7 @@
       "name": "早安问候",
       "enabled": true,
       "createdAtMs": 1773331665748,
-      "updatedAtMs": 1773547633739,
+      "updatedAtMs": 1774600261906,
       "schedule": {
         "kind": "cron",
         "expr": "0 7 * * *",
@@ -42,19 +42,20 @@
       "payload": {
         "kind": "agentTurn",
         "message": "大家早上好！☀️ 新的一天开始了，有需要帮忙的吗？",
-        "timeoutSeconds": 10
+        "timeoutSeconds": 60
       },
       "delivery": {
         "mode": "announce",
         "channel": "feishu",
-        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
+        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1",
+        "accountId": "original"
       },
       "state": {
-        "nextRunAtMs": 1773615713213,
-        "lastRunAtMs": 1773547626683,
+        "nextRunAtMs": 1774652513213,
+        "lastRunAtMs": 1774600220456,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 7056,
+        "lastDurationMs": 41450,
         "lastDeliveryStatus": "delivered",
         "consecutiveErrors": 0,
         "lastDelivered": true
@@ -96,41 +97,6 @@
       }
     },
     {
-      "id": "b33fecc3-c430-482e-a69c-15b93673d761",
-      "agentId": "feishu",
-      "name": "daily-news-crawler",
-      "description": "每日抓取政府网站公告，生成日报发送（v3 Skill 架构）",
-      "enabled": true,
-      "createdAtMs": 1773413723365,
-      "updatedAtMs": 1773547974852,
-      "schedule": {
-        "kind": "cron",
-        "expr": "0 6 * * *"
-      },
-      "sessionTarget": "isolated",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "抓取公告",
-        "timeoutSeconds": 1800
-      },
-      "delivery": {
-        "mode": "announce",
-        "channel": "feishu",
-        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
-      },
-      "state": {
-        "nextRunAtMs": 1773612000000,
-        "lastRunAtMs": 1773547633739,
-        "lastRunStatus": "ok",
-        "lastStatus": "ok",
-        "lastDurationMs": 341113,
-        "lastDelivered": true,
-        "lastDeliveryStatus": "delivered",
-        "consecutiveErrors": 0
-      }
-    },
-    {
       "id": "39f87476-7afd-4ab6-a2cd-996b84b853d6",
       "name": "喝水提醒",
       "enabled": false,
@@ -168,7 +134,7 @@
       "description": "每天 5:30 清理超过 24 小时的已完成 subagent session",
       "enabled": true,
       "createdAtMs": 1773552636562,
-      "updatedAtMs": 1773552636562,
+      "updatedAtMs": 1774600335000,
       "schedule": {
         "kind": "cron",
         "expr": "30 5 * * *"
@@ -185,7 +151,204 @@
       },
       "agentId": "feishu",
       "state": {
-        "nextRunAtMs": 1773610200000
+        "nextRunAtMs": 1774647000000,
+        "lastRunAtMs": 1774600220460,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 114540,
+        "lastDeliveryStatus": "not-delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": false
+      }
+    },
+    {
+      "id": "daily-report-full-7am",
+      "name": "发送全量日报",
+      "description": "每天早上 7:00 发送全量日报（日报.docx）到飞书群",
+      "enabled": true,
+      "createdAtMs": 1773630000000,
+      "updatedAtMs": 1774600284691,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 7 * * *"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "发送今天的全量日报到飞书群。\n\n步骤：\n1. 确定今天的日期（格式：YYYY-MM-DD）\n2. 读取文件：~/.openclaw/workspace/projects/daily-news-crawler/output/{今天日期}/日报.docx\n3. 如果文件不存在，提示\"日报文件尚未生成，请先执行抓取任务\"并退出\n4. 使用以下命令发送文件到飞书群：\n   openclaw message send --channel feishu --target \"oc_00c2c690e5a60b6803a38b121568e4c1\" --media /path/日报.docx --account original\n\n注意：必须指定 --account original，否则会使用错误的默认账号导致 230002 错误。",
+        "timeoutSeconds": 120
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "agentId": "feishu",
+      "state": {
+        "nextRunAtMs": 1774652400000,
+        "lastRunAtMs": 1774600220460,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 64231,
+        "lastDeliveryStatus": "not-delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": false
+      }
+    },
+    {
+      "id": "daily-report-incremental-8am",
+      "name": "发送增量日报",
+      "description": "每天早上 8:00 发送增量日报（增量日报.docx）到飞书群",
+      "enabled": true,
+      "createdAtMs": 1773630000001,
+      "updatedAtMs": 1774600355088,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8 * * *"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "发送今天的增量日报到飞书群。\n\n步骤：\n1. 确定今天的日期（格式：YYYY-MM-DD）\n2. 读取文件：~/.openclaw/workspace/projects/daily-news-crawler/output/{今天日期}/增量日报.docx\n3. 如果文件不存在，提示\"增量日报文件尚未生成，请先执行抓取任务\"并退出\n4. 使用以下命令发送文件到飞书群：\n   openclaw message send --channel feishu --target \"oc_00c2c690e5a60b6803a38b121568e4c1\" --media /path/增量日报.docx --account original\n\n注意：必须指定 --account original，否则会使用错误的默认账号导致 230002 错误。",
+        "timeoutSeconds": 120
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "agentId": "feishu",
+      "state": {
+        "nextRunAtMs": 1774656000000,
+        "lastRunAtMs": 1774600261906,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 93182,
+        "lastDeliveryStatus": "not-delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": false
+      }
+    },
+    {
+      "id": "daily-memory-report",
+      "name": "每日记忆沉淀",
+      "description": "每天凌晨 2:00 由 main agent 统一归档所有 agent 的昨日记忆",
+      "enabled": true,
+      "createdAtMs": 1773676800000,
+      "updatedAtMs": 1774548074134,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 2 * * *"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "执行每日记忆沉淀任务。\n\n你需要为以下 agent 生成昨日日记：\n1. feishu\n2. feishu-organizer\n3. feishu-engineer\n4. qqbot\n\n步骤：\n1. 确定昨天的日期（格式：YYYY-MM-DD），只处理这一天的内容\n2. 计算昨天的时间戳范围（使用 GMT+8 时区）：\n   - 昨天 00:00:00 GMT+8 的毫秒时间戳\n   - 昨天 23:59:59 GMT+8 的毫秒时间戳\n3. 遍历每个 agent：\n   a. 读取 agents/{agent}/sessions/sessions.json\n   b. 筛选 updatedAt 在昨天时间戳范围内的 session\n   c. 如果没有 session 或只有 cron 定时任务触发的系统消息，跳过该 agent，不生成日记\n   d. 读取对应的 .jsonl 文件获取对话内容\n   e. 归纳内容：提取关键信息，清除噪声\n   f. 合并重复：相同主题的内容合并处理\n   g. 如果归纳后发现没有值得记录的内容，跳过该 agent\n4. 只为有实际内容的 agent 创建日记\n5. 创建目录 workspace/memory/{agent}/（如果不存在）\n6. 写入日记文件 workspace/memory/{agent}/{date}.md\n\n归纳要求：\n- 清除噪声：忽略系统消息、媒体附件、技术元数据、[media attached] 等\n- 合并重复：相同主题的多次对话合并为一个条目\n- 提取关键：用户问题、执行任务、用户偏好\n\n日记格式：\n- 标题：# {agent} 日记 - {date}\n- 按主题分类，每个主题一个条目\n- 相同主题的多次对话合并，标注出现次数\n\n重要规则：\n- 只处理昨天有活动的 session，忽略 .deleted 文件\n- 时间戳计算必须使用 GMT+8 时区\n- 如果没有值得记录的内容，不要创建空日记文件",
+        "timeoutSeconds": 600
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "agentId": "main",
+      "state": {
+        "nextRunAtMs": 1774634400000,
+        "lastRunAtMs": 1774548000011,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 74123,
+        "lastDeliveryStatus": "not-delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": false
+      }
+    },
+    {
+      "id": "41c53256-49fa-4cf0-a622-b9f4a9d22594",
+      "agentId": "main",
+      "name": "evolution-scanner-weekly",
+      "description": "每周一 7:30 执行知识库进化扫描",
+      "enabled": true,
+      "createdAtMs": 1773679753803,
+      "updatedAtMs": 1774222422623,
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 7 * * 1"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "执行进化扫描（周报）：\n\n1. 扫描所有知识库重复模式\n2. 检查上期报告中未处理的建议\n3. 对 critical 级别发现自动修复（通过 executor subagent）\n4. 生成每周进化报告，包含\"已执行操作\"和\"上期报告跟踪\"章节\n5. 报告写入 .knowledge/当月/evolution-reports/weekly-{年}-W{周}.md",
+        "timeoutSeconds": 600
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "feishu",
+        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1",
+        "accountId": "original"
+      },
+      "state": {
+        "nextRunAtMs": 1774827000000,
+        "lastRunAtMs": 1774222200013,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 222610,
+        "lastError": "Channel is required when multiple channels are configured: qqbot, feishu Set delivery.channel explicitly or use a main session with a previous channel.",
+        "lastDeliveryStatus": "unknown",
+        "consecutiveErrors": 1
+      }
+    },
+    {
+      "id": "monthly-knowledge-rollover",
+      "agentId": "main",
+      "name": "月度知识轮转",
+      "description": "每月1日凌晨3:00执行知识库月度轮转归档",
+      "enabled": true,
+      "createdAtMs": 1774416000000,
+      "updatedAtMs": 1774416000000,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 3 1 * *"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "执行月度知识轮转任务：\n\n1. 确定当前月份（YYYY-MM）和上个月份\n2. 创建新月目录 .knowledge/{当前月}/ （如果不存在）\n3. 从上月各文件复制文件头模板结构（shared-learnings.md, shared-errors.md, shared-patterns.md, feature-requests.md, agent-collaboration.md, subagent-feedback/）\n4. 扫描上月文件中 Status 为 active 或 pending 的条目，将其迁移到新月对应文件\n5. Status 为 resolved/superseded/archived/wont_fix 的条目保留在原月不迁移\n6. 在上月目录生成 monthly-summary.md，包含：\n   - 总条目数（按类型统计）\n   - 解决率（resolved/total）\n   - 关键模式识别\n   - 迁移到新月的未解决项列表\n7. 完成后汇报轮转结果",
+        "timeoutSeconds": 600
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "state": {
+        "nextRunAtMs": 1774983600000
+      }
+    },
+    {
+      "id": "7a474c5d-ee2f-4fe3-8907-e205e45ca9ab",
+      "agentId": "cron-runner",
+      "name": "daily-news-crawler",
+      "description": "每日抓取政府网站公告，生成日报发送（v3 Skill 架构）",
+      "enabled": true,
+      "createdAtMs": 1774601040831,
+      "updatedAtMs": 1774601040831,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6 * * *"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "抓取公告",
+        "timeoutSeconds": 1800
+      },
+      "delivery": {
+        "mode": "announce",
+        "channel": "feishu",
+        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1",
+        "accountId": "original"
+      },
+      "state": {
+        "nextRunAtMs": 1774648800000
       }
     }
   ]

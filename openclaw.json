@@ -1,7 +1,7 @@
 {
   "meta": {
     "lastTouchedVersion": "2026.3.13",
-    "lastTouchedAt": "2026-03-14T13:26:24.532Z"
+    "lastTouchedAt": "2026-03-26T18:47:53.205Z"
   },
   "wizard": {
     "lastRunAt": "2026-03-14T13:26:24.524Z",
@@ -12,6 +12,45 @@
   "models": {
     "mode": "merge",
     "providers": {
+      "zhipu": {
+        "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4",
+        "apiKey": "c7eb3bb4d382459e8c61492cf4d80bb7.oeuVZnrT5U3BF3GC",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "glm-5-turbo",
+            "name": "GLM-5-Turbo",
+            "reasoning": true,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 200000,
+            "maxTokens": 65536
+          },
+          {
+            "id": "glm-4-flash",
+            "name": "GLM-4-Flash",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 131072,
+            "maxTokens": 4096
+          }
+        ]
+      },
       "volces-com": {
         "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
         "apiKey": "1d2b2276-f0d7-4dfc-9b4d-93b22412bf7b",
@@ -30,7 +69,7 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "contextWindow": 200000,
+            "contextWindow": 100000,
             "maxTokens": 8192
           }
         ]
@@ -40,7 +79,10 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "volces-com/ark-code-latest"
+        "primary": "volces-com/ark-code-latest",
+        "fallbacks": [
+          "zhipu/glm-5-turbo"
+        ]
       },
       "models": {
         "volces-com/ark-code-latest": {
@@ -50,7 +92,10 @@
       "workspace": "/home/yankeeting/.openclaw/workspace",
       "memorySearch": {
         "enabled": true,
-        "provider": "local"
+        "provider": "local",
+        "store": {
+          "path": "shared.sqlite"
+        }
       },
       "compaction": {
         "mode": "safeguard"
@@ -84,6 +129,7 @@
       },
       {
         "id": "plan-agent",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
           "spec-kit"
         ],
@@ -98,6 +144,13 @@
       },
       {
         "id": "executor",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "model": {
+          "primary": "zhipu/glm-5"
+        },
+        "skills": [
+          "smart-home-control"
+        ],
         "tools": {
           "allow": [
             "Read",
@@ -112,6 +165,7 @@
       },
       {
         "id": "explorer",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
         "tools": {
           "allow": [
             "Read",
@@ -124,6 +178,7 @@
       },
       {
         "id": "docx-converter-agent",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
           "docx-cn"
         ],
@@ -137,9 +192,20 @@
         }
       },
       {
+        "id": "vision-agent",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "tools": {
+          "allow": [
+            "Read",
+            "Glob"
+          ]
+        }
+      },
+      {
         "id": "feishu-organizer",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
+          "vision-agent",
           "adaptive-announcement-scraper",
           "ai-ppt-presenter",
           "automation-workflows",
@@ -160,8 +226,9 @@
           "playwright",
           "self-improving-agent",
           "skill-self-evolution-enhancer",
+          "knowledge-synthesizer",
+          "evolution-scanner",
           "spec-kit",
-          "summarize",
           "task-status-tracker",
           "explorer-agent"
         ],
@@ -179,6 +246,7 @@
         "id": "feishu-engineer",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
+          "vision-agent",
           "adaptive-announcement-scraper",
           "ai-ppt-presenter",
           "automation-workflows",
@@ -199,8 +267,9 @@
           "playwright",
           "self-improving-agent",
           "skill-self-evolution-enhancer",
+          "knowledge-synthesizer",
+          "evolution-scanner",
           "spec-kit",
-          "summarize",
           "task-status-tracker",
           "explorer-agent"
         ],
@@ -218,6 +287,7 @@
         "id": "feishu",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
+          "vision-agent",
           "adaptive-announcement-scraper",
           "ai-ppt-presenter",
           "automation-workflows",
@@ -238,8 +308,9 @@
           "playwright",
           "self-improving-agent",
           "skill-self-evolution-enhancer",
+          "knowledge-synthesizer",
+          "evolution-scanner",
           "spec-kit",
-          "summarize",
           "task-status-tracker",
           "explorer-agent"
         ],
@@ -255,12 +326,69 @@
       },
       {
         "id": "qqbot",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
+          "vision-agent",
           "orchestrator-constraint",
           "task-status-tracker",
           "executor",
           "explorer",
+          "explorer-agent",
+          "self-improving-agent",
+          "knowledge-synthesizer",
+          "evolution-scanner"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "web_fetch",
+            "web_search"
+          ]
+        }
+      },
+      {
+        "id": "xiaoyi",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "vision-agent",
+          "adaptive-announcement-scraper",
+          "ai-ppt-presenter",
+          "automation-workflows",
+          "docx-cn",
+          "docx-converter-agent",
+          "executing-plans",
+          "executor",
+          "explorer",
+          "multi-search-engine",
+          "orchestrator-constraint",
+          "plan-agent",
+          "playwright",
+          "self-improving-agent",
+          "skill-self-evolution-enhancer",
+          "knowledge-synthesizer",
+          "evolution-scanner",
+          "spec-kit",
+          "task-status-tracker",
           "explorer-agent"
+        ],
+        "tools": {
+          "deny": [
+            "Write",
+            "Edit",
+            "Delete",
+            "web_fetch",
+            "web_search"
+          ]
+        }
+      },
+      {
+        "id": "cron-runner",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "adaptive-announcement-scraper",
+          "feishu-file-sender"
         ],
         "tools": {
           "deny": [
@@ -327,6 +455,12 @@
         "channel": "feishu",
         "accountId": "original"
       }
+    },
+    {
+      "agentId": "xiaoyi",
+      "match": {
+        "channel": "xiaoyi"
+      }
     }
   ],
   "commands": {
@@ -334,6 +468,11 @@
     "nativeSkills": "auto",
     "restart": true,
     "ownerDisplay": "raw"
+  },
+  "messages": {
+    "queue": {
+      "mode": "steer"
+    }
   },
   "session": {
     "dmScope": "per-channel-peer",
@@ -344,6 +483,7 @@
     }
   },
   "cron": {
+    "maxConcurrentRuns": 3,
     "sessionRetention": "10m"
   },
   "channels": {
@@ -362,7 +502,9 @@
           "appSecret": "vZutvl8b7Y1v3920PSOoKeimbwrAni6A",
           "groupPolicy": "open",
           "dmPolicy": "open",
-          "allowFrom": ["*"]
+          "allowFrom": [
+            "*"
+          ]
         },
         "engineer": {
           "enabled": true,
@@ -370,17 +512,14 @@
           "appSecret": "XTfZhkKoeH7ODmN9ULhptf5LTwRHr6hp",
           "groupPolicy": "open",
           "dmPolicy": "open",
-          "allowFrom": ["*"]
+          "allowFrom": [
+            "*"
+          ]
         },
         "original": {
           "enabled": true,
           "appId": "cli_a938707520f89cbb",
           "appSecret": "DdDHfouX01drOHQcdWwo7ciqWQXlSAfE",
-          "groupPolicy": "open",
-          "dmPolicy": "open",
-          "allowFrom": ["*"]
-        },
-        "default": {
           "groupPolicy": "open",
           "dmPolicy": "open",
           "allowFrom": [
@@ -427,12 +566,20 @@
       "session": {
         "dmScope": "per-channel-peer"
       }
+    },
+    "xiaoyi": {
+      "enabled": true,
+      "ak": "a2a87037bd114fb3a14376bf0247d06e",
+      "sk": "123F996E8EEE986714F33E5A3F25883EB7B3757C08BB5692D377AA0500C20378",
+      "agentId": "agent258db74e8ad648d9b02e41e3d8396e68",
+      "apiId": "webhook3a1c566b1ce3432a852",
+      "debug": true
     }
   },
   "gateway": {
     "port": 18789,
     "mode": "local",
-    "bind": "loopback",
+    "bind": "lan",
     "controlUi": {
       "allowedOrigins": [
         "http://localhost:18789",
@@ -462,6 +609,12 @@
   },
   "skills": {
     "entries": {
+      "smart-home-control": {
+        "enabled": true
+      },
+      "vision-agent": {
+        "enabled": true
+      },
       "coding-agent": {
         "enabled": false
       },
@@ -537,6 +690,9 @@
       },
       "feishu": {
         "enabled": true
+      },
+      "xiaoyi": {
+        "enabled": true
       }
     },
     "installs": {
@@ -552,6 +708,19 @@
         "shasum": "e9ecfe9edd661bad52c78d01abd4f0817f3cbfae",
         "resolvedAt": "2026-03-12T18:16:19.219Z",
         "installedAt": "2026-03-12T18:16:59.473Z"
+      },
+      "xiaoyi": {
+        "source": "npm",
+        "spec": "@ynhcj/xiaoyi@latest",
+        "installPath": "/home/yankeeting/.openclaw/extensions/xiaoyi",
+        "version": "2.5.7",
+        "resolvedName": "@ynhcj/xiaoyi",
+        "resolvedVersion": "2.5.7",
+        "resolvedSpec": "@ynhcj/xiaoyi@2.5.7",
+        "integrity": "sha512-HicLvaPBa8U9Cq7/Ih56DrUY6bF6uEZdgsBad82WaxbW2GwqZb7YwQIqn7ff7PmglEST7Zh8qVmRO1gbZAC9oA==",
+        "shasum": "23c497b9ddc44ba066e8e4760000326714d8e81b",
+        "resolvedAt": "2026-03-26T18:47:37.535Z",
+        "installedAt": "2026-03-26T18:47:52.910Z"
       }
     }
   }
