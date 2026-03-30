@@ -187,8 +187,18 @@ class XiaoYiWebSocketManager extends events_1.EventEmitter {
                 }),
             }, () => {
                 console.log(`[Server1] Heartbeat timeout, reconnecting...`);
-                if (this.ws1 && (this.ws1.readyState === ws_1.default.OPEN || this.ws1.readyState === ws_1.default.CONNECTING)) {
-                    this.ws1.close();
+                if (this.ws1) {
+                    try {
+                        if (this.ws1.readyState === ws_1.default.OPEN) {
+                            this.ws1.close();
+                        } else if (this.ws1.readyState === ws_1.default.CONNECTING) {
+                            // 在 CONNECTING 状态调用 close() 会抛出异常，使用 terminate 代替
+                            console.log(`[Server1] WebSocket in CONNECTING state, terminating...`);
+                            this.ws1.terminate();
+                        }
+                    } catch (err) {
+                        console.warn(`[Server1] Error closing connection during heartbeat timeout:`, err);
+                    }
                 }
             }, "server1", console.log, console.error, () => {
                 // ✅ Heartbeat success callback - report health to OpenClaw
@@ -271,8 +281,18 @@ class XiaoYiWebSocketManager extends events_1.EventEmitter {
                 }),
             }, () => {
                 console.log(`[Server2] Heartbeat timeout, reconnecting...`);
-                if (this.ws2 && (this.ws2.readyState === ws_1.default.OPEN || this.ws2.readyState === ws_1.default.CONNECTING)) {
-                    this.ws2.close();
+                if (this.ws2) {
+                    try {
+                        if (this.ws2.readyState === ws_1.default.OPEN) {
+                            this.ws2.close();
+                        } else if (this.ws2.readyState === ws_1.default.CONNECTING) {
+                            // 在 CONNECTING 状态调用 close() 会抛出异常，使用 terminate 代替
+                            console.log(`[Server2] WebSocket in CONNECTING state, terminating...`);
+                            this.ws2.terminate();
+                        }
+                    } catch (err) {
+                        console.warn(`[Server2] Error closing connection during heartbeat timeout:`, err);
+                    }
                 }
             }, "server2", console.log, console.error, () => {
                 // ✅ Heartbeat success callback - report health to OpenClaw

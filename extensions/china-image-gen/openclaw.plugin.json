@@ -1,0 +1,10 @@
+{
+  "id": "china-image-gen",
+  "name": "China Image Generation",
+  "description": "通义万相和即梦图像生成 Provider（国内可用）",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {}
+  }
+}

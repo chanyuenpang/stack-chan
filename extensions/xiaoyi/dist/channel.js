@@ -257,26 +257,72 @@ exports.xiaoyiPlugin = {
             const { resolveXYConfig } = await Promise.resolve().then(() => __importStar(require("./xy-config.js")));
             const { XiaoYiPushService } = await Promise.resolve().then(() => __importStar(require("./push.js")));
             const { configManager } = await Promise.resolve().then(() => __importStar(require("./xy-utils/config-manager.js")));
+            const { getLatestSessionContext } = await Promise.resolve().then(() => __importStar(require("./xy-tools/session-manager.js")));
             const config = { ...resolveXYConfig(cfg) };
             // Resolve actual target (strip taskId portion if present)
             let actualTo = to;
             if (to === DEFAULT_PUSH_MARKER) {
-                actualTo = config.defaultSessionId || "";
+                // Try to get sessionId from latest session context first
+                const latestContext = getLatestSessionContext();
+                if (latestContext?.sessionId) {
+                    actualTo = latestContext.sessionId;
+                    console.log(`[xiaoyi.sendText] Using latest session context: ${actualTo}`);
+                }
+                else {
+                    actualTo = config.defaultSessionId || "";
+                    console.log(`[xiaoyi.sendText] Using defaultSessionId from config: ${actualTo || '(not set)'}`);
+                }
             }
             else if (to.includes("::")) {
                 actualTo = to.split("::")[0];
             }
+            console.log(`[xiaoyi.sendText] Resolved actualTo: ${actualTo}`);
             // Override pushId with dynamic per-session pushId if available
             const dynamicPushId = configManager.getPushId(actualTo);
+            console.log(`[xiaoyi.sendText] Dynamic pushId found: ${dynamicPushId ? 'yes' : 'no'}`);
             if (dynamicPushId) {
                 config.pushId = dynamicPushId;
+                console.log(`[xiaoyi.sendText] Using dynamic pushId for session ${actualTo}`);
+            }
+            else {
+                // Fallback: try to get global pushId (last known pushId from any session)
+                const globalPushId = configManager.getPushId(null);
+                if (globalPushId) {
+                    config.pushId = globalPushId;
+                    console.log(`[xiaoyi.sendText] Using global pushId as fallback`);
+                }
+            }
+            // Check if push is configured before attempting to send
+            if (!config.pushId) {
+                console.error(`[xiaoyi.sendText] ❌ No pushId available! Cannot send push notification.`);
+                return {
+                    channel: "xiaoyi",
+                    messageId: Date.now().toString(),
+                    chatId: actualTo,
+                    error: "No pushId configured",
+                };
             }
             const pushService = new XiaoYiPushService(config);
-            // Extract title (first line, up to 57 chars)
-            const title = text.split("\n")[0].slice(0, 57);
-            // Truncate content to 1000 chars
-            const pushText = text.length > 1000 ? text.slice(0, 1000) : text;
-            await pushService.sendPush(pushText, title);
+            // Check if this is a data push (to trigger new A2A request)
+            // Format: "A2A_DATA:<pushText>\n<dataText>"
+            // Example: "A2A_DATA:任务已完成\n查看 subagent 的结果，并向用户汇报"
+            if (text.startsWith("A2A_DATA:")) {
+                const lines = text.slice(9).split("\n");
+                const pushText = lines[0] || "任务已完成，点击查看结果";
+                const dataText = lines.slice(1).join("\n") || "查看 subagent 的结果，并向用户汇报";
+                console.log(`[xiaoyi.sendText] Sending DATA push to trigger new A2A request`);
+                console.log(`[xiaoyi.sendText]   - pushText: ${pushText}`);
+                console.log(`[xiaoyi.sendText]   - dataText: ${dataText}`);
+                await pushService.sendDataPush(dataText, pushText);
+            }
+            else {
+                // Regular text push
+                // Extract title (first line, up to 57 chars)
+                const title = text.split("\n")[0].slice(0, 57);
+                // Truncate content to 1000 chars
+                const pushText = text.length > 1000 ? text.slice(0, 1000) : text;
+                await pushService.sendPush(pushText, title);
+            }
             console.log(`[xiaoyi.sendText] Push sent successfully`);
             return {
                 channel: "xiaoyi",

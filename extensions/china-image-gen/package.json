@@ -1,0 +1,20 @@
+{
+  "name": "@openclaw/china-image-gen",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "国内图像生成服务集成（通义万相、即梦）",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": ["openclaw", "image-generation", "dashscope", "wanxiang", "jimeng", "seedream"],
+  "license": "MIT",
+  "peerDependencies": {
+    "openclaw": ">=1.0.0"
+  },
+  "openclaw": {
+    "plugin": true,
+    "bundled": false,
+    "extensions": ["./index.js"]
+  }
+}

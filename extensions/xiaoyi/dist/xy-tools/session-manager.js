@@ -31,12 +31,15 @@ function unregisterSession(sessionKey) {
     logger_js_1.logger.log(`[SESSION_MANAGER] 🗑️  Unregistering session: ${sessionKey}`);
     logger_js_1.logger.log(`[SESSION_MANAGER]   - Active sessions before: ${activeSessions.size}`);
     logger_js_1.logger.log(`[SESSION_MANAGER]   - Session existed: ${activeSessions.has(sessionKey)}`);
-    // Get session context before deleting to clear associated pushId
+    // Get session context before deleting
     const context = activeSessions.get(sessionKey);
     const existed = activeSessions.delete(sessionKey);
-    // Clear cached pushId for this session
+    // NOTE: Do NOT clear pushId here! 
+    // Keep pushId in configManager so that subagent completion callbacks can still send push notifications
+    // via webhook. The pushId will be kept in configManager.globalPushId for reuse.
+    // When a new session starts, the pushId will be updated with the fresh value.
     if (context) {
-        config_manager_js_1.configManager.clearSession(context.sessionId);
+        logger_js_1.logger.log(`[SESSION_MANAGER]   - Keeping pushId for session ${context.sessionId} for later webhook push`);
     }
     logger_js_1.logger.log(`[SESSION_MANAGER]   - Deleted: ${existed}`);
     logger_js_1.logger.log(`[SESSION_MANAGER]   - Active sessions after: ${activeSessions.size}`);

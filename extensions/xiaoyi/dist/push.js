@@ -131,5 +131,83 @@ class XiaoYiPushService {
             return false;
         }
     }
+    /**
+     * Send data push to trigger a new A2A request.
+     * This is used to wake up the agent after subagent completion.
+     * 
+     * According to Huawei docs:
+     * - Developer pushes data message via webhook
+     * - Huawei sends the data as input to Agent Server via A2A protocol
+     * - Agent Server processes and returns result to user
+     * 
+     * IMPORTANT: Do NOT include text in parts, only data, otherwise data will be ignored!
+     * 
+     * @param dataText - The instruction text to send (e.g., "查看 subagent 的结果，并向用户汇报")
+     * @param pushText - Push notification message for phone (e.g., "任务已完成，点击查看结果")
+     */
+    async sendDataPush(dataText, pushText) {
+        if (!this.isConfigured()) {
+            console.log("[PUSH] Push not configured, skipping data push");
+            return false;
+        }
+        try {
+            const timestamp = Date.now().toString();
+            const signature = this.generateSignature(timestamp);
+            const messageId = this.generateUUID();
+            const payload = {
+                jsonrpc: "2.0",
+                id: messageId,
+                result: {
+                    id: this.generateUUID(),
+                    apiId: this.config.apiId,
+                    pushId: this.config.pushId,
+                    pushText: pushText,
+                    kind: "task",
+                    artifacts: [{
+                            artifactId: this.generateUUID(),
+                            parts: [
+                                {
+                                    kind: "data",
+                                    data: dataText
+                                }
+                            ]
+                        }],
+                    status: { state: "completed" }
+                }
+            };
+            console.log(`[PUSH_DATA] Sending data push to trigger A2A request`);
+            console.log(`[PUSH_DATA]   - pushText: ${pushText}`);
+            console.log(`[PUSH_DATA]   - dataText: ${dataText}`);
+            console.log(`[PUSH_DATA]   - payload: ${JSON.stringify(payload, null, 2)}`);
+            const response = await fetch(this.pushUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "x-hag-trace-id": this.generateUUID(),
+                    "X-Access-Key": this.config.ak,
+                    "X-Sign": signature,
+                    "X-Ts": timestamp,
+                },
+                body: JSON.stringify(payload),
+            });
+            if (response.ok) {
+                const responseText = await response.text();
+                console.log(`[PUSH_DATA] Data push sent successfully`);
+                console.log(`[PUSH_DATA]   - Response: ${responseText}`);
+                return true;
+            }
+            else {
+                const errorText = await response.text();
+                console.error(`[PUSH_DATA] Failed: HTTP ${response.status}`);
+                console.error(`[PUSH_DATA]   - Error: ${errorText}`);
+                return false;
+            }
+        }
+        catch (error) {
+            console.error("[PUSH_DATA] Error:", error);
+            return false;
+        }
+    }
 }
 exports.XiaoYiPushService = XiaoYiPushService;

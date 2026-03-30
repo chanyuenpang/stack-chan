@@ -23,6 +23,8 @@ function createXYReplyDispatcher(params) {
     const core = xiaoYiRuntime.getPluginRuntime();
     // Resolve configuration
     const config = (0, xy_config_js_1.resolveXYConfig)(cfg);
+    // Track if we've sent webhook for subagent
+    let hasSentSubagentWebhook = false;
     // Reply prefix context: not imported at runtime to avoid openclaw/plugin-sdk
     // module resolution issues in the CJS require chain. For a bot-to-bot A2A
     // channel the response prefix (model name badge) is not needed.
@@ -203,6 +205,39 @@ function createXYReplyDispatcher(params) {
             // 🔧 Tool execution start callback
             onToolStart: async ({ name, phase }) => {
                 log(`[TOOL START] 🔧 Tool execution started/updated: name=${name}, phase=${phase}, session=${sessionId}, taskId=${taskId}`);
+                // 🎯 Special handling for sessions_spawn (subagent dispatch)
+                // When subagent is dispatched, send webhook to trigger second-round A2A request
+                if (name === "sessions_spawn" && phase === "start" && !hasSentSubagentWebhook) {
+                    hasSentSubagentWebhook = true;
+                    log(`[SUBAGENT_WEBHOOK] 🚀 Detected subagent dispatch (sessions_spawn), sending webhook...`);
+                    // Send webhook to trigger second-round A2A request
+                    // The data will be used as input for the new A2A request
+                    try {
+                        const { XiaoYiPushService } = await Promise.resolve().then(() => __importStar(require("./push.js")));
+                        const { configManager } = await Promise.resolve().then(() => __importStar(require("./xy-utils/config-manager.js")));
+                        // Get pushId for this session
+                        const pushId = configManager.getPushId(sessionId) || configManager.getPushId(null);
+                        if (pushId && config.apiId && config.ak && config.sk) {
+                            const pushConfig = { ...config, pushId };
+                            const pushService = new XiaoYiPushService(pushConfig);
+                            // Send data push to trigger new A2A request
+                            // pushText: notification text shown on phone
+                            // dataText: instruction for the second-round agent
+                            const pushText = "⏳ 任务执行中，完成后会通知您";
+                            const dataText = "等待 subagent 结束并向用户报告结果";
+                            log(`[SUBAGENT_WEBHOOK]   - pushText: ${pushText}`);
+                            log(`[SUBAGENT_WEBHOOK]   - dataText: ${dataText}`);
+                            await pushService.sendDataPush(dataText, pushText);
+                            log(`[SUBAGENT_WEBHOOK] ✅ Webhook sent successfully for subagent dispatch`);
+                        }
+                        else {
+                            log(`[SUBAGENT_WEBHOOK] ⚠️ Push not configured, skipping webhook (pushId=${!!pushId}, apiId=${!!config.apiId})`);
+                        }
+                    }
+                    catch (webhookErr) {
+                        error(`[SUBAGENT_WEBHOOK] ❌ Failed to send webhook:`, webhookErr);
+                    }
+                }
                 if (phase === "start") {
                     const toolName = name || "unknown";
                     try {
