@@ -1,11 +1,11 @@
 {
   "meta": {
     "lastTouchedVersion": "2026.3.30",
-    "lastTouchedAt": "2026-04-02T05:24:03.004Z"
+    "lastTouchedAt": "2026-04-01T14:21:16.525Z"
   },
   "wizard": {
-    "lastRunAt": "2026-04-01T17:46:03.581Z",
-    "lastRunVersion": "2026.3.30",
+    "lastRunAt": "2026-03-30T12:19:39.370Z",
+    "lastRunVersion": "2026.3.13",
     "lastRunCommand": "doctor",
     "lastRunMode": "local"
   },
@@ -142,17 +142,14 @@
         }
       },
       "compaction": {
-        "mode": "safeguard",
-        "memoryFlush": {
-          "prompt": "Pre-compaction memory flush. Write to memory/{yourAgentId}/YYYY-MM-DD.md based on your agent identity (e.g. memory/feishu-engineer/YYYY-MM-DD.md). This overrides the default flat path."
-        }
+        "mode": "safeguard"
       },
       "heartbeat": {
         "every": "30m"
       },
       "maxConcurrent": 20,
       "subagents": {
-        "maxConcurrent": 20,
+        "maxConcurrent": 16,
         "maxSpawnDepth": 2
       }
     },
@@ -187,13 +184,7 @@
           "smart-home-control"
         ],
         "subagents": {
-          "allowAgents": [
-            "executor",
-            "explorer",
-            "plan-agent",
-            "vision-agent",
-            "docx-converter-agent"
-          ]
+          "allowAgents": ["executor", "explorer", "plan-agent", "vision-agent", "docx-converter-agent"]
         },
         "tools": {
           "deny": [
@@ -276,9 +267,7 @@
             "Grep",
             "Glob",
             "web_fetch",
-            "web_search",
-            "Bash",
-            "exec"
+            "web_search"
           ]
         }
       },
@@ -325,34 +314,18 @@
             "Glob"
           ]
         }
+      }
       },
       {
         "id": "vision-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "knowledge-writer",
-          "vision-agent"
+          "knowledge-writer"
         ],
         "tools": {
-          "deny": [
-            "Read",
-            "Write",
-            "Edit",
-            "Delete",
-            "Bash",
-            "exec",
-            "web_fetch",
-            "web_search"
-          ],
           "allow": [
-            "zhipu-vision__analyze_data_visualization",
-            "zhipu-vision__analyze_image",
-            "zhipu-vision__analyze_video",
-            "zhipu-vision__diagnose_error_screenshot",
-            "zhipu-vision__extract_text_from_screenshot",
-            "zhipu-vision__ui_diff_check",
-            "zhipu-vision__ui_to_artifact",
-            "zhipu-vision__understand_technical_diagram"
+            "Read",
+            "Glob"
           ]
         }
       },
@@ -374,14 +347,7 @@
           "daily-diary"
         ],
         "subagents": {
-          "allowAgents": [
-            "executor",
-            "explorer",
-            "plan-agent",
-            "vision-agent",
-            "docx-converter-agent",
-            "feishu-master"
-          ]
+          "allowAgents": ["executor", "explorer", "plan-agent", "vision-agent", "docx-converter-agent", "feishu-master"]
         },
         "tools": {
           "deny": [
@@ -396,13 +362,7 @@
       },
       {
         "id": "feishu-engineer",
-        "workspace": "/home/yankeeting/.openclaw/workspace-feishu-engineer",
-        "model": {
-          "primary": "zhipu/glm-5.1",
-          "fallbacks": [
-            "volces-com/ark-code-latest"
-          ]
-        },
+        "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
           "orchestrator-constraint",
           "task-status-tracker",
@@ -418,18 +378,10 @@
           "feature-list",
           "progress-tracker",
           "git-discipline",
-          "e2e-testing",
-          "daily-diary"
+          "e2e-testing"
         ],
         "subagents": {
-          "allowAgents": [
-            "executor",
-            "explorer",
-            "plan-agent",
-            "vision-agent",
-            "docx-converter-agent",
-            "feishu-master"
-          ]
+          "allowAgents": ["executor", "explorer", "plan-agent", "vision-agent", "docx-converter-agent", "feishu-master"]
         },
         "tools": {
           "deny": [
@@ -456,18 +408,10 @@
           "docx-converter-agent",
           "executing-plans",
           "feishu-master",
-          "knowledge-writer",
-          "daily-diary"
+          "knowledge-writer"
         ],
         "subagents": {
-          "allowAgents": [
-            "executor",
-            "explorer",
-            "plan-agent",
-            "vision-agent",
-            "docx-converter-agent",
-            "feishu-master"
-          ]
+          "allowAgents": ["executor", "explorer", "plan-agent", "vision-agent", "docx-converter-agent", "feishu-master"]
         },
         "tools": {
           "deny": [
@@ -516,15 +460,10 @@
           "explorer",
           "explorer-agent",
           "vision-agent",
-          "knowledge-writer",
-          "daily-diary"
+          "knowledge-writer"
         ],
         "subagents": {
-          "allowAgents": [
-            "executor",
-            "explorer",
-            "vision-agent"
-          ]
+          "allowAgents": ["executor", "explorer", "vision-agent"]
         },
         "tools": {
           "deny": [
@@ -550,17 +489,10 @@
           "vision-agent",
           "docx-converter-agent",
           "executing-plans",
-          "knowledge-writer",
-          "daily-diary"
+          "knowledge-writer"
         ],
         "subagents": {
-          "allowAgents": [
-            "executor",
-            "explorer",
-            "plan-agent",
-            "vision-agent",
-            "docx-converter-agent"
-          ]
+          "allowAgents": ["executor", "explorer", "plan-agent", "vision-agent", "docx-converter-agent"]
         },
         "tools": {
           "deny": [
@@ -621,9 +553,6 @@
           "web_search"
         ]
       }
-    },
-    "sessions": {
-      "visibility": "all"
     }
   },
   "bindings": [
@@ -999,20 +928,5 @@
       "qoder",
       "opencode"
     ]
-  },
-  "mcp": {
-    "servers": {
-      "zhipu-vision": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@z_ai/mcp-server"
-        ],
-        "env": {
-          "Z_AI_API_KEY": "c7eb3bb4d382459e8c61492cf4d80bb7.oeuVZnrT5U3BF3GC"
-        },
-        "connectionTimeoutMs": 300000
-      }
-    }
   }
 }

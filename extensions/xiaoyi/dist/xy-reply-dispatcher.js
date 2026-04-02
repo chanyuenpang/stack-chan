@@ -130,7 +130,7 @@ function createXYReplyDispatcher(params) {
             }
         },
         onIdle: async () => {
-            log(`[ON_IDLE] Reply idle for session ${sessionId}, hasSentResponse=${hasSentResponse}, finalSent=${finalSent}`);
+            log(`[ON_IDLE] Reply idle for session ${sessionId}, hasSentResponse=${hasSentResponse}, finalSent=${finalSent}, hasSentSubagentWebhook=${hasSentSubagentWebhook}`);
             // Send accumulated text with append=false and final=true
             if (hasSentResponse && !finalSent) {
                 log(`[ON_IDLE] Sending accumulated text, length=${accumulatedText.length}`);
@@ -159,6 +159,30 @@ function createXYReplyDispatcher(params) {
                 }
                 catch (err) {
                     error(`[ON_IDLE] Failed to send accumulated text:`, err);
+                }
+            }
+            else if (hasSentSubagentWebhook) {
+                // Subagent was dispatched via webhook - this is NOT an error.
+                // The first round completed after spawning a subagent; the second
+                // round will be triggered by the webhook data push. Send a silent
+                // final response to cleanly close this A2A task without showing an
+                // error to the user.
+                log(`[ON_IDLE] Subagent webhook was sent, sending silent final to close first-round A2A task`);
+                try {
+                    await (0, xy_formatter_js_1.sendA2AResponse)({
+                        config,
+                        sessionId,
+                        taskId,
+                        messageId,
+                        text: "",
+                        append: false,
+                        final: true,
+                    });
+                    finalSent = true;
+                    log(`[ON_IDLE] ✅ Sent silent final response for subagent dispatch`);
+                }
+                catch (err) {
+                    error(`[ON_IDLE] Failed to send silent final response:`, err);
                 }
             }
             else {

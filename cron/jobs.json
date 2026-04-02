@@ -31,7 +31,7 @@
       "name": "早安问候",
       "enabled": true,
       "createdAtMs": 1773331665748,
-      "updatedAtMs": 1774827116004,
+      "updatedAtMs": 1775086317857,
       "schedule": {
         "kind": "cron",
         "expr": "30 7 * * *",
@@ -52,11 +52,11 @@
         "accountId": "original"
       },
       "state": {
-        "nextRunAtMs": 1774913513213,
-        "lastRunAtMs": 1774827113226,
+        "nextRunAtMs": 1775172713213,
+        "lastRunAtMs": 1775086313226,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 2778,
+        "lastDurationMs": 4631,
         "lastDeliveryStatus": "delivered",
         "consecutiveErrors": 0,
         "lastDelivered": true
@@ -135,7 +135,7 @@
       "description": "每天 5:30 清理超过 24 小时的已完成 subagent session",
       "enabled": true,
       "createdAtMs": 1773552636562,
-      "updatedAtMs": 1774819810700,
+      "updatedAtMs": 1775079011023,
       "schedule": {
         "kind": "cron",
         "expr": "30 5 * * *"
@@ -152,11 +152,11 @@
       },
       "agentId": "feishu",
       "state": {
-        "nextRunAtMs": 1774906200000,
-        "lastRunAtMs": 1774819800014,
+        "nextRunAtMs": 1775165400000,
+        "lastRunAtMs": 1775079000009,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 10686,
+        "lastDurationMs": 11014,
         "lastDeliveryStatus": "not-delivered",
         "consecutiveErrors": 0,
         "lastDelivered": false
@@ -168,7 +168,7 @@
       "description": "每天凌晨 2:00 由 main agent 统一归档所有 agent 的昨日记忆",
       "enabled": true,
       "createdAtMs": 1773676800000,
-      "updatedAtMs": 1774893862280,
+      "updatedAtMs": 1775066426288,
       "schedule": {
         "kind": "cron",
         "expr": "0 2 * * *"
@@ -185,11 +185,11 @@
       },
       "agentId": "main",
       "state": {
-        "nextRunAtMs": 1774980000000,
-        "lastRunAtMs": 1774893600010,
+        "nextRunAtMs": 1775152800000,
+        "lastRunAtMs": 1775066400012,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 262270,
+        "lastDurationMs": 26276,
         "lastDeliveryStatus": "not-delivered",
         "consecutiveErrors": 0,
         "lastDelivered": false
@@ -238,7 +238,7 @@
       "description": "每月1日凌晨3:00执行知识库月度轮转归档",
       "enabled": true,
       "createdAtMs": 1774416000000,
-      "updatedAtMs": 1774416000000,
+      "updatedAtMs": 1775050577687,
       "schedule": {
         "kind": "cron",
         "expr": "0 3 1 * *"
@@ -254,7 +254,16 @@
         "mode": "none"
       },
       "state": {
-        "nextRunAtMs": 1774983600000
+        "nextRunAtMs": 1777575600000,
+        "lastRunAtMs": 1775050577595,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 92,
+        "lastError": "No API key for provider: volces-com",
+        "lastDelivered": false,
+        "lastDeliveryStatus": "not-delivered",
+        "lastDeliveryError": "No API key for provider: volces-com",
+        "consecutiveErrors": 1
       }
     },
     {
@@ -264,7 +273,7 @@
       "description": "每日抓取政府网站公告，生成日报发送（v3 Skill 架构）",
       "enabled": true,
       "createdAtMs": 1774601040831,
-      "updatedAtMs": 1774826225175,
+      "updatedAtMs": 1775081538127,
       "schedule": {
         "kind": "cron",
         "expr": "0 6 * * *"
@@ -283,11 +292,11 @@
         "accountId": "original"
       },
       "state": {
-        "nextRunAtMs": 1774908000000,
-        "lastRunAtMs": 1774825367865,
+        "nextRunAtMs": 1775167200000,
+        "lastRunAtMs": 1775080800009,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 857310,
+        "lastDurationMs": 738118,
         "lastDelivered": true,
         "lastDeliveryStatus": "delivered",
         "consecutiveErrors": 0

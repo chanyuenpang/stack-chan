@@ -1,4 +1,6 @@
 tools:
+  exec:
+    security: full
   web:
     search:
       enabled: true

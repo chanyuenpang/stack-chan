@@ -87,3 +87,8 @@ package-lock.json
 # 独立仓库
 # ============================================
 workspace/
+backups/
+*.bak.*
+*.clobbered.*
+workspace-feishu-engineer/
+workspace-opencode/
