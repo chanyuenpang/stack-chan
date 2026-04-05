@@ -1,11 +1,11 @@
 {
   "meta": {
     "lastTouchedVersion": "2026.3.30",
-    "lastTouchedAt": "2026-04-01T17:19:11.090Z"
+    "lastTouchedAt": "2026-04-02T04:56:51.536Z"
   },
   "wizard": {
-    "lastRunAt": "2026-03-30T12:19:39.370Z",
-    "lastRunVersion": "2026.3.13",
+    "lastRunAt": "2026-04-01T17:46:03.581Z",
+    "lastRunVersion": "2026.3.30",
     "lastRunCommand": "doctor",
     "lastRunMode": "local"
   },
@@ -325,15 +325,9 @@
         "id": "vision-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "knowledge-writer"
+          "knowledge-writer",
+          "vision-agent"
         ],
-        "mcp": {
-          "command": "npx",
-          "args": ["-y", "@z_ai/mcp-server"],
-          "env": {
-            "Z_AI_API_KEY": "c7eb3bb4d382459e8c61492cf4d80bb7.oeuVZnrT5U3BF3GC"
-          }
-        },
         "tools": {
           "deny": [
             "Read",
@@ -344,6 +338,16 @@
             "exec",
             "web_fetch",
             "web_search"
+          ],
+          "allow": [
+            "zhipu-vision__analyze_data_visualization",
+            "zhipu-vision__analyze_image",
+            "zhipu-vision__analyze_video",
+            "zhipu-vision__diagnose_error_screenshot",
+            "zhipu-vision__extract_text_from_screenshot",
+            "zhipu-vision__ui_diff_check",
+            "zhipu-vision__ui_to_artifact",
+            "zhipu-vision__understand_technical_diagram"
           ]
         }
       },
@@ -980,5 +984,20 @@
       "qoder",
       "opencode"
     ]
+  },
+  "mcp": {
+    "servers": {
+      "zhipu-vision": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@z_ai/mcp-server"
+        ],
+        "env": {
+          "Z_AI_API_KEY": "${Z_AI_API_KEY}"
+        },
+        "connectionTimeoutMs": 90000
+      }
+    }
   }
 }

@@ -1,7 +1,7 @@
 {
   "meta": {
     "lastTouchedVersion": "2026.3.30",
-    "lastTouchedAt": "2026-04-02T04:56:51.536Z"
+    "lastTouchedAt": "2026-04-01T17:46:03.629Z"
   },
   "wizard": {
     "lastRunAt": "2026-04-01T17:46:03.581Z",
@@ -325,35 +325,17 @@
         "id": "vision-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "knowledge-writer",
-          "vision-agent"
+          "knowledge-writer"
         ],
         "tools": {
           "deny": [
-            "Read",
-            "Write",
-            "Edit",
-            "Delete",
-            "Bash",
-            "exec",
-            "web_fetch",
-            "web_search"
-          ],
-          "allow": [
-            "zhipu-vision__analyze_data_visualization",
-            "zhipu-vision__analyze_image",
-            "zhipu-vision__analyze_video",
-            "zhipu-vision__diagnose_error_screenshot",
-            "zhipu-vision__extract_text_from_screenshot",
-            "zhipu-vision__ui_diff_check",
-            "zhipu-vision__ui_to_artifact",
-            "zhipu-vision__understand_technical_diagram"
+            "Read"
           ]
         }
       },
       {
         "id": "feishu-organizer",
-        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "workspace": "/home/yankeeting/.openclaw/workspace-feishu-engineer",
         "skills": [
           "orchestrator-constraint",
           "task-status-tracker",
@@ -366,7 +348,10 @@
           "executing-plans",
           "feishu-master",
           "knowledge-writer",
-          "daily-diary"
+          "feature-list",
+          "progress-tracker",
+          "git-discipline",
+          "e2e-testing"
         ],
         "subagents": {
           "allowAgents": [
@@ -391,7 +376,7 @@
       },
       {
         "id": "feishu-engineer",
-        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "workspace": "/home/yankeeting/.openclaw/workspace-feishu-engineer",
         "skills": [
           "orchestrator-constraint",
           "task-status-tracker",
@@ -534,17 +519,16 @@
           "explorer-agent",
           "plan-agent",
           "vision-agent",
-          "docx-converter-agent",
           "executing-plans",
-          "knowledge-writer"
+          "knowledge-writer",
+          "daily-diary"
         ],
         "subagents": {
           "allowAgents": [
             "executor",
             "explorer",
             "plan-agent",
-            "vision-agent",
-            "docx-converter-agent"
+            "vision-agent"
           ]
         },
         "tools": {
@@ -675,6 +659,8 @@
       "accounts": {
         "organizer": {
           "enabled": true,
+          "renderMode": "card",
+          "streaming": true,
           "appId": "cli_a93fe7a22178dcba",
           "appSecret": "vZutvl8b7Y1v3920PSOoKeimbwrAni6A",
           "groupPolicy": "open",
@@ -686,6 +672,8 @@
         },
         "engineer": {
           "enabled": true,
+          "renderMode": "card",
+          "streaming": true,
           "appId": "cli_a93862c1ea399cb5",
           "appSecret": "XTfZhkKoeH7ODmN9ULhptf5LTwRHr6hp",
           "groupPolicy": "open",
@@ -697,6 +685,8 @@
         },
         "original": {
           "enabled": true,
+          "renderMode": "card",
+          "streaming": true,
           "appId": "cli_a938707520f89cbb",
           "appSecret": "DdDHfouX01drOHQcdWwo7ciqWQXlSAfE",
           "groupPolicy": "open",
@@ -984,20 +974,5 @@
       "qoder",
       "opencode"
     ]
-  },
-  "mcp": {
-    "servers": {
-      "zhipu-vision": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@z_ai/mcp-server"
-        ],
-        "env": {
-          "Z_AI_API_KEY": "${Z_AI_API_KEY}"
-        },
-        "connectionTimeoutMs": 90000
-      }
-    }
   }
 }

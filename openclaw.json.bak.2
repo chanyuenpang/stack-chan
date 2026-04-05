@@ -1,7 +1,7 @@
 {
   "meta": {
     "lastTouchedVersion": "2026.3.30",
-    "lastTouchedAt": "2026-04-02T04:28:38.667Z"
+    "lastTouchedAt": "2026-04-01T17:46:03.629Z"
   },
   "wizard": {
     "lastRunAt": "2026-04-01T17:46:03.581Z",
@@ -162,7 +162,6 @@
           "task-status-tracker",
           "executor",
           "explorer",
-          "explorer-agent",
           "plan-agent",
           "vision-agent",
           "docx-converter-agent",
@@ -325,8 +324,7 @@
         "id": "vision-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "knowledge-writer",
-          "vision-agent"
+          "knowledge-writer"
         ],
         "tools": {
           "deny": [
@@ -343,20 +341,22 @@
       },
       {
         "id": "feishu-organizer",
-        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "workspace": "/home/yankeeting/.openclaw/workspace-feishu-engineer",
         "skills": [
           "orchestrator-constraint",
           "task-status-tracker",
           "executor",
           "explorer",
-          "explorer-agent",
           "plan-agent",
           "vision-agent",
           "docx-converter-agent",
           "executing-plans",
           "feishu-master",
           "knowledge-writer",
-          "daily-diary"
+          "feature-list",
+          "progress-tracker",
+          "git-discipline",
+          "e2e-testing"
         ],
         "subagents": {
           "allowAgents": [
@@ -381,13 +381,12 @@
       },
       {
         "id": "feishu-engineer",
-        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "workspace": "/home/yankeeting/.openclaw/workspace-feishu-engineer",
         "skills": [
           "orchestrator-constraint",
           "task-status-tracker",
           "executor",
           "explorer",
-          "explorer-agent",
           "plan-agent",
           "vision-agent",
           "docx-converter-agent",
@@ -428,7 +427,6 @@
           "task-status-tracker",
           "executor",
           "explorer",
-          "explorer-agent",
           "plan-agent",
           "vision-agent",
           "docx-converter-agent",
@@ -491,7 +489,6 @@
           "task-status-tracker",
           "executor",
           "explorer",
-          "explorer-agent",
           "vision-agent",
           "knowledge-writer"
         ],
@@ -521,7 +518,6 @@
           "task-status-tracker",
           "executor",
           "explorer",
-          "explorer-agent",
           "plan-agent",
           "vision-agent",
           "docx-converter-agent",
@@ -974,20 +970,5 @@
       "qoder",
       "opencode"
     ]
-  },
-  "mcp": {
-    "servers": {
-      "zhipu-vision": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@z_ai/mcp-server"
-        ],
-        "env": {
-          "Z_AI_API_KEY": "${Z_AI_API_KEY}"
-        },
-        "connectionTimeoutMs": 90000
-      }
-    }
   }
 }
