@@ -89,6 +89,7 @@ package-lock.json
 workspace/
 backups/
 *.bak.*
+*.backup.*
 *.clobbered.*
 workspace-feishu-engineer/
 workspace-opencode/

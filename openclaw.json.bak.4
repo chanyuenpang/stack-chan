@@ -1,7 +1,7 @@
 {
   "meta": {
     "lastTouchedVersion": "2026.3.30",
-    "lastTouchedAt": "2026-04-02T04:56:51.536Z"
+    "lastTouchedAt": "2026-04-08T15:28:42.173Z"
   },
   "wizard": {
     "lastRunAt": "2026-04-01T17:46:03.581Z",
@@ -158,65 +158,37 @@
         "id": "main",
         "default": true,
         "skills": [
-          "orchestrator-constraint",
-          "task-status-tracker",
-          "executor",
-          "explorer",
-          "explorer-agent",
-          "plan-agent",
-          "vision-agent",
-          "docx-converter-agent",
           "workspace-organizer",
-          "executing-plans",
           "daily-diary",
           "knowledge-writer",
-          "summarize",
           "game-update-visualizer",
-          "feature-list",
-          "progress-tracker",
           "github",
-          "gh-issues",
-          "sherpa-onnx-tts",
-          "things-mac",
-          "skill-self-evolution-enhancer",
           "evolution-scanner",
           "subagent-cleanup",
-          "smart-home-control"
+          "smart-home-control",
+          "task-planning",
+          "multi-search-engine",
+          "cn-web-search",
+          "crawler-optimizer",
+          "code-researcher-workflow",
+          "coding-agent-workflow",
+          "verify-agent-workflow"
         ],
         "subagents": {
           "allowAgents": [
             "executor",
             "explorer",
-            "plan-agent",
             "vision-agent",
-            "docx-converter-agent"
+            "docx-converter-agent",
+            "browser-agent",
+            "feishu-master",
+            "code-researcher",
+            "coding-agent",
+            "verify-agent",
+            "openclaw-master"
           ]
         },
-        "tools": {
-          "deny": [
-            "Write",
-            "Edit",
-            "Bash",
-            "exec",
-            "web_fetch",
-            "web_search"
-          ]
-        }
-      },
-      {
-        "id": "plan-agent",
-        "workspace": "/home/yankeeting/.openclaw/workspace",
-        "skills": [
-          "knowledge-writer"
-        ],
-        "tools": {
-          "allow": [
-            "Read",
-            "Grep",
-            "Glob",
-            "web_fetch"
-          ]
-        }
+        "tools": {}
       },
       {
         "id": "executor",
@@ -235,8 +207,6 @@
           "crawler-optimizer",
           "ai-ppt-presenter",
           "game-update-visualizer",
-          "feature-list",
-          "progress-tracker",
           "e2e-testing",
           "git-discipline",
           "knowledge-writer"
@@ -303,46 +273,17 @@
         }
       },
       {
-        "id": "docx-converter-agent",
+        "id": "vision-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "docx-cn",
           "knowledge-writer"
         ],
         "tools": {
           "allow": [
-            "Read",
-            "Write",
-            "Edit",
-            "Bash",
-            "exec",
-            "Grep",
-            "Glob"
-          ]
-        }
-      },
-      {
-        "id": "vision-agent",
-        "workspace": "/home/yankeeting/.openclaw/workspace",
-        "skills": [
-          "knowledge-writer",
-          "vision-agent"
-        ],
-        "tools": {
-          "deny": [
-            "Read",
-            "Write",
-            "Edit",
-            "Delete",
-            "Bash",
-            "exec",
-            "web_fetch",
-            "web_search"
-          ],
-          "allow": [
-            "zhipu-vision__analyze_data_visualization",
+            "Glob",
             "zhipu-vision__analyze_image",
             "zhipu-vision__analyze_video",
+            "zhipu-vision__analyze_data_visualization",
             "zhipu-vision__diagnose_error_screenshot",
             "zhipu-vision__extract_text_from_screenshot",
             "zhipu-vision__ui_diff_check",
@@ -352,30 +293,69 @@
         }
       },
       {
-        "id": "feishu-organizer",
+        "id": "browser-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "orchestrator-constraint",
-          "task-status-tracker",
-          "executor",
-          "explorer",
-          "explorer-agent",
-          "plan-agent",
-          "vision-agent",
-          "docx-converter-agent",
-          "executing-plans",
-          "feishu-master",
           "knowledge-writer",
+          "playwright"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Write",
+            "Edit",
+            "Bash",
+            "exec",
+            "Grep",
+            "Glob",
+            "browser",
+            "playwright__browser_navigate",
+            "playwright__browser_snapshot",
+            "playwright__browser_click",
+            "playwright__browser_type",
+            "playwright__browser_screenshot",
+            "playwright__browser_press",
+            "playwright__browser_select_option",
+            "playwright__browser_evaluate",
+            "playwright__browser_choose_file",
+            "playwright__browser_wait",
+            "playwright__browser_close",
+            "playwright__browser_resize",
+            "playwright__browser_handle_dialog",
+            "playwright__browser_navigate_back",
+            "playwright__browser_navigate_forward",
+            "playwright__browser_tab_list",
+            "playwright__browser_tab_new",
+            "playwright__browser_tab_close",
+            "playwright__browser_tab_select",
+            "playwright__browser_pdf",
+            "playwright__browser_console_messages",
+            "playwright__browser_network_requests"
+          ]
+        }
+      },
+      {
+        "id": "feishu-organizer",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "model": {
+          "primary": "zhipu/glm-5.1"
+        },
+        "skills": [
+          "task-planning",
           "daily-diary"
         ],
         "subagents": {
           "allowAgents": [
+            "code-researcher",
+            "coding-agent",
+            "verify-agent",
             "executor",
             "explorer",
-            "plan-agent",
             "vision-agent",
             "docx-converter-agent",
-            "feishu-master"
+            "feishu-master",
+            "browser-agent",
+            "openclaw-master"
           ]
         },
         "tools": {
@@ -392,31 +372,25 @@
       {
         "id": "feishu-engineer",
         "workspace": "/home/yankeeting/.openclaw/workspace",
+        "model": {
+          "primary": "zhipu/glm-5.1"
+        },
         "skills": [
-          "orchestrator-constraint",
-          "task-status-tracker",
-          "executor",
-          "explorer",
-          "explorer-agent",
-          "plan-agent",
-          "vision-agent",
-          "docx-converter-agent",
-          "executing-plans",
-          "feishu-master",
-          "knowledge-writer",
-          "feature-list",
-          "progress-tracker",
-          "git-discipline",
-          "e2e-testing"
+          "task-planning",
+          "daily-diary"
         ],
         "subagents": {
           "allowAgents": [
+            "code-researcher",
+            "coding-agent",
+            "verify-agent",
             "executor",
             "explorer",
-            "plan-agent",
             "vision-agent",
             "docx-converter-agent",
-            "feishu-master"
+            "feishu-master",
+            "browser-agent",
+            "openclaw-master"
           ]
         },
         "tools": {
@@ -434,26 +408,21 @@
         "id": "feishu",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "orchestrator-constraint",
-          "task-status-tracker",
-          "executor",
-          "explorer",
-          "explorer-agent",
-          "plan-agent",
-          "vision-agent",
-          "docx-converter-agent",
-          "executing-plans",
-          "feishu-master",
-          "knowledge-writer"
+          "task-planning",
+          "daily-diary"
         ],
         "subagents": {
           "allowAgents": [
+            "code-researcher",
+            "coding-agent",
+            "verify-agent",
             "executor",
             "explorer",
-            "plan-agent",
             "vision-agent",
             "docx-converter-agent",
-            "feishu-master"
+            "feishu-master",
+            "browser-agent",
+            "openclaw-master"
           ]
         },
         "tools": {
@@ -497,19 +466,21 @@
         "id": "qqbot",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "orchestrator-constraint",
-          "task-status-tracker",
-          "executor",
-          "explorer",
-          "explorer-agent",
-          "vision-agent",
-          "knowledge-writer"
+          "task-planning",
+          "daily-diary"
         ],
         "subagents": {
           "allowAgents": [
+            "code-researcher",
+            "coding-agent",
+            "verify-agent",
             "executor",
             "explorer",
-            "vision-agent"
+            "vision-agent",
+            "docx-converter-agent",
+            "feishu-master",
+            "browser-agent",
+            "openclaw-master"
           ]
         },
         "tools": {
@@ -527,24 +498,21 @@
         "id": "xiaoyi",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "skills": [
-          "orchestrator-constraint",
-          "task-status-tracker",
-          "executor",
-          "explorer",
-          "explorer-agent",
-          "plan-agent",
-          "vision-agent",
-          "docx-converter-agent",
-          "executing-plans",
-          "knowledge-writer"
+          "task-planning",
+          "daily-diary"
         ],
         "subagents": {
           "allowAgents": [
+            "code-researcher",
+            "coding-agent",
+            "verify-agent",
             "executor",
             "explorer",
-            "plan-agent",
             "vision-agent",
-            "docx-converter-agent"
+            "docx-converter-agent",
+            "feishu-master",
+            "browser-agent",
+            "openclaw-master"
           ]
         },
         "tools": {
@@ -569,6 +537,103 @@
           "subagent-cleanup"
         ],
         "tools": {}
+      },
+      {
+        "id": "code-reviewer",
+        "description": "代码审查与质量评估",
+        "model": {
+          "primary": "zhipu/glm-5.1"
+        },
+        "skills": [
+          "code-reviewer-workflow"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash",
+            "exec"
+          ]
+        }
+      },
+      {
+        "id": "code-researcher",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "code-researcher-workflow",
+          "knowledge-writer"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Grep",
+            "Glob",
+            "web_fetch",
+            "web_search"
+          ]
+        },
+        "model": "zhipu/glm-5.1"
+      },
+      {
+        "id": "coding-agent",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "coding-agent-workflow",
+          "knowledge-writer"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Write",
+            "Edit",
+            "Delete",
+            "Bash",
+            "exec",
+            "Grep",
+            "Glob",
+            "web_fetch",
+            "web_search"
+          ]
+        },
+        "model": "zhipu/glm-5.1"
+      },
+      {
+        "id": "verify-agent",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "skills": [
+          "verify-agent-workflow",
+          "knowledge-writer"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash",
+            "exec"
+          ]
+        },
+        "model": "zhipu/glm-5.1"
+      },
+      {
+        "id": "openclaw-master",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "model": "zhipu/glm-5.1",
+        "skills": [
+          "openclaw-master-workflow",
+          "knowledge-writer",
+          "openclaw-config"
+        ],
+        "tools": {
+          "allow": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash",
+            "exec"
+          ]
+        }
       }
     ]
   },
@@ -675,6 +740,8 @@
       "accounts": {
         "organizer": {
           "enabled": true,
+          "renderMode": "card",
+          "streaming": true,
           "appId": "cli_a93fe7a22178dcba",
           "appSecret": "vZutvl8b7Y1v3920PSOoKeimbwrAni6A",
           "groupPolicy": "open",
@@ -686,6 +753,8 @@
         },
         "engineer": {
           "enabled": true,
+          "renderMode": "card",
+          "streaming": true,
           "appId": "cli_a93862c1ea399cb5",
           "appSecret": "XTfZhkKoeH7ODmN9ULhptf5LTwRHr6hp",
           "groupPolicy": "open",
@@ -697,6 +766,8 @@
         },
         "original": {
           "enabled": true,
+          "renderMode": "card",
+          "streaming": true,
           "appId": "cli_a938707520f89cbb",
           "appSecret": "DdDHfouX01drOHQcdWwo7ciqWQXlSAfE",
           "groupPolicy": "open",
@@ -800,39 +871,15 @@
         "enabled": true
       },
       "plan-agent": {
-        "enabled": true
-      },
-      "explorer-agent": {
-        "enabled": true
+        "enabled": false
       },
       "docx-converter-agent": {
-        "enabled": true
-      },
-      "sherpa-onnx-tts": {
-        "enabled": true
-      },
-      "things-mac": {
-        "enabled": true
-      },
-      "summarize": {
         "enabled": true
       },
       "multi-search-engine": {
         "enabled": true
       },
       "playwright": {
-        "enabled": true
-      },
-      "automation-workflows": {
-        "enabled": true
-      },
-      "executing-plans": {
-        "enabled": true
-      },
-      "task-status-tracker": {
-        "enabled": true
-      },
-      "orchestrator-constraint": {
         "enabled": true
       },
       "executor": {
@@ -859,20 +906,7 @@
       "game-update-visualizer": {
         "enabled": true
       },
-      "github": {
-        "enabled": true
-      },
-      "gh-issues": {
-        "enabled": true,
-        "apiKey": "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"
-      },
       "workspace-organizer": {
-        "enabled": true
-      },
-      "feature-list": {
-        "enabled": true
-      },
-      "progress-tracker": {
         "enabled": true
       },
       "e2e-testing": {
@@ -901,6 +935,12 @@
       },
       "feishu-master": {
         "enabled": true
+      },
+      "task-planning": {
+        "enabled": true
+      },
+      "openclaw-master-workflow": {
+        "enabled": true
       }
     }
   },
@@ -910,7 +950,8 @@
       "feishu",
       "xiaoyi",
       "openclaw-qqbot",
-      "acpx"
+      "acpx",
+      "browser"
     ],
     "entries": {
       "openclaw-qqbot": {
@@ -930,6 +971,17 @@
         "config": {
           "permissionMode": "approve-all",
           "nonInteractivePermissions": "fail"
+        }
+      },
+      "browser": {
+        "enabled": true
+      },
+      "moonshot": {
+        "enabled": true,
+        "config": {
+          "webSearch": {
+            "apiKey": "sk-CwQYlNUFoRTFzk3sPT2cte9y3lsZ3aqRcot2RAiHTqi2AnUN"
+          }
         }
       }
     },
@@ -994,9 +1046,18 @@
           "@z_ai/mcp-server"
         ],
         "env": {
-          "Z_AI_API_KEY": "${Z_AI_API_KEY}"
+          "Z_AI_API_KEY": "c7eb3bb4d382459e8c61492cf4d80bb7.oeuVZnrT5U3BF3GC"
         },
-        "connectionTimeoutMs": 90000
+        "connectionTimeoutMs": 300000
+      },
+      "playwright": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@playwright/mcp",
+          "--headless"
+        ],
+        "connectionTimeoutMs": 300000
       }
     }
   }

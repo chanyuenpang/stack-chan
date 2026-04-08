@@ -453,6 +453,10 @@
         }
       ],
       "apiKey": "KIMI_API_KEY"
+    },
+    "github-copilot": {
+      "baseUrl": "https://api.individual.githubcopilot.com",
+      "models": []
     }
   }
 }

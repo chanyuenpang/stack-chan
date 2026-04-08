@@ -2,36 +2,11 @@
   "version": 1,
   "jobs": [
     {
-      "id": "6b23cc9b-711a-4bbf-b73d-d0f49a7f0a06",
-      "name": "群活跃度-10分钟",
-      "enabled": false,
-      "createdAtMs": 1773331579699,
-      "updatedAtMs": 1773331637167,
-      "schedule": {
-        "kind": "every",
-        "everyMs": 600000,
-        "anchorMs": 1773331579699
-      },
-      "sessionTarget": "main",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "（检查群消息）",
-        "timeoutSeconds": 10
-      },
-      "delivery": {
-        "mode": "announce",
-        "channel": "feishu",
-        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
-      },
-      "state": {}
-    },
-    {
       "id": "740bbb1f-12d5-4e8f-b139-35c93e4f64b5",
       "name": "早安问候",
       "enabled": true,
       "createdAtMs": 1773331665748,
-      "updatedAtMs": 1775345529900,
+      "updatedAtMs": 1775604734379,
       "schedule": {
         "kind": "cron",
         "expr": "30 7 * * *",
@@ -52,11 +27,11 @@
         "accountId": "original"
       },
       "state": {
-        "nextRunAtMs": 1775431913213,
-        "lastRunAtMs": 1775345513225,
+        "nextRunAtMs": 1775691113213,
+        "lastRunAtMs": 1775604713226,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 16675,
+        "lastDurationMs": 21153,
         "lastDeliveryStatus": "delivered",
         "consecutiveErrors": 0,
         "lastDelivered": true
@@ -64,87 +39,22 @@
       "agentId": "feishu"
     },
     {
-      "id": "72200a79-8836-4cdc-a2ef-1a016505ab74",
-      "name": "静默检查-10分钟",
-      "enabled": false,
-      "createdAtMs": 1773369810901,
-      "updatedAtMs": 1773372974837,
-      "schedule": {
-        "kind": "cron",
-        "expr": "*/10 * * * *",
-        "staggerMs": 60000
-      },
-      "sessionTarget": "main",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "（静默检查群消息）",
-        "timeoutSeconds": 15
-      },
-      "delivery": {
-        "mode": "none",
-        "channel": "feishu",
-        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1"
-      },
-      "state": {
-        "lastRunAtMs": 1773372959798,
-        "lastRunStatus": "error",
-        "lastStatus": "error",
-        "lastDurationMs": 15039,
-        "lastErrorReason": "timeout",
-        "lastDeliveryStatus": "not-requested",
-        "consecutiveErrors": 5,
-        "lastError": "cron: job execution timed out"
-      }
-    },
-    {
-      "id": "39f87476-7afd-4ab6-a2cd-996b84b853d6",
-      "name": "喝水提醒",
-      "enabled": false,
-      "deleteAfterRun": true,
-      "createdAtMs": 1773419349678,
-      "updatedAtMs": 1773419655152,
-      "schedule": {
-        "kind": "at",
-        "at": "2026-03-13T16:34:09.641Z"
-      },
-      "sessionTarget": "isolated",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "⏰ 提醒时间到！该去喝水啦 💧"
-      },
-      "delivery": {
-        "mode": "announce",
-        "channel": "last",
-        "to": "qqbot:c2c:0493ED82ED542A44295E4E193A2B9FC9"
-      },
-      "state": {
-        "lastRunAtMs": 1773419649656,
-        "lastRunStatus": "error",
-        "lastStatus": "error",
-        "lastDurationMs": 5496,
-        "lastError": "Channel is required when multiple channels are configured: qqbot, feishu Set delivery.channel explicitly or use a main session with a previous channel.",
-        "lastDeliveryStatus": "unknown",
-        "consecutiveErrors": 1
-      }
-    },
-    {
       "id": "7cedb1d8-d6db-4808-aa84-ee2664e458ad",
       "name": "subagent-cleanup",
       "description": "每天 5:30 清理超过 24 小时的已完成 subagent session",
       "enabled": true,
       "createdAtMs": 1773552636562,
-      "updatedAtMs": 1775338209121,
+      "updatedAtMs": 1775640629776,
       "schedule": {
         "kind": "cron",
-        "expr": "30 5 * * *"
+        "expr": "30 5,17 * * *",
+        "tz": "Asia/Shanghai"
       },
       "sessionTarget": "isolated",
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
-        "message": "执行 subagent session 清理任务",
+        "message": "执行 openclaw sessions cleanup --enforce --all-agents 清理所有 agent 的残留子会话",
         "timeoutSeconds": 300
       },
       "delivery": {
@@ -152,11 +62,11 @@
       },
       "agentId": "feishu",
       "state": {
-        "nextRunAtMs": 1775424600000,
-        "lastRunAtMs": 1775338200022,
+        "nextRunAtMs": 1775683800000,
+        "lastRunAtMs": 1775640600010,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 9099,
+        "lastDurationMs": 29766,
         "lastDeliveryStatus": "not-delivered",
         "consecutiveErrors": 0,
         "lastDelivered": false
@@ -168,10 +78,11 @@
       "description": "每天凌晨 2:00 由 main agent 统一归档所有 agent 的昨日记忆",
       "enabled": true,
       "createdAtMs": 1773676800000,
-      "updatedAtMs": 1775325737685,
+      "updatedAtMs": 1775584840689,
       "schedule": {
         "kind": "cron",
-        "expr": "0 2 * * *"
+        "expr": "0 2 * * *",
+        "tz": "Asia/Shanghai"
       },
       "sessionTarget": "isolated",
       "wakeMode": "now",
@@ -185,11 +96,11 @@
       },
       "agentId": "main",
       "state": {
-        "nextRunAtMs": 1775412000000,
-        "lastRunAtMs": 1775325600010,
+        "nextRunAtMs": 1775671200000,
+        "lastRunAtMs": 1775584800010,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 137675,
+        "lastDurationMs": 40679,
         "lastDeliveryStatus": "not-delivered",
         "consecutiveErrors": 0,
         "lastDelivered": false
@@ -202,10 +113,11 @@
       "description": "每周一 7:30 执行知识库进化扫描",
       "enabled": true,
       "createdAtMs": 1773679753803,
-      "updatedAtMs": 1774827077110,
+      "updatedAtMs": 1775451957164,
       "schedule": {
         "kind": "cron",
-        "expr": "30 7 * * 1"
+        "expr": "30 7 * * 1",
+        "tz": "Asia/Shanghai"
       },
       "sessionTarget": "isolated",
       "wakeMode": "now",
@@ -221,11 +133,11 @@
         "accountId": "original"
       },
       "state": {
-        "nextRunAtMs": 1775431800000,
-        "lastRunAtMs": 1774827000013,
+        "nextRunAtMs": 1776036600000,
+        "lastRunAtMs": 1775451752647,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 77097,
+        "lastDurationMs": 204517,
         "lastDeliveryStatus": "delivered",
         "consecutiveErrors": 0,
         "lastDelivered": true
@@ -241,7 +153,8 @@
       "updatedAtMs": 1775050577687,
       "schedule": {
         "kind": "cron",
-        "expr": "0 3 1 * *"
+        "expr": "0 3 1 * *",
+        "tz": "Asia/Shanghai"
       },
       "sessionTarget": "isolated",
       "wakeMode": "now",
@@ -273,10 +186,11 @@
       "description": "每日抓取政府网站公告，生成日报发送（v3 Skill 架构）",
       "enabled": true,
       "createdAtMs": 1774601040831,
-      "updatedAtMs": 1775344411839,
+      "updatedAtMs": 1775619727092,
       "schedule": {
         "kind": "cron",
-        "expr": "0 6 * * *"
+        "expr": "0 6 * * *",
+        "tz": "Asia/Shanghai"
       },
       "sessionTarget": "isolated",
       "wakeMode": "now",
@@ -292,14 +206,85 @@
         "accountId": "original"
       },
       "state": {
-        "nextRunAtMs": 1775426400000,
-        "lastRunAtMs": 1775343857779,
-        "lastRunStatus": "ok",
-        "lastStatus": "ok",
-        "lastDurationMs": 554060,
-        "lastDelivered": true,
-        "lastDeliveryStatus": "delivered",
-        "consecutiveErrors": 0
+        "nextRunAtMs": 1775685600000,
+        "lastRunAtMs": 1775618924937,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 802155,
+        "lastDeliveryStatus": "unknown",
+        "consecutiveErrors": 1,
+        "lastError": "Error: gateway timeout after 10000ms\nGateway target: ws://127.0.0.1:18789\nSource: local loopback\nConfig: /home/yankeeting/.openclaw/openclaw.json\nBind: lan",
+        "lastErrorReason": "timeout"
+      }
+    },
+    {
+      "id": "session-cleanup-daily",
+      "name": "session-cleanup",
+      "description": "每天凌晨 3:00 清理超过 7 天的过期 session 工作区",
+      "enabled": true,
+      "createdAtMs": 1775414400000,
+      "updatedAtMs": 1775589230878,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 3 * * *",
+        "tz": "Asia/Shanghai"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "执行日常清理任务。\n1. 清理 session 工作区：遍历 ~/.openclaw/workspace/sessions/，删除7天以上 completed/abandoned 目录\n2. 清理旧日志：find ~/.openclaw/logs/ -type f -mtime +7 -delete\n3. 清理临时文件：find ~/.openclaw/workspace/sessions/ -type f \\( -name \"*.tmp\" -o -name \"*.cache\" \\) -mtime +7 -delete",
+        "timeoutSeconds": 300
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "agentId": "main",
+      "state": {
+        "nextRunAtMs": 1775674800000,
+        "lastRunAtMs": 1775588930860,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 300018,
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 1,
+        "lastError": "cron: job execution timed out",
+        "lastErrorReason": "timeout"
+      }
+    },
+    {
+      "id": "memory-maintenance-daily",
+      "name": "记忆整理",
+      "description": "每天凌晨4:00整理MEMORY.md新条目，与knowledge匹配计数",
+      "enabled": true,
+      "createdAtMs": 1775555400000,
+      "updatedAtMs": 1775592497229,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 4 * * *",
+        "tz": "Asia/Shanghai"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "执行每日记忆整理任务。\n\n步骤：\n1. 读取 MEMORY.md 的记忆表，解析所有行（标题、内容、计数）\n2. 找出计数=1的条目（新条目）\n3. 对每个新条目：\n   a. 用标题+内容调用 memory_search(query, threshold=0.70)\n   b. 拿到候选结果后，判断是否有相似/重复的已有条目\n   c. 如果匹配到：\n      - 在 .knowledge/ 对应文件中找到该条目，计数+1\n      - 更新 MEMORY.md 中该条目的计数（也+1）\n   d. 如果没匹配到：\n      - 在 .knowledge/YYYY-MM/ 目录创建新条目\n      - 格式：## [count:1] 标题\\n- 内容: ...\\n- 来源: ...\\n- 更新时间: YYYY-MM-DD\\n- 标签: ...\n4. 按计数降序重新排列 MEMORY.md 表格（高频在前）\n5. 检查 .knowledge/ 中所有条目的计数，如果某条计数 > MEMORY.md 中最低计数，考虑在 MEMORY 中更新\n6. 可选：标记30天以上且计数仍=1的条目为待清理\n\n完成后输出整理报告。",
+        "timeoutSeconds": 600
+      },
+      "delivery": {
+        "mode": "none"
+      },
+      "agentId": "main",
+      "state": {
+        "nextRunAtMs": 1775678400000,
+        "lastRunAtMs": 1775592374584,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 122645,
+        "lastDeliveryStatus": "not-requested",
+        "consecutiveErrors": 1,
+        "lastError": "FallbackSummaryError: All models failed (2): volces-com/ark-code-latest: LLM request timed out. (unknown) | zhipu/glm-5-turbo: LLM request failed: network connection error. (timeout)",
+        "lastErrorReason": "timeout"
       }
     }
   ]

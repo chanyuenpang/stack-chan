@@ -1,0 +1,10 @@
+{
+  "id": "gitnexus-tools",
+  "name": "GitNexus Tools",
+  "description": "GitNexus code exploration, debugging and impact analysis tools",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {}
+  }
+}

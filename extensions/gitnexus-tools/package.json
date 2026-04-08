@@ -1,0 +1,15 @@
+{
+  "name": "@openclaw/gitnexus-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "GitNexus code exploration, debugging and impact analysis tools",
+  "main": "dist/index.js",
+  "openclaw": {
+    "plugin": true,
+    "bundled": false,
+    "extensions": ["./index.js"]
+  },
+  "peerDependencies": {
+    "openclaw": ">=1.0.0"
+  }
+}
