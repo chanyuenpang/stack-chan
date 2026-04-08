@@ -78,7 +78,7 @@
       "description": "每天凌晨 2:00 由 main agent 统一归档所有 agent 的昨日记忆",
       "enabled": true,
       "createdAtMs": 1773676800000,
-      "updatedAtMs": 1775584840689,
+      "updatedAtMs": 1775671249019,
       "schedule": {
         "kind": "cron",
         "expr": "0 2 * * *",
@@ -96,11 +96,11 @@
       },
       "agentId": "main",
       "state": {
-        "nextRunAtMs": 1775671200000,
-        "lastRunAtMs": 1775584800010,
+        "nextRunAtMs": 1775757600000,
+        "lastRunAtMs": 1775671200014,
         "lastRunStatus": "ok",
         "lastStatus": "ok",
-        "lastDurationMs": 40679,
+        "lastDurationMs": 49005,
         "lastDeliveryStatus": "not-delivered",
         "consecutiveErrors": 0,
         "lastDelivered": false

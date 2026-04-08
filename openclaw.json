@@ -570,7 +570,9 @@
             "Grep",
             "Glob",
             "web_fetch",
-            "web_search"
+            "web_search",
+            "Bash",
+            "exec"
           ]
         },
         "model": "zhipu/glm-5.1"
