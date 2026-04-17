@@ -370,9 +370,9 @@
         "id": "feishu-engineer",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "model": {
-          "primary": "openai-codex/gpt-5.4",
+          "primary": "zhipu/glm-5-turbo",
           "fallbacks": [
-            "zhipu/glm-5-turbo",
+            "openai-codex/gpt-5.4",
             "zhipu/glm-5",
             "volces-com/ark-code-latest"
           ]
@@ -395,7 +395,7 @@
             "openclaw-master"
           ]
         },
-"tools": {
+        "tools": {
           "deny": [
             "Bash",
             "Edit",
@@ -410,14 +410,6 @@
             "zhipu-vision__ui_to_artifact",
             "zhipu-vision__understand_technical_diagram",
             "mc_operation"
-          ]
-        },
-        "model": {
-          "primary": "zhipu/glm-5-turbo",
-          "fallbacks": [
-            "openai-codex/gpt-5.4",
-            "zhipu/glm-5",
-            "volces-com/ark-code-latest"
           ]
         }
       },
@@ -468,7 +460,7 @@
             "openclaw-master"
           ]
         },
-"tools": {
+        "tools": {
           "allow": [
             "exec"
           ],
@@ -698,6 +690,53 @@
           "fallbacks": [
             "zhipu/glm-5",
             "volces-com/ark-code-latest"
+          ]
+        }
+      },
+      {
+        "id": "feishu",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "model": {
+          "primary": "zhipu/glm-5-turbo",
+          "fallbacks": [
+            "openai-codex/gpt-5.4",
+            "zhipu/glm-5",
+            "volces-com/ark-code-latest"
+          ]
+        },
+        "skills": [
+          "task-planning",
+          "daily-diary"
+        ],
+        "subagents": {
+          "allowAgents": [
+            "code-researcher",
+            "coding-agent",
+            "verify-agent",
+            "executor",
+            "explorer",
+            "vision-agent",
+            "docx-converter-agent",
+            "feishu-master",
+            "browser-agent",
+            "openclaw-master"
+          ]
+        },
+        "tools": {
+          "deny": [
+            "Bash",
+            "Edit",
+            "Write",
+            "web_search",
+            "zhipu-vision__analyze_data_visualization",
+            "zhipu-vision__analyze_image",
+            "zhipu-vision__analyze_video",
+            "zhipu-vision__diagnose_error_screenshot",
+            "zhipu-vision__extract_text_from_screenshot",
+            "zhipu-vision__ui_diff_check",
+            "zhipu-vision__ui_to_artifact",
+            "zhipu-vision__understand_technical_diagram",
+            "mc_operation"
           ]
         }
       }
