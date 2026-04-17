@@ -1,7 +1,7 @@
 {
   "meta": {
     "lastTouchedVersion": "2026.3.30",
-    "lastTouchedAt": "2026-04-08T15:33:50.333Z"
+    "lastTouchedAt": "2026-04-15T14:25:58.690Z"
   },
   "wizard": {
     "lastRunAt": "2026-04-01T17:46:03.581Z",
@@ -9,17 +9,24 @@
     "lastRunCommand": "doctor",
     "lastRunMode": "local"
   },
+  "acp": {
+    "backend": "acpx",
+    "allowedAgents": [
+      "opencode"
+    ]
+  },
   "models": {
     "mode": "merge",
     "providers": {
       "zhipu": {
         "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4",
-        "apiKey": "c7eb3bb4d382459e8c61492cf4d80bb7.oeuVZnrT5U3BF3GC",
+        "apiKey": "53309c0645e846278dfae4165e81f4d2.CswTtJ39wv1pq11i",
         "api": "openai-completions",
         "models": [
           {
             "id": "glm-5-turbo",
             "name": "GLM-5-Turbo",
+            "api": "openai-completions",
             "reasoning": true,
             "input": [
               "text"
@@ -36,6 +43,7 @@
           {
             "id": "glm-5.1",
             "name": "GLM-5.1",
+            "api": "openai-completions",
             "reasoning": true,
             "input": [
               "text"
@@ -52,6 +60,7 @@
           {
             "id": "glm-4-flash",
             "name": "GLM-4-Flash",
+            "api": "openai-completions",
             "reasoning": false,
             "input": [
               "text"
@@ -75,6 +84,7 @@
           {
             "id": "ark-code-latest",
             "name": "ark-code-latest (Custom Provider)",
+            "api": "openai-completions",
             "reasoning": false,
             "input": [
               "text"
@@ -97,12 +107,15 @@
           {
             "id": "qwen-vl-plus",
             "name": "Qwen-VL-Plus",
+            "reasoning": false,
             "input": [
               "image"
             ],
             "cost": {
               "input": 0,
-              "output": 0
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
             },
             "contextWindow": 6000,
             "maxTokens": 2000
@@ -119,7 +132,7 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "volces-com/ark-code-latest",
+        "primary": "openai-codex/gpt-5.4",
         "fallbacks": [
           "zhipu/glm-5-turbo"
         ]
@@ -127,7 +140,8 @@
       "models": {
         "volces-com/ark-code-latest": {
           "alias": "auto"
-        }
+        },
+        "openai-codex/gpt-5.4": {}
       },
       "workspace": "/home/yankeeting/.openclaw/workspace",
       "memorySearch": {
@@ -142,10 +156,14 @@
         }
       },
       "compaction": {
-        "mode": "safeguard"
+        "mode": "default",
+        "model": "zhipu/glm-5-turbo",
+        "memoryFlush": {
+          "enabled": false
+        }
       },
       "heartbeat": {
-        "every": "30m"
+        "every": "240m"
       },
       "maxConcurrent": 20,
       "subagents": {
@@ -188,13 +206,19 @@
             "openclaw-master"
           ]
         },
-        "tools": {}
+        "tools": {
+          "allow": []
+        }
       },
       {
         "id": "executor",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "model": {
-          "primary": "zhipu/glm-5"
+          "primary": "zhipu/glm-5.1",
+          "fallbacks": [
+            "zhipu/glm-5",
+            "volces-com/ark-code-latest"
+          ]
         },
         "skills": [
           "smart-home-control",
@@ -202,7 +226,6 @@
           "cn-web-search",
           "automation-workflows",
           "summarize",
-          "playwright",
           "adaptive-announcement-scraper",
           "crawler-optimizer",
           "ai-ppt-presenter",
@@ -212,21 +235,7 @@
           "knowledge-writer"
         ],
         "tools": {
-          "allow": [
-            "Read",
-            "Write",
-            "Edit",
-            "Delete",
-            "Bash",
-            "exec",
-            "Grep",
-            "Glob",
-            "web_fetch",
-            "web_search",
-            "dashscope_image",
-            "jimeng_image",
-            "seedream_image"
-          ]
+          "allow": []
         }
       },
       {
@@ -243,7 +252,8 @@
             "Grep",
             "Glob",
             "web_fetch",
-            "web_search"
+            "web_search",
+            "exec"
           ]
         }
       },
@@ -295,10 +305,7 @@
       {
         "id": "browser-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
-        "skills": [
-          "knowledge-writer",
-          "playwright"
-        ],
+        "skills": [],
         "tools": {
           "allow": [
             "Read",
@@ -307,30 +314,7 @@
             "Bash",
             "exec",
             "Grep",
-            "Glob",
-            "browser",
-            "playwright__browser_navigate",
-            "playwright__browser_snapshot",
-            "playwright__browser_click",
-            "playwright__browser_type",
-            "playwright__browser_screenshot",
-            "playwright__browser_press",
-            "playwright__browser_select_option",
-            "playwright__browser_evaluate",
-            "playwright__browser_choose_file",
-            "playwright__browser_wait",
-            "playwright__browser_close",
-            "playwright__browser_resize",
-            "playwright__browser_handle_dialog",
-            "playwright__browser_navigate_back",
-            "playwright__browser_navigate_forward",
-            "playwright__browser_tab_list",
-            "playwright__browser_tab_new",
-            "playwright__browser_tab_close",
-            "playwright__browser_tab_select",
-            "playwright__browser_pdf",
-            "playwright__browser_console_messages",
-            "playwright__browser_network_requests"
+            "Glob"
           ]
         }
       },
@@ -338,7 +322,12 @@
         "id": "feishu-organizer",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "model": {
-          "primary": "zhipu/glm-5.1"
+          "primary": "openai-codex/gpt-5.4",
+          "fallbacks": [
+            "zhipu/glm-5-turbo",
+            "zhipu/glm-5",
+            "volces-com/ark-code-latest"
+          ]
         },
         "skills": [
           "task-planning",
@@ -360,20 +349,33 @@
         },
         "tools": {
           "deny": [
-            "Write",
-            "Edit",
             "Bash",
-            "exec",
-            "web_fetch",
-            "web_search"
+            "Edit",
+            "Write",
+            "web_search",
+            "zhipu-vision__analyze_data_visualization",
+            "zhipu-vision__analyze_image",
+            "zhipu-vision__analyze_video",
+            "zhipu-vision__diagnose_error_screenshot",
+            "zhipu-vision__extract_text_from_screenshot",
+            "zhipu-vision__ui_diff_check",
+            "zhipu-vision__ui_to_artifact",
+            "zhipu-vision__understand_technical_diagram",
+            "mc_operation"
           ]
-        }
+        },
+        "thinkingDefault": "medium"
       },
       {
         "id": "feishu-engineer",
         "workspace": "/home/yankeeting/.openclaw/workspace",
         "model": {
-          "primary": "zhipu/glm-5.1"
+          "primary": "openai-codex/gpt-5.4",
+          "fallbacks": [
+            "zhipu/glm-5-turbo",
+            "zhipu/glm-5",
+            "volces-com/ark-code-latest"
+          ]
         },
         "skills": [
           "task-planning",
@@ -393,46 +395,29 @@
             "openclaw-master"
           ]
         },
-        "tools": {
+"tools": {
           "deny": [
-            "Write",
-            "Edit",
             "Bash",
-            "exec",
-            "web_fetch",
-            "web_search"
-          ]
-        }
-      },
-      {
-        "id": "feishu",
-        "workspace": "/home/yankeeting/.openclaw/workspace",
-        "skills": [
-          "task-planning",
-          "daily-diary"
-        ],
-        "subagents": {
-          "allowAgents": [
-            "code-researcher",
-            "coding-agent",
-            "verify-agent",
-            "executor",
-            "explorer",
-            "vision-agent",
-            "docx-converter-agent",
-            "feishu-master",
-            "browser-agent",
-            "openclaw-master"
+            "Edit",
+            "Write",
+            "web_search",
+            "zhipu-vision__analyze_data_visualization",
+            "zhipu-vision__analyze_image",
+            "zhipu-vision__analyze_video",
+            "zhipu-vision__diagnose_error_screenshot",
+            "zhipu-vision__extract_text_from_screenshot",
+            "zhipu-vision__ui_diff_check",
+            "zhipu-vision__ui_to_artifact",
+            "zhipu-vision__understand_technical_diagram",
+            "mc_operation"
           ]
         },
-        "tools": {
-          "deny": [
-            "Write",
-            "Edit",
-            "Bash",
-            "exec",
-            "web_fetch",
-            "web_search"
+        "model": {
+          "primary": "zhipu/glm-5-turbo",
+          "fallbacks": [
+            "openai-codex/gpt-5.4",
+            "zhipu/glm-5",
+            "volces-com/ark-code-latest"
           ]
         }
       },
@@ -483,14 +468,25 @@
             "openclaw-master"
           ]
         },
-        "tools": {
+"tools": {
+          "allow": [
+            "exec"
+          ],
           "deny": [
-            "Write",
-            "Edit",
             "Bash",
-            "exec",
+            "Edit",
+            "Write",
             "web_fetch",
-            "web_search"
+            "web_search",
+            "zhipu-vision__analyze_data_visualization",
+            "zhipu-vision__analyze_image",
+            "zhipu-vision__analyze_video",
+            "zhipu-vision__diagnose_error_screenshot",
+            "zhipu-vision__extract_text_from_screenshot",
+            "zhipu-vision__ui_diff_check",
+            "zhipu-vision__ui_to_artifact",
+            "zhipu-vision__understand_technical_diagram",
+            "mc_operation"
           ]
         }
       },
@@ -515,16 +511,7 @@
             "openclaw-master"
           ]
         },
-        "tools": {
-          "deny": [
-            "Write",
-            "Edit",
-            "Bash",
-            "exec",
-            "web_fetch",
-            "web_search"
-          ]
-        }
+        "tools": {}
       },
       {
         "id": "cron-runner",
@@ -560,6 +547,7 @@
       {
         "id": "code-researcher",
         "workspace": "/home/yankeeting/.openclaw/workspace",
+        "model": "zhipu/glm-5.1",
         "skills": [
           "code-researcher-workflow",
           "knowledge-writer"
@@ -574,12 +562,19 @@
             "Bash",
             "exec"
           ]
-        },
-        "model": "zhipu/glm-5.1"
+        }
       },
       {
         "id": "coding-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
+        "model": {
+          "primary": "openai-codex/gpt-5.4",
+          "fallbacks": [
+            "zhipu/glm-5.1",
+            "zhipu/glm-5",
+            "volces-com/ark-code-latest"
+          ]
+        },
         "skills": [
           "coding-agent-workflow",
           "knowledge-writer"
@@ -597,12 +592,12 @@
             "web_fetch",
             "web_search"
           ]
-        },
-        "model": "zhipu/glm-5.1"
+        }
       },
       {
         "id": "verify-agent",
         "workspace": "/home/yankeeting/.openclaw/workspace",
+        "model": "zhipu/glm-5.1",
         "skills": [
           "verify-agent-workflow",
           "knowledge-writer"
@@ -615,8 +610,7 @@
             "Bash",
             "exec"
           ]
-        },
-        "model": "zhipu/glm-5.1"
+        }
       },
       {
         "id": "openclaw-master",
@@ -636,18 +630,82 @@
             "exec"
           ]
         }
+      },
+      {
+        "id": "board-leader",
+        "name": "board-leader",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "subagents": {
+          "allowAgents": [
+            "mc-worker-dispatcher"
+          ]
+        },
+        "tools": {
+          "deny": [
+            "write",
+            "edit",
+            "delete",
+            "webSearch",
+            "dashscope_image",
+            "jimeng_image",
+            "seedream_image"
+          ]
+        },
+        "skills": [],
+        "model": {
+          "primary": "zhipu/glm-5-turbo",
+          "fallbacks": [
+            "zhipu/glm-5",
+            "volces-com/ark-code-latest"
+          ]
+        }
+      },
+      {
+        "id": "board-worker",
+        "workspace": "/home/yankeeting/.openclaw/workspace",
+        "tools": {
+          "deny": [
+            "write",
+            "edit",
+            "delete",
+            "webSearch",
+            "dashscope_image",
+            "jimeng_image",
+            "seedream_image"
+          ]
+        },
+        "subagents": {
+          "allowAgents": [
+            "vision-agent",
+            "executor",
+            "coding-agent",
+            "code-researcher",
+            "verify-agent",
+            "browser-agent",
+            "explorer",
+            "code-reviewer"
+          ]
+        },
+        "skills": [
+          "task-planning"
+        ],
+        "model": {
+          "primary": "zhipu/glm-5.1",
+          "fallbacks": [
+            "zhipu/glm-5",
+            "volces-com/ark-code-latest"
+          ]
+        }
       }
     ]
   },
   "tools": {
     "profile": "coding",
-    "exec": {
-      "security": "full"
-    },
     "alsoAllow": [
       "dashscope_image",
       "jimeng_image",
-      "seedream_image"
+      "seedream_image",
+      "mc_operation"
     ],
     "deny": [],
     "web": {
@@ -656,8 +714,15 @@
         "provider": "kimi"
       }
     },
+    "sessions": {
+      "visibility": "all"
+    },
     "agentToAgent": {
       "enabled": true
+    },
+    "exec": {
+      "host": "gateway",
+      "security": "full"
     },
     "subagents": {
       "tools": {
@@ -673,9 +738,6 @@
           "web_search"
         ]
       }
-    },
-    "sessions": {
-      "visibility": "all"
     }
   },
   "bindings": [
@@ -705,12 +767,19 @@
       "match": {
         "channel": "xiaoyi"
       }
+    },
+    {
+      "agentId": "migpt",
+      "match": {
+        "channel": "migpt"
+      }
     }
   ],
   "messages": {
     "queue": {
-      "mode": "collect"
-    }
+      "mode": "steer"
+    },
+    "ackReactionScope": "group-mentions"
   },
   "commands": {
     "native": "auto",
@@ -730,7 +799,27 @@
     "maxConcurrentRuns": 3,
     "sessionRetention": "10m"
   },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "bootstrap-extra-files": {
+          "enabled": true,
+          "paths": [
+            "agents/{agentId}/AGENT.md"
+          ]
+        }
+      }
+    }
+  },
   "channels": {
+    "defaults": {
+      "heartbeat": {
+        "showOk": false,
+        "showAlerts": true,
+        "useIndicator": true
+      }
+    },
     "feishu": {
       "enabled": true,
       "connectionMode": "websocket",
@@ -750,8 +839,7 @@
           "dmPolicy": "open",
           "allowFrom": [
             "*"
-          ],
-          "systemPrompt": "不允许静默工作，先回应准备怎么做，再去做。"
+          ]
         },
         "engineer": {
           "enabled": true,
@@ -763,8 +851,7 @@
           "dmPolicy": "open",
           "allowFrom": [
             "*"
-          ],
-          "systemPrompt": "不允许静默工作，先回应准备怎么做，再去做。"
+          ]
         },
         "original": {
           "enabled": true,
@@ -776,8 +863,7 @@
           "dmPolicy": "open",
           "allowFrom": [
             "*"
-          ],
-          "systemPrompt": "不允许静默工作，先回应准备怎么做，再去做。"
+          ]
         }
       },
       "threadContextCarry": {
@@ -799,14 +885,12 @@
           "enabled": true,
           "allowFrom": [
             "*"
-          ],
-          "systemPrompt": "不允许静默工作，先回应准备怎么做，再去做。"
+          ]
         },
         "default": {
           "allowFrom": [
             "*"
-          ],
-          "systemPrompt": "不允许静默工作，先回应准备怎么做，再去做。"
+          ]
         },
         "bot3": {
           "appId": 1903460786,
@@ -814,8 +898,7 @@
           "enabled": true,
           "allowFrom": [
             "*"
-          ],
-          "systemPrompt": "不允许静默工作，先回应准备怎么做，再去做。"
+          ]
         }
       },
       "dmPolicy": "openclaw",
@@ -831,6 +914,16 @@
       "apiId": "webhook3a1c566b1ce3432a852",
       "debug": true,
       "systemPrompt": "不允许静默工作，先回应准备怎么做，再去做。"
+    },
+    "migpt": {
+      "enabled": false,
+      "userId": "74653512",
+      "password": "Yopom@126",
+      "passToken": "V1:DXmurwq2/R1BHTELu6obCW47vO25o0mOF4TQ0szoKdMRGZ/rOvdTnRFXvwycSy7MY86e6skyKROZ2Qh1WegKPc/k3vP8OvsWBtLcF5wp8R7gr/FrQE2zm4ZpszHXBLjEGzno5f8qMmyat03bI4vp0MsbgFp2ykELG18vlE5hRmdeE9R9oEnP+5EI/Rwsdt5+ie9d/ksARhufWH2PKK70MgiQ1SZb1+eJqjt5tZJteSLmaS+KE3l4CrDtIGpOfh+ExZzw/spT3WSg2O2IDMfRwjwpEPtLkth5Rluf/q6GRpkeBHWScV+bXpFOh+nx6G4X+YSDewW2shotBe/XyJX7eQ==",
+      "speakerControl": "miot",
+      "devices": [
+        "openclaw"
+      ]
     }
   },
   "gateway": {
@@ -864,6 +957,21 @@
       ]
     }
   },
+  "mcp": {
+    "servers": {
+      "zhipu-vision": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@z_ai/mcp-server"
+        ],
+        "env": {
+          "Z_AI_API_KEY": "c7eb3bb4d382459e8c61492cf4d80bb7.oeuVZnrT5U3BF3GC"
+        },
+        "connectionTimeoutMs": 300000
+      }
+    }
+  },
   "skills": {
     "entries": {
       "smart-home-control": {
@@ -879,9 +987,6 @@
         "enabled": true
       },
       "multi-search-engine": {
-        "enabled": true
-      },
-      "playwright": {
         "enabled": true
       },
       "executor": {
@@ -954,20 +1059,25 @@
       "openclaw-qqbot",
       "acpx",
       "browser",
-      "moonshot"
+      "moonshot",
+      "migpt-claw"
     ],
     "entries": {
       "openclaw-qqbot": {
-        "enabled": true
+        "enabled": true,
+        "config": {}
       },
       "feishu": {
-        "enabled": true
+        "enabled": true,
+        "config": {}
       },
       "xiaoyi": {
-        "enabled": true
+        "enabled": true,
+        "config": {}
       },
       "china-image-gen": {
-        "enabled": true
+        "enabled": true,
+        "config": {}
       },
       "acpx": {
         "enabled": true,
@@ -977,7 +1087,8 @@
         }
       },
       "browser": {
-        "enabled": true
+        "enabled": true,
+        "config": {}
       },
       "moonshot": {
         "enabled": true,
@@ -985,6 +1096,16 @@
           "webSearch": {
             "apiKey": "sk-CwQYlNUFoRTFzk3sPT2cte9y3lsZ3aqRcot2RAiHTqi2AnUN"
           }
+        }
+      },
+      "migpt-claw": {
+        "enabled": true,
+        "config": {
+          "heartbeat": 1000,
+          "announceOnStart": false,
+          "startupMessage": "您的小龙虾已上线，随时为您服务",
+          "acknowledgeOnReceive": false,
+          "receiveMessage": "收到，处理中"
         }
       }
     },
@@ -1019,48 +1140,20 @@
         "source": "path",
         "installPath": "/home/yankeeting/.openclaw/extensions/china-image-gen"
       },
-      "acpx": {
-        "source": "path",
-        "spec": "acpx",
-        "sourcePath": "/usr/lib/node_modules/openclaw/dist/extensions/acpx",
-        "installPath": "/usr/lib/node_modules/openclaw/dist/extensions/acpx",
-        "installedAt": "2026-04-01T14:20:44.161Z"
+      "migpt-claw": {
+        "source": "archive",
+        "sourcePath": "/tmp/migpt-claw/migpt-claw-1.0.0.tgz",
+        "installPath": "/home/yankeeting/.openclaw/extensions/migpt-claw",
+        "version": "1.0.0",
+        "installedAt": "2026-04-10T13:45:42.383Z"
       }
-    },
-    "load": {
-      "paths": [
-        "/usr/lib/node_modules/openclaw/dist/extensions/acpx"
-      ]
     }
   },
-  "acp": {
-    "backend": "acpx",
-    "allowedAgents": [
-      "qoder",
-      "opencode"
-    ]
-  },
-  "mcp": {
-    "servers": {
-      "zhipu-vision": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@z_ai/mcp-server"
-        ],
-        "env": {
-          "Z_AI_API_KEY": "c7eb3bb4d382459e8c61492cf4d80bb7.oeuVZnrT5U3BF3GC"
-        },
-        "connectionTimeoutMs": 300000
-      },
-      "playwright": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@playwright/mcp",
-          "--headless"
-        ],
-        "connectionTimeoutMs": 300000
+  "auth": {
+    "profiles": {
+      "openai-codex:chanyuenpang@gmail.com": {
+        "provider": "openai-codex",
+        "mode": "oauth"
       }
     }
   }
