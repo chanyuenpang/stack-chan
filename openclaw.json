@@ -511,7 +511,11 @@
             "openclaw-master"
           ]
         },
-        "tools": {}
+        "tools": {
+          "deny": [
+            "mc_operation"
+          ]
+        }
       },
       {
         "id": "cron-runner",
