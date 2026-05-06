@@ -1,0 +1,33 @@
+{
+  "title": "洛尘 Board Lead 下一步推进",
+  "status": "completed",
+  "goal": {
+    "text": "确认洛尘相关下一项可执行任务，形成最小任务拆分并推进第一个原子任务。"
+  },
+  "tasks": [
+    {
+      "id": 1,
+      "title": "侦察洛尘相关现状与待办",
+      "status": "in_progress",
+      "detail": "objective: 在 tiny-world 项目中查找洛尘相关代码、数据、文档、任务痕迹，确认当前状态与下一个最小可执行目标。scope: 只读侦察，不改代码。assigned_to: code-researcher"
+    },
+    {
+      "id": 2,
+      "title": "制定洛尘下一步原子任务",
+      "status": "pending",
+      "detail": "objective: 基于侦察结果更新计划，拆出可执行的 coding/verify 任务。dependencies: [1]"
+    },
+    {
+      "id": 3,
+      "title": "执行第一个原子任务",
+      "status": "pending",
+      "detail": "objective: 按计划派 coding-agent 或 verify-agent 推进第一个明确任务。dependencies: [2]"
+    },
+    {
+      "id": 4,
+      "title": "验证与汇报",
+      "status": "pending",
+      "detail": "objective: 验证第一个原子任务结果并汇报。dependencies: [3]"
+    }
+  ]
+}
