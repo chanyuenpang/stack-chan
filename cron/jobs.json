@@ -6,7 +6,7 @@
       "name": "早安问候",
       "enabled": true,
       "createdAtMs": 1773331665748,
-      "updatedAtMs": 1775604734379,
+      "updatedAtMs": 1778283173236,
       "schedule": {
         "kind": "cron",
         "expr": "30 7 * * *",
@@ -27,121 +27,17 @@
         "accountId": "original"
       },
       "state": {
-        "nextRunAtMs": 1775691113213,
-        "lastRunAtMs": 1775604713226,
-        "lastRunStatus": "ok",
-        "lastStatus": "ok",
-        "lastDurationMs": 21153,
-        "lastDeliveryStatus": "delivered",
-        "consecutiveErrors": 0,
-        "lastDelivered": true
+        "nextRunAtMs": 1778369513213,
+        "lastRunAtMs": 1778283113220,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 60016,
+        "lastDeliveryStatus": "unknown",
+        "consecutiveErrors": 1,
+        "lastError": "cron: job execution timed out",
+        "lastErrorReason": "timeout"
       },
       "agentId": "feishu"
-    },
-    {
-      "id": "7cedb1d8-d6db-4808-aa84-ee2664e458ad",
-      "name": "subagent-cleanup",
-      "description": "每天 5:30 清理超过 24 小时的已完成 subagent session",
-      "enabled": true,
-      "createdAtMs": 1773552636562,
-      "updatedAtMs": 1775640629776,
-      "schedule": {
-        "kind": "cron",
-        "expr": "30 5,17 * * *",
-        "tz": "Asia/Shanghai"
-      },
-      "sessionTarget": "isolated",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "执行 openclaw sessions cleanup --enforce --all-agents 清理所有 agent 的残留子会话",
-        "timeoutSeconds": 300
-      },
-      "delivery": {
-        "mode": "none"
-      },
-      "agentId": "feishu",
-      "state": {
-        "nextRunAtMs": 1775683800000,
-        "lastRunAtMs": 1775640600010,
-        "lastRunStatus": "ok",
-        "lastStatus": "ok",
-        "lastDurationMs": 29766,
-        "lastDeliveryStatus": "not-delivered",
-        "consecutiveErrors": 0,
-        "lastDelivered": false
-      }
-    },
-    {
-      "id": "daily-memory-report",
-      "name": "每日记忆沉淀",
-      "description": "每天凌晨 2:00 由 main agent 统一归档所有 agent 的昨日记忆",
-      "enabled": true,
-      "createdAtMs": 1773676800000,
-      "updatedAtMs": 1775671249019,
-      "schedule": {
-        "kind": "cron",
-        "expr": "0 2 * * *",
-        "tz": "Asia/Shanghai"
-      },
-      "sessionTarget": "isolated",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "执行每日记忆沉淀任务。\n\n你需要为以下 agent 生成昨日日记：\n1. feishu\n2. feishu-organizer\n3. feishu-engineer\n4. qqbot\n\n步骤：\n1. 确定昨天的日期（格式：YYYY-MM-DD），只处理这一天的内容\n2. 计算昨天的时间戳范围（使用 GMT+8 时区）：\n   - 昨天 00:00:00 GMT+8 的毫秒时间戳\n   - 昨天 23:59:59 GMT+8 的毫秒时间戳\n3. 遍历每个 agent：\n   a. 读取 agents/{agent}/sessions/sessions.json\n   b. 筛选 updatedAt 在昨天时间戳范围内的 session\n   c. 如果没有 session 或只有 cron 定时任务触发的系统消息，跳过该 agent，不生成日记\n   d. 读取对应的 .jsonl 文件获取对话内容\n   e. 归纳内容：提取关键信息，清除噪声\n   f. 合并重复：相同主题的内容合并处理\n   g. 如果归纳后发现没有值得记录的内容，跳过该 agent\n4. 只为有实际内容的 agent 创建日记\n5. 创建目录 workspace/memory/{agent}/（如果不存在）\n6. 写入日记文件 workspace/memory/{agent}/{date}.md\n\n归纳要求：\n- 清除噪声：忽略系统消息、媒体附件、技术元数据、[media attached] 等\n- 合并重复：相同主题的多次对话合并为一个条目\n- 提取关键：用户问题、执行任务、用户偏好\n\n日记格式：\n- 标题：# {agent} 日记 - {date}\n- 按主题分类，每个主题一个条目\n- 相同主题的多次对话合并，标注出现次数\n\n重要规则：\n- 只处理昨天有活动的 session，忽略 .deleted 文件\n- 时间戳计算必须使用 GMT+8 时区\n- 如果没有值得记录的内容，不要创建空日记文件",
-        "timeoutSeconds": 600
-      },
-      "delivery": {
-        "mode": "none"
-      },
-      "agentId": "main",
-      "state": {
-        "nextRunAtMs": 1775757600000,
-        "lastRunAtMs": 1775671200014,
-        "lastRunStatus": "ok",
-        "lastStatus": "ok",
-        "lastDurationMs": 49005,
-        "lastDeliveryStatus": "not-delivered",
-        "consecutiveErrors": 0,
-        "lastDelivered": false
-      }
-    },
-    {
-      "id": "41c53256-49fa-4cf0-a622-b9f4a9d22594",
-      "agentId": "main",
-      "name": "evolution-scanner-weekly",
-      "description": "每周一 7:30 执行知识库进化扫描",
-      "enabled": true,
-      "createdAtMs": 1773679753803,
-      "updatedAtMs": 1775451957164,
-      "schedule": {
-        "kind": "cron",
-        "expr": "30 7 * * 1",
-        "tz": "Asia/Shanghai"
-      },
-      "sessionTarget": "isolated",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "执行进化扫描（周报）：\n\n1. 扫描所有知识库重复模式\n2. 检查上期报告中未处理的建议\n3. 对 critical 级别发现自动修复（通过 executor subagent）\n4. 生成每周进化报告，包含\"已执行操作\"和\"上期报告跟踪\"章节\n5. 报告写入 .knowledge/当月/evolution-reports/weekly-{年}-W{周}.md",
-        "timeoutSeconds": 600
-      },
-      "delivery": {
-        "mode": "announce",
-        "channel": "feishu",
-        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1",
-        "accountId": "original"
-      },
-      "state": {
-        "nextRunAtMs": 1776036600000,
-        "lastRunAtMs": 1775451752647,
-        "lastRunStatus": "ok",
-        "lastStatus": "ok",
-        "lastDurationMs": 204517,
-        "lastDeliveryStatus": "delivered",
-        "consecutiveErrors": 0,
-        "lastDelivered": true
-      }
     },
     {
       "id": "monthly-knowledge-rollover",
@@ -150,7 +46,7 @@
       "description": "每月1日凌晨3:00执行知识库月度轮转归档",
       "enabled": true,
       "createdAtMs": 1774416000000,
-      "updatedAtMs": 1775050577687,
+      "updatedAtMs": 1777575720832,
       "schedule": {
         "kind": "cron",
         "expr": "0 3 1 * *",
@@ -167,63 +63,23 @@
         "mode": "none"
       },
       "state": {
-        "nextRunAtMs": 1777575600000,
-        "lastRunAtMs": 1775050577595,
-        "lastRunStatus": "error",
-        "lastStatus": "error",
-        "lastDurationMs": 92,
-        "lastError": "No API key for provider: volces-com",
+        "nextRunAtMs": 1780254000000,
+        "lastRunAtMs": 1777575600003,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 120829,
         "lastDelivered": false,
         "lastDeliveryStatus": "not-delivered",
-        "lastDeliveryError": "No API key for provider: volces-com",
-        "consecutiveErrors": 1
+        "consecutiveErrors": 0
       }
     },
     {
-      "id": "7a474c5d-ee2f-4fe3-8907-e205e45ca9ab",
-      "agentId": "cron-runner",
-      "name": "daily-news-crawler",
-      "description": "每日抓取政府网站公告，生成日报发送（v3 Skill 架构）",
+      "id": "memory-nightly-maintenance",
+      "name": "夜间记忆整理",
+      "description": "每天凌晨3:00按 todo 驱动发现 MEMORY.md、逐项派发 memory-processor 并汇总结果",
       "enabled": true,
-      "createdAtMs": 1774601040831,
-      "updatedAtMs": 1775619727092,
-      "schedule": {
-        "kind": "cron",
-        "expr": "0 6 * * *",
-        "tz": "Asia/Shanghai"
-      },
-      "sessionTarget": "isolated",
-      "wakeMode": "now",
-      "payload": {
-        "kind": "agentTurn",
-        "message": "抓取公告",
-        "timeoutSeconds": 1800
-      },
-      "delivery": {
-        "mode": "announce",
-        "channel": "feishu",
-        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1",
-        "accountId": "original"
-      },
-      "state": {
-        "nextRunAtMs": 1775685600000,
-        "lastRunAtMs": 1775618924937,
-        "lastRunStatus": "error",
-        "lastStatus": "error",
-        "lastDurationMs": 802155,
-        "lastDeliveryStatus": "unknown",
-        "consecutiveErrors": 1,
-        "lastError": "Error: gateway timeout after 10000ms\nGateway target: ws://127.0.0.1:18789\nSource: local loopback\nConfig: /home/yankeeting/.openclaw/openclaw.json\nBind: lan",
-        "lastErrorReason": "timeout"
-      }
-    },
-    {
-      "id": "session-cleanup-daily",
-      "name": "session-cleanup",
-      "description": "每天凌晨 3:00 清理超过 7 天的过期 session 工作区",
-      "enabled": true,
-      "createdAtMs": 1775414400000,
-      "updatedAtMs": 1775589230878,
+      "createdAtMs": 1775555400000,
+      "updatedAtMs": 1778355375279,
       "schedule": {
         "kind": "cron",
         "expr": "0 3 * * *",
@@ -233,58 +89,59 @@
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
-        "message": "执行日常清理任务。\n1. 清理 session 工作区：遍历 ~/.openclaw/workspace/sessions/，删除7天以上 completed/abandoned 目录\n2. 清理旧日志：find ~/.openclaw/logs/ -type f -mtime +7 -delete\n3. 清理临时文件：find ~/.openclaw/workspace/sessions/ -type f \\( -name \"*.tmp\" -o -name \"*.cache\" \\) -mtime +7 -delete",
-        "timeoutSeconds": 300
+        "message": "执行夜间记忆整理 dispatcher SOP。\n1. 运行 memory-processor-workflow skill 目录中的 discover-memory-paths.sh 生成 todo。\n2. 读取 todo.json，并逐项确认每个待处理项都包含 memory_path、knowledge_dir、source。\n3. 对每个待处理项派发一个 memory-processor subagent。\n4. 每个 subagent 必须按 memory-processor-workflow + knowledge-writer 执行，并返回 output_files、去重/合并情况、失败原因。\n5. 所有条目必须以下沉/合并到 knowledge 为准；knowledge 是全量主账本，MEMORY 只是 Top30 高频投影层。\n6. MEMORY 中 count=1 的条目夜间必须全部写入 knowledge，不能直接继续保留在 MEMORY。\n7. 对候选 promo 项执行硬规则：若 MEMORY 未满 30 条，只要 count >= 2 就可以 promo；若 MEMORY 已满 30 条，新 promo 项 count 必须严格大于当前第30位，等于不允许入榜。\n8. 每完成一项，立即回写 todo 中该项的 started_at、completed_at、status、output_files、error。\n9. 全部完成后，检查所有 output_files 是否已实际落盘。\n10. 全部处理完成后，检查 MEMORY.md 最终态是否只保留 Top30，且是否还残留 count=1 条目或 count<2 的保留项。\n11. 如果仍有不符合规则的残留，说明处理不完整，必须补充处理直到清除完成。\n12. 最终汇总必须明确说明：剩余条目数、最低入榜 count、是否触发严格挤榜规则。\n13. 最后汇总：成功数、失败数、每个 source 的输出结果、以及需要人工处理的问题。\n\n【项目级 knowledge 月度分桶规则】\n- 项目级 knowledge 写入 .projects/<project>/.knowledge/YY-MM-learnings.md 或 YY-MM-patterns.md，YY-MM 取条目更新时间所属月份（Asia/Shanghai）。\n- 项目级 errors 归入 YY-MM-learnings.md，不生成项目级 errors.md。\n- 项目级条目字段只保留：计数、标签、发现时间、更新时间、内容；禁止写入 来源、项目。\n- 首次沉淀：发现时间=更新时间=当前日期；命中已有条目：计数 += MEMORY.count，发现时间不变，更新时间=当前日期；更新时间跨月时移动到当前月文件。\n- 项目级去重范围是同一项目 .knowledge/ 下所有 YY-MM-*.md，不能只查当前月。\n- Scope 强制：kind=project 或 memory_path 位于 .projects/<project>/ 时，必须写入该项目 .knowledge/，禁止写入 workspace .knowledge/（防止 tiny-world 误写全局）。\n- 全局 knowledge 规则不变：仍使用 workspace .knowledge/shared-learnings.md、shared-patterns.md、shared-errors.md，全局条目字段不变。",
+        "timeoutSeconds": 600
       },
       "delivery": {
         "mode": "none"
       },
-      "agentId": "main",
+      "agentId": "cron-runner",
       "state": {
-        "nextRunAtMs": 1775674800000,
-        "lastRunAtMs": 1775588930860,
-        "lastRunStatus": "error",
-        "lastStatus": "error",
-        "lastDurationMs": 300018,
-        "lastDeliveryStatus": "not-requested",
-        "consecutiveErrors": 1,
-        "lastError": "cron: job execution timed out",
-        "lastErrorReason": "timeout"
+        "nextRunAtMs": 1778439600000,
+        "lastRunAtMs": 1778355301569,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 73710,
+        "lastDelivered": false,
+        "lastDeliveryStatus": "not-delivered",
+        "consecutiveErrors": 0
       }
     },
     {
-      "id": "memory-maintenance-daily",
-      "name": "记忆整理",
-      "description": "每天凌晨4:00整理MEMORY.md新条目，与knowledge匹配计数",
+      "id": "a5efcd08-372e-4fd6-b4bd-6e69fd238da0",
+      "agentId": "cron-runner",
+      "name": "daily-gov-notice-v2",
+      "description": "使用 cron-runner 调度 scraper-agent 的政府公告日报 v2",
       "enabled": true,
-      "createdAtMs": 1775555400000,
-      "updatedAtMs": 1775592497229,
+      "createdAtMs": 1777379015950,
+      "updatedAtMs": 1778284297592,
       "schedule": {
         "kind": "cron",
-        "expr": "0 4 * * *",
+        "expr": "30 6 * * *",
         "tz": "Asia/Shanghai"
       },
       "sessionTarget": "isolated",
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
-        "message": "执行每日记忆整理任务。\n\n步骤：\n1. 读取 MEMORY.md 的记忆表，解析所有行（标题、内容、计数）\n2. 找出计数=1的条目（新条目）\n3. 对每个新条目：\n   a. 用标题+内容调用 memory_search(query, threshold=0.70)\n   b. 拿到候选结果后，判断是否有相似/重复的已有条目\n   c. 如果匹配到：\n      - 在 .knowledge/ 对应文件中找到该条目，计数+1\n      - 更新 MEMORY.md 中该条目的计数（也+1）\n   d. 如果没匹配到：\n      - 在 .knowledge/YYYY-MM/ 目录创建新条目\n      - 格式：## [count:1] 标题\\n- 内容: ...\\n- 来源: ...\\n- 更新时间: YYYY-MM-DD\\n- 标签: ...\n4. 按计数降序重新排列 MEMORY.md 表格（高频在前）\n5. 检查 .knowledge/ 中所有条目的计数，如果某条计数 > MEMORY.md 中最低计数，考虑在 MEMORY 中更新\n6. 可选：标记30天以上且计数仍=1的条目为待清理\n\n完成后输出整理报告。",
-        "timeoutSeconds": 600
+        "message": "读取 /home/yankeeting/.openclaw/projects/gov-notice-daily-scraper/docs/daily-run-sop.md，严格按文档中的步骤执行政府公告每日抓取任务。不要省略任何步骤，特别是 Step 5（Phase 3）和 Step 6（飞书推送）必须执行。",
+        "timeoutSeconds": 0
       },
       "delivery": {
-        "mode": "none"
+        "mode": "announce",
+        "channel": "feishu",
+        "to": "chat:oc_00c2c690e5a60b6803a38b121568e4c1",
+        "accountId": "original"
       },
-      "agentId": "main",
       "state": {
-        "nextRunAtMs": 1775678400000,
-        "lastRunAtMs": 1775592374584,
-        "lastRunStatus": "error",
-        "lastStatus": "error",
-        "lastDurationMs": 122645,
-        "lastDeliveryStatus": "not-requested",
-        "consecutiveErrors": 1,
-        "lastError": "FallbackSummaryError: All models failed (2): volces-com/ark-code-latest: LLM request timed out. (unknown) | zhipu/glm-5-turbo: LLM request failed: network connection error. (timeout)",
-        "lastErrorReason": "timeout"
+        "nextRunAtMs": 1778365800000,
+        "lastRunAtMs": 1778283815112,
+        "lastRunStatus": "ok",
+        "lastStatus": "ok",
+        "lastDurationMs": 482480,
+        "lastDeliveryStatus": "delivered",
+        "consecutiveErrors": 0,
+        "lastDelivered": true
       }
     }
   ]
