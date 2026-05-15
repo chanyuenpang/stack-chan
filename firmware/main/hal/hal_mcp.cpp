@@ -8,10 +8,183 @@
 #include <mcp_server.h>
 #include <stackchan/stackchan.h>
 #include <apps/common/common.h>
+#include "board/hal_bridge.h"
+#include <assets/assets.h>
 
 using namespace stackchan;
 
 static const std::string_view _tag = "HAL-MCP";
+
+namespace {
+
+class CelebrateModifier : public Modifier {
+public:
+    CelebrateModifier(std::string style, int durationMs, int intensity)
+        : _style(parseStyle(style)), _duration_ms(clamp(durationMs, 500, 5000)), _intensity(clamp(intensity, 1, 3))
+    {
+    }
+
+    void _update(Modifiable& stackchan) override
+    {
+        uint32_t now = GetHAL().millis();
+        if (!_started) {
+            _started    = true;
+            _start_ms   = now;
+            _last_step  = now - kStepIntervalMs;
+            _step_index = 0;
+
+            if (stackchan.hasAvatar()) {
+                _had_avatar   = true;
+                _prev_emotion = stackchan.avatar().getEmotion();
+                stackchan.avatar().setEmotion(avatar::Emotion::Happy);
+            }
+        }
+
+        if (now - _start_ms >= static_cast<uint32_t>(_duration_ms)) {
+            stackchan.motion().goHome(180);
+            stackchan.leftNeonLight().setColor(0, 0, 0);
+            stackchan.rightNeonLight().setColor(0, 0, 0);
+            if (_had_avatar && stackchan.hasAvatar()) {
+                stackchan.avatar().setEmotion(_prev_emotion);
+            }
+            requestDestroy();
+            return;
+        }
+
+        if (now - _last_step < kStepIntervalMs) {
+            return;
+        }
+        _last_step = now;
+
+        applyLight(stackchan, _step_index);
+        applyMotion(stackchan, _step_index);
+        ++_step_index;
+    }
+
+private:
+    enum class Style { Cheer, Sparkle, Nod, Calm };
+
+    static constexpr uint32_t kStepIntervalMs = 250;
+
+    static int clamp(int value, int minValue, int maxValue)
+    {
+        if (value < minValue) {
+            return minValue;
+        }
+        if (value > maxValue) {
+            return maxValue;
+        }
+        return value;
+    }
+
+    static Style parseStyle(const std::string& style)
+    {
+        if (style == "sparkle") {
+            return Style::Sparkle;
+        }
+        if (style == "nod") {
+            return Style::Nod;
+        }
+        if (style == "calm") {
+            return Style::Calm;
+        }
+        return Style::Cheer;
+    }
+
+    uint8_t scaled(uint8_t value) const
+    {
+        return static_cast<uint8_t>(clamp((static_cast<int>(value) * _intensity) / 3, 0, 128));
+    }
+
+    void applyLight(Modifiable& stackchan, uint32_t step)
+    {
+        struct Rgb {
+            uint8_t r;
+            uint8_t g;
+            uint8_t b;
+        };
+
+        const Rgb cheer[]   = {{128, 72, 24}, {48, 112, 128}, {112, 48, 128}, {96, 128, 48}};
+        const Rgb sparkle[] = {{128, 128, 96}, {32, 96, 128}, {128, 64, 96}, {48, 128, 96}};
+        const Rgb nod[]     = {{64, 112, 128}, {48, 80, 112}};
+        const Rgb calm[]    = {{24, 64, 96}, {16, 48, 72}};
+
+        const Rgb* palette = cheer;
+        uint32_t count     = sizeof(cheer) / sizeof(cheer[0]);
+        switch (_style) {
+            case Style::Sparkle:
+                palette = sparkle;
+                count   = sizeof(sparkle) / sizeof(sparkle[0]);
+                break;
+            case Style::Nod:
+                palette = nod;
+                count   = sizeof(nod) / sizeof(nod[0]);
+                break;
+            case Style::Calm:
+                palette = calm;
+                count   = sizeof(calm) / sizeof(calm[0]);
+                break;
+            case Style::Cheer:
+            default:
+                break;
+        }
+
+        const Rgb& color = palette[step % count];
+        stackchan.leftNeonLight().setColor(scaled(color.r), scaled(color.g), scaled(color.b));
+        stackchan.rightNeonLight().setColor(scaled(color.r), scaled(color.g), scaled(color.b));
+    }
+
+    void applyMotion(Modifiable& stackchan, uint32_t step)
+    {
+        int yaw   = 0;
+        int pitch = 0;
+        int speed = 160 + (_intensity - 1) * 30;
+
+        switch (_style) {
+            case Style::Sparkle:
+                yaw   = (step % 2 == 0) ? 8 : -8;
+                pitch = (step % 4 < 2) ? 4 : 0;
+                speed = 180 + (_intensity - 1) * 20;
+                break;
+            case Style::Nod:
+                yaw   = 0;
+                pitch = (step % 2 == 0) ? 7 : 1;
+                speed = 150 + (_intensity - 1) * 25;
+                break;
+            case Style::Calm:
+                yaw   = (step % 4 < 2) ? 4 : -4;
+                pitch = 2;
+                speed = 120 + (_intensity - 1) * 20;
+                break;
+            case Style::Cheer:
+            default:
+                yaw   = (step % 2 == 0) ? 10 : -10;
+                pitch = (step % 4 < 2) ? 6 : 2;
+                speed = 170 + (_intensity - 1) * 25;
+                break;
+        }
+
+        yaw   = clamp(yaw, -12, 12);
+        pitch = clamp(pitch, 0, 8);
+        speed = clamp(speed, 120, 220);
+
+        auto& motion = stackchan.motion();
+        motion.yawServo().moveWithSpeed(yaw * 10, speed);
+        motion.pitchServo().moveWithSpeed(pitch * 10, speed);
+    }
+
+    Style _style;
+    int _duration_ms;
+    int _intensity;
+    bool _started                  = false;
+    bool _had_avatar               = false;
+    uint32_t _start_ms             = 0;
+    uint32_t _last_step            = 0;
+    uint32_t _step_index           = 0;
+    avatar::Emotion _prev_emotion  = avatar::Emotion::Neutral;
+};
+
+}  // namespace
 
 void Hal::xiaozhi_mcp_init()
 {
@@ -91,6 +264,46 @@ void Hal::xiaozhi_mcp_init()
 
             return true;
         });
+
+    mclog::tagInfo(_tag, "add robot.celebrate tool");
+    mcp_server.AddTool("self.robot.celebrate",
+                       "Run a short, gentle celebration on the robot. Styles: cheer/sparkle/nod/calm. "
+                       "Non-blocking; keeps LED brightness and head movement in safe low ranges.",
+                       PropertyList({Property("style", kPropertyTypeString, std::string("cheer")),
+                                     Property("duration_ms", kPropertyTypeInteger, 1800, 500, 5000),
+                                     Property("intensity", kPropertyTypeInteger, 2, 1, 3),
+                                     Property("sound", kPropertyTypeBoolean, true)}),
+                       [this](const PropertyList& properties) -> ReturnValue {
+                           auto clamp = [](int value, int minValue, int maxValue) {
+                               if (value < minValue) {
+                                   return minValue;
+                               }
+                               if (value > maxValue) {
+                                   return maxValue;
+                               }
+                               return value;
+                           };
+
+                           std::string style = properties["style"].value<std::string>();
+                           if (style != "cheer" && style != "sparkle" && style != "nod" && style != "calm") {
+                               style = "cheer";
+                           }
+                           int duration_ms = clamp(properties["duration_ms"].value<int>(), 500, 5000);
+                           int intensity   = clamp(properties["intensity"].value<int>(), 1, 3);
+                           bool sound      = properties["sound"].value<bool>();
+
+                           mclog::tagInfo(_tag, "celebrate: style={}, duration_ms={}, intensity={}, sound={}", style,
+                                          duration_ms, intensity, sound);
+
+                           if (sound) {
+                               hal_bridge::app_play_sound(OGG_NEW_NOTIFICATION);
+                           }
+
+                           LvglLockGuard lock;
+                           GetStackChan().addModifier(std::make_unique<CelebrateModifier>(style, duration_ms, intensity));
+
+                           return true;
+                       });
 
     mclog::tagInfo(_tag, "add robot.create_reminder tool");
     mcp_server.AddTool("self.robot.create_reminder",
