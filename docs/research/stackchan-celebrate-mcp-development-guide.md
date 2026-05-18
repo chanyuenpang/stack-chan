@@ -472,7 +472,7 @@ self.robot.celebrate 可被调用
 - `docs/research/stackchan-ota-custom-appbin-feasibility.md`
 - `docs/research/stackchan-ota-mock-and-live-preflight.md`
 - `docs/research/stackchan-ota-url-write-paths.md`
-- `docs/design/celebrate-mcp-tool-design.md`
+- `docs/research/stackchan-remote-celebration-runbook.md`
 - `subagents/62.report.md`
 - `subagents/66_task.md`
 - `subagents/67_task.md`

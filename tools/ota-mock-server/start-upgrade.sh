@@ -8,7 +8,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PORT=8081
 LOG_FILE="/tmp/stackchan-ota-upgrade-${PORT}.log"
-LAN_IP="192.168.0.12"
+LAN_IP="${LAN_IP:-192.168.0.12}"
+VERSION="${VERSION:-2.0.25}"
 
 # --- 检查 port 是否被占用 ---
 if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
@@ -29,8 +30,8 @@ fi
 echo "=== 启动 OTA upgrade mock server ==="
 nohup python3 "${SCRIPT_DIR}/ota-mock-server.py" \
     --mode upgrade \
-    --version 2.0.0-test \
-    --force true \
+    --version "${VERSION}" \
+    --force 1 \
     --port ${PORT} \
     > "${LOG_FILE}" 2>&1 &
 PID=$!
