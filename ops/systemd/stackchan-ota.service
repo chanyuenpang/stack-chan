@@ -1,0 +1,16 @@
+[Unit]
+Description=StackChan OTA Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/yankeeting/.openclaw/projects/stack-chan/StackChan
+ExecStart=/usr/bin/python3 -u remote/ota_server.py --metadata ops/ota/active.json
+Restart=always
+RestartSec=2
+StandardOutput=append:%h/.local/state/stackchan-ota/ota-server.log
+StandardError=append:%h/.local/state/stackchan-ota/ota-server.log
+
+[Install]
+WantedBy=default.target

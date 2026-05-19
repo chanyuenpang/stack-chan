@@ -131,6 +131,10 @@ void Hal::updateHeapStatusLog()
 /*                                   Xiaozhi                                  */
 /* -------------------------------------------------------------------------- */
 #include "board/hal_bridge.h"
+#include "hal_celebrate.h"
+#include "hal_dev_serial.h"
+#include "hal_dev_local_control.h"
+#include "hal_stackchan_performance.h"
 #include <stackchan/stackchan.h>
 #include <apps/common/common.h>
 #include <assets/assets.h>
@@ -145,34 +149,92 @@ void Hal::xiaozhi_board_init()
 static void _stackchan_update_task(void* param)
 {
     bool is_setup_done = false;
+    uint32_t last_full_update_ms = 0;
+    uint32_t last_motion_update_ms = 0;
+    uint32_t last_motion_active_ms = 0;
+    bool auto_sync_enabled = true;
+    bool last_motion_active_state = false;
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-
         tools::update_reminders();
 
-        LvglLockGuard lock;
+        const uint32_t now_ms = GetHAL().millis();
+        const bool is_idle    = hal_bridge::is_xiaozhi_idle();
+        const bool motion_active = stackchan_motion_high_refresh_active();
+        const uint32_t full_update_interval_ms = is_idle ? 20 : 150;
+        const uint32_t motion_update_interval_ms = motion_active ? 50 : 150;
+        const bool should_run_motion_update =
+            last_motion_update_ms == 0 || now_ms - last_motion_update_ms >= motion_update_interval_ms;
+        const bool should_run_full_update =
+            last_full_update_ms == 0 || now_ms - last_full_update_ms >= full_update_interval_ms;
 
-        if (!hal_bridge::is_xiaozhi_idle()) {
-            vTaskDelay(pdMS_TO_TICKS(100));
+        if (should_run_motion_update) {
+            last_motion_update_ms = now_ms;
+            LvglLockGuard lock;
+
+            // Auto angle-sync management (learned from app_dance).
+            // When motion commands are arriving fast (celebrate / head
+            // scheduler active) we disable auto-angle-sync so that
+            // moveWithSpeed keeps animation momentum instead of teleporting
+            // back to current position every frame – identical to how
+            // AppDance::check_auto_angle_sync_mode works.  After 2 s of
+            // no active motion we re-enable it so casual / manual moves
+            // stay jump-free.
+            auto& motion = GetStackChan().motion();
+            if (motion_active != last_motion_active_state) {
+                mclog::tagInfo("MOTION-REFRESH", "event=high_refresh active={} autoSync={} t_ms={}",
+                               motion_active ? 1 : 0, auto_sync_enabled ? 1 : 0, now_ms);
+                last_motion_active_state = motion_active;
+            }
+            if (motion_active) {
+                if (auto_sync_enabled) {
+                    motion.setAutoAngleSyncEnabled(false);
+                    auto_sync_enabled = false;
+                    mclog::tagInfo("MOTION-REFRESH",
+                                   "event=auto_sync state=off reason=high_refresh active=1 t_ms={} restore_after_ms=2000",
+                                   now_ms);
+                }
+                last_motion_active_ms = now_ms;
+            } else if (last_motion_active_ms != 0 &&
+                       now_ms - last_motion_active_ms > 2000) {
+                if (!auto_sync_enabled) {
+                    motion.setAutoAngleSyncEnabled(true);
+                    auto_sync_enabled = true;
+                    mclog::tagInfo("MOTION-REFRESH",
+                                   "event=auto_sync state=on reason=idle_timeout active=0 t_ms={} idle_ms={}",
+                                   now_ms, now_ms - last_motion_active_ms);
+                }
+                last_motion_active_ms = 0;
+            }
+
+            motion.update();
+            stackchan_celebrate_tick(GetStackChan(), now_ms);
         }
 
-        GetStackChan().update();
+        if (should_run_full_update) {
+            last_full_update_ms = now_ms;
 
-        if (!hal_bridge::is_xiaozhi_ready()) {
-            continue;
+            {
+                LvglLockGuard lock;
+
+                GetStackChan().update();
+
+                if (hal_bridge::is_xiaozhi_ready()) {
+                    if (!is_setup_done) {
+                        // Setup when xiaozhi ready
+                        GetHAL().startSntp();
+                        view::create_home_indicator([]() { GetHAL().requestWarmReboot(0); }, 0x81DBBD, 0x134233);
+                        view::create_status_bar(0x81DBBD, 0x134233);
+                        is_setup_done = true;
+                    }
+
+                    view::update_home_indicator();
+                    view::update_status_bar();
+                }
+            }
         }
 
-        if (!is_setup_done) {
-            // Setup when xiaozhi ready
-            GetHAL().startSntp();
-            view::create_home_indicator([]() { GetHAL().requestWarmReboot(0); }, 0x81DBBD, 0x134233);
-            view::create_status_bar(0x81DBBD, 0x134233);
-            is_setup_done = true;
-        }
-
-        view::update_home_indicator();
-        view::update_status_bar();
+        vTaskDelay(pdMS_TO_TICKS(is_idle ? 20 : 50));
     }
 }
 
@@ -197,7 +259,11 @@ void Hal::startXiaozhi()
     });
 
     // Start stackchan update task
-    xTaskCreatePinnedToCore(_stackchan_update_task, "stackchan", 4096, NULL, 3, NULL, 1);
+    xTaskCreatePinnedToCore(_stackchan_update_task, "stackchan", 8192, NULL, 3, NULL, 1);
+
+    // Dev-only local serial/LAN PoC entries. No-op unless explicitly enabled at build time.
+    start_dev_serial_wake_stop_task();
+    start_dev_local_control_server();
 
     hal_bridge::start_xiaozhi_app();
 }

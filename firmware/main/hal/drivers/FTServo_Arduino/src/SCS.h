@@ -48,6 +48,8 @@ public:
 	u16 syncReadRxBuffMax;
 	u32 syncTimeOut;
 protected:
+	bool beginBusTransaction(const char *operation, int id, unsigned long timeoutMs = 50);
+	void endBusTransaction(const char *operation, int id, int result, unsigned long slowLogThresholdMs = 50);
 	virtual int writeSCS(unsigned char *nDat, int nLen) = 0;
 	virtual int readSCS(unsigned char *nDat, int nLen) = 0;
 	virtual int readSCS(unsigned char *nDat, int nLen, unsigned long TimeOut) = 0;

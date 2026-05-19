@@ -108,10 +108,18 @@ void Hal::startNetwork(std::function<void(std::string_view)> onLog)
     });
     board.StartNetwork();
 
+    uint32_t wait_ms = 0;
     while (!network_connected) {
         GetHAL().delay(500);
+        wait_ms += 500;
+        if (wait_ms % 5000 == 0) {
+            mclog::tagInfo(_tag, "network wait elapsed_ms={} connected=0", wait_ms);
+            if (onLog) {
+                onLog(fmt::format("Waiting for WiFi... {}s", wait_ms / 1000));
+            }
+        }
     }
-    mclog::tagInfo(_tag, "network connected");
+    mclog::tagInfo(_tag, "network connected elapsed_ms={}", wait_ms);
     board.SetNetworkEventCallback(nullptr);
 
     startSntp();

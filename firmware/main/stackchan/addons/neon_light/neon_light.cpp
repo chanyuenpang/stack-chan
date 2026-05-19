@@ -72,6 +72,19 @@ void NeonLight::setColor(std::string_view hex)
     _snap_to_target_on_rest = true;
 }
 
+void NeonLight::snapColor(uint8_t r, uint8_t g, uint8_t b)
+{
+    if (!_is_inited) {
+        init();
+    }
+    _color_anim.teleport(r, g, b);
+    _snap_to_target_on_rest = false;
+    for (int i = 0; i < _led_count; i++) {
+        set_rgb_color_impl(i, r, g, b);
+    }
+    refresh_rgb_impl();
+}
+
 void NeonLight::setDuration(float durationSec)
 {
     _color_anim.duration = durationSec;

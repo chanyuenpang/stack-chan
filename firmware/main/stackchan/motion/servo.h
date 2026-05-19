@@ -55,6 +55,46 @@ public:
     void moveWithSpeed(int angle, int speed);
 
     /**
+     * @brief Move with speed without synchronizing animation from hardware.
+     *
+     * This is used by scheduled/celebration command paths that must not issue
+     * a ReadPos while queuing a new target.
+     */
+    void moveWithSpeedNoHardwareRead(int angle, int speed);
+
+    /**
+     * @brief Stop the current animation immediately without issuing a new move.
+     *
+     * Uses the cached animation angle and does not read hardware. This keeps
+     * scheduler release/stop paths from issuing ReadPos after motion reaches rest.
+     */
+    void stopAnimation();
+
+    /**
+     * @brief Stop animation without reading hardware or issuing writes.
+     *
+     * Used when the servo bus is unhealthy: do not use stale present/fallback
+     * values to create a new release/home write.
+     */
+    void abortAnimationNoRead();
+
+    /**
+     * @brief True when the hardware backend has declared the servo bus dead.
+     */
+    virtual bool isBusDead() const
+    {
+        return false;
+    }
+
+    /**
+     * @brief True when recent hardware reads/writes are unreliable.
+     */
+    virtual bool hasHardwareFailure() const
+    {
+        return isBusDead();
+    }
+
+    /**
      * @brief Rotate servo with given velocity
      *
      * @param velocity (-1000, 1000)
@@ -69,6 +109,22 @@ public:
      * @return int
      */
     virtual int getCurrentAngle();
+
+    /**
+     * @brief Get current animation cache angle without reading hardware.
+     *
+     * @return int
+     */
+    int getAnimationAngle();
+
+    /**
+     * @brief Rebuild the animation cache from the current angle source.
+     *
+     * For hardware-backed servos getCurrentAngle() is the physical present angle;
+     * for software-only servos it is the existing animation value.
+     * @return int angle used as the rebuilt animation start
+     */
+    int syncAnimationToCurrentAngle();
 
     /**
      * @brief
@@ -174,9 +230,11 @@ protected:
     bool _snap_to_target_on_rest      = false;
     bool _auto_torque_release_enabled = true;
     bool _auto_angle_sync_enabled     = true;
+    bool _update_in_progress          = false;
+    int _last_motion_speed            = 180;
 
     void apply_default_spring_options();
-    void update_angle_anim_target(int angle);
+    void update_angle_anim_target(int angle, bool allowHardwareSync = true);
     uitk::SpringOptions_t map_speed_to_spring_options(int speed);
 };
 

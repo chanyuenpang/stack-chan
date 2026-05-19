@@ -263,6 +263,19 @@ file(GLOB COMMON_SOUNDS
     assets/sfx/*.ogg
 )
 
+set(DEV_SERIAL_EMBED_FILES)
+set(DEV_SERIAL_PRIV_REQUIRES)
+if(STACKCHAN_ENABLE_DEV_SERIAL_WAKE_STOP)
+    list(APPEND DEV_SERIAL_EMBED_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets/dev_serial/celebration-short-16k-mono-s16.wav
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets/dev_serial/celebration-tts-16k-mono-s16-approx3s.wav
+    )
+    list(APPEND DEV_SERIAL_PRIV_REQUIRES esp_driver_usb_serial_jtag)
+    if(STACKCHAN_ENABLE_DEV_LOCAL_HTTP_CONTROL)
+        list(APPEND DEV_SERIAL_PRIV_REQUIRES esp_http_server)
+    endif()
+endif()
+
 # If target chip is ESP32, exclude specific files to avoid build errors
 if(CONFIG_IDF_TARGET_ESP32)
     list(REMOVE_ITEM SOURCES "audio/codecs/box_audio_codec.cc"
@@ -290,7 +303,7 @@ if(CONFIG_IDF_TARGET_ESP32S3)
 endif()
 
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
+                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${DEV_SERIAL_EMBED_FILES}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES
@@ -316,6 +329,7 @@ idf_component_register(SRCS ${SOURCES}
                         mooncake
                         mooncake_log
                         smooth_ui_toolkit
+                        ${DEV_SERIAL_PRIV_REQUIRES}
                     )
 
 # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME
@@ -327,6 +341,18 @@ target_compile_definitions(${COMPONENT_LIB}
                     PRIVATE BOARD_TYPE=\"${BOARD_TYPE}\" BOARD_NAME=\"${BOARD_NAME}\"
                     PRIVATE BUILTIN_TEXT_FONT=${BUILTIN_TEXT_FONT} BUILTIN_ICON_FONT=${BUILTIN_ICON_FONT}
                     )
+
+# Dev-only PoC: enable local serial commands `wake`/`stop` with
+#   idf.py -B <build-dir> -DSTACKCHAN_ENABLE_DEV_SERIAL_WAKE_STOP=ON build
+# The LAN HTTP local control endpoint now requires the additional explicit
+# STACKCHAN_ENABLE_DEV_LOCAL_HTTP_CONTROL switch; serial-dev builds no-op it.
+# Default is OFF so regular firmware does not expose programmatic mic/LAN control.
+if(STACKCHAN_ENABLE_DEV_SERIAL_WAKE_STOP)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE STACKCHAN_ENABLE_DEV_SERIAL_WAKE_STOP)
+endif()
+if(STACKCHAN_ENABLE_DEV_LOCAL_HTTP_CONTROL)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE STACKCHAN_ENABLE_DEV_LOCAL_HTTP_CONTROL)
+endif()
 
 # Add generation rules
 add_custom_command(

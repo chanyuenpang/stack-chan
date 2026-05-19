@@ -12,6 +12,8 @@
  */
 class AppAiAgent : public mooncake::AppAbility {
 public:
+    static constexpr const char* kAppName = "AI.AGENT";
+
     AppAiAgent();
 
     // Override lifecycle callbacks

@@ -29,6 +29,7 @@ public:
     void setColor(const uitk::color::Rgb_t& rgb);
     void setColor(uint32_t hex);
     void setColor(std::string_view hex);
+    void snapColor(uint8_t r, uint8_t g, uint8_t b);
     void setDuration(float durationSec);
     int getLedCount() const
     {

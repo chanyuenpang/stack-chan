@@ -8,6 +8,41 @@
 #include <stddef.h>
 #include "SCS.h"
 
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+static const char *SERVO_IO_TAG = "SERVO-IO";
+static constexpr unsigned long kServoBusMutexTimeoutMs = 50;
+static constexpr unsigned long kServoBusSlowLogMs = 50;
+static SemaphoreHandle_t s_servo_bus_mutex = nullptr;
+static portMUX_TYPE s_servo_bus_init_lock = portMUX_INITIALIZER_UNLOCKED;
+static TaskHandle_t s_servo_bus_owner = nullptr;
+static const char *s_servo_bus_owner_op = nullptr;
+static int s_servo_bus_owner_id = -1;
+static uint32_t s_servo_bus_owner_depth = 0;
+static int64_t s_servo_bus_owner_start_us = 0;
+
+static SemaphoreHandle_t servoBusMutex()
+{
+	if (s_servo_bus_mutex == nullptr) {
+		portENTER_CRITICAL(&s_servo_bus_init_lock);
+		if (s_servo_bus_mutex == nullptr) {
+			s_servo_bus_mutex = xSemaphoreCreateMutex();
+		}
+		portEXIT_CRITICAL(&s_servo_bus_init_lock);
+	}
+	return s_servo_bus_mutex;
+}
+
+static const char *taskName(TaskHandle_t task)
+{
+	const char *name = task ? pcTaskGetName(task) : nullptr;
+	return name ? name : "<none>";
+}
+
 SCS::SCS()
 {
 	Level = 1;//除广播指令所有指令返回应答
@@ -26,6 +61,93 @@ SCS::SCS(u8 End, u8 Level)
 	this->Level = Level;
 	this->End = End;
 	u8Status = 0;
+}
+
+bool SCS::beginBusTransaction(const char *operation, int id, unsigned long timeoutMs)
+{
+	SemaphoreHandle_t mutex = servoBusMutex();
+	TaskHandle_t self = xTaskGetCurrentTaskHandle();
+	const int64_t wait_start_us = esp_timer_get_time();
+	operation = operation ? operation : "unknown";
+
+	if (mutex == nullptr) {
+		u8Error = ERR_NO_REPLY;
+		ESP_LOGE(SERVO_IO_TAG, "event=mutex_create_failed op=%s axis_id=%d task=%s core=%d",
+		         operation, id, taskName(self), xPortGetCoreID());
+		return false;
+	}
+
+	if (s_servo_bus_owner == self) {
+		++s_servo_bus_owner_depth;
+		ESP_LOGW(SERVO_IO_TAG,
+		         "event=recursive_owner op=%s axis_id=%d owner_op=%s owner_axis_id=%d depth=%lu task=%s core=%d",
+		         operation, id, s_servo_bus_owner_op ? s_servo_bus_owner_op : "<none>",
+		         s_servo_bus_owner_id, static_cast<unsigned long>(s_servo_bus_owner_depth), taskName(self),
+		         xPortGetCoreID());
+		return true;
+	}
+
+	if (xSemaphoreTake(mutex, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) {
+		const int64_t waited_ms = (esp_timer_get_time() - wait_start_us) / 1000;
+		u8Error = ERR_NO_REPLY;
+		ESP_LOGW(SERVO_IO_TAG,
+		         "event=mutex_timeout op=%s axis_id=%d timeout_ms=%lu waited_ms=%lld task=%s core=%d owner_task=%s owner_op=%s owner_axis_id=%d owner_held_ms=%lld stack_hwm=%lu",
+		         operation, id, timeoutMs, static_cast<long long>(waited_ms), taskName(self), xPortGetCoreID(),
+		         taskName(s_servo_bus_owner), s_servo_bus_owner_op ? s_servo_bus_owner_op : "<none>",
+		         s_servo_bus_owner_id,
+		         s_servo_bus_owner_start_us ? static_cast<long long>((esp_timer_get_time() - s_servo_bus_owner_start_us) / 1000) : 0LL,
+		         static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
+		return false;
+	}
+
+	s_servo_bus_owner = self;
+	s_servo_bus_owner_op = operation;
+	s_servo_bus_owner_id = id;
+	s_servo_bus_owner_depth = 1;
+	s_servo_bus_owner_start_us = esp_timer_get_time();
+
+	const int64_t waited_ms = (s_servo_bus_owner_start_us - wait_start_us) / 1000;
+	if (waited_ms > 20) {
+		ESP_LOGI(SERVO_IO_TAG, "event=mutex_wait op=%s axis_id=%d waited_ms=%lld task=%s core=%d",
+		         operation, id, static_cast<long long>(waited_ms), taskName(self), xPortGetCoreID());
+	}
+	return true;
+}
+
+void SCS::endBusTransaction(const char *operation, int id, int result, unsigned long slowLogThresholdMs)
+{
+	SemaphoreHandle_t mutex = servoBusMutex();
+	TaskHandle_t self = xTaskGetCurrentTaskHandle();
+	operation = operation ? operation : "unknown";
+
+	if (s_servo_bus_owner != self || s_servo_bus_owner_depth == 0) {
+		ESP_LOGE(SERVO_IO_TAG, "event=unlock_not_owner op=%s axis_id=%d task=%s core=%d owner_task=%s",
+		         operation, id, taskName(self), xPortGetCoreID(), taskName(s_servo_bus_owner));
+		return;
+	}
+
+	const int64_t duration_ms = (esp_timer_get_time() - s_servo_bus_owner_start_us) / 1000;
+	if (s_servo_bus_owner_depth > 1) {
+		--s_servo_bus_owner_depth;
+		return;
+	}
+
+	const bool failed = result <= 0;
+	if (failed || duration_ms > static_cast<int64_t>(slowLogThresholdMs)) {
+		ESP_LOGW(SERVO_IO_TAG,
+		         "event=transaction_done op=%s axis_id=%d rc=%d duration_ms=%lld task=%s core=%d stack_hwm=%lu err=%u",
+		         operation, id, result, static_cast<long long>(duration_ms), taskName(self), xPortGetCoreID(),
+		         static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)), u8Error);
+	}
+
+	s_servo_bus_owner = nullptr;
+	s_servo_bus_owner_op = nullptr;
+	s_servo_bus_owner_id = -1;
+	s_servo_bus_owner_depth = 0;
+	s_servo_bus_owner_start_us = 0;
+	if (mutex != nullptr) {
+		xSemaphoreGive(mutex);
+	}
 }
 
 //1个16位数拆分为2个8位数
@@ -92,36 +214,54 @@ void SCS::writeBuf(u8 ID, u8 MemAddr, u8 *nDat, u8 nLen, u8 Fun)
 //舵机ID，MemAddr内存表地址，写入数据，写入长度
 int SCS::genWrite(u8 ID, u8 MemAddr, u8 *nDat, u8 nLen)
 {
+	if (!beginBusTransaction("genWrite", ID, kServoBusMutexTimeoutMs)) {
+		return 0;
+	}
 	rFlushSCS();
 	writeBuf(ID, MemAddr, nDat, nLen, INST_WRITE);
 	wFlushSCS();
-	return Ack(ID);
+	int rc = Ack(ID);
+	endBusTransaction("genWrite", ID, rc, kServoBusSlowLogMs);
+	return rc;
 }
 
 //异步写指令
 //舵机ID，MemAddr内存表地址，写入数据，写入长度
 int SCS::regWrite(u8 ID, u8 MemAddr, u8 *nDat, u8 nLen)
 {
+	if (!beginBusTransaction("regWrite", ID, kServoBusMutexTimeoutMs)) {
+		return 0;
+	}
 	rFlushSCS();
 	writeBuf(ID, MemAddr, nDat, nLen, INST_REG_WRITE);
 	wFlushSCS();
-	return Ack(ID);
+	int rc = Ack(ID);
+	endBusTransaction("regWrite", ID, rc, kServoBusSlowLogMs);
+	return rc;
 }
 
 //异步写执行指令
 //舵机ID
 int SCS::RegWriteAction(u8 ID)
 {
+	if (!beginBusTransaction("RegWriteAction", ID, kServoBusMutexTimeoutMs)) {
+		return 0;
+	}
 	rFlushSCS();
 	writeBuf(ID, 0, NULL, 0, INST_REG_ACTION);
 	wFlushSCS();
-	return Ack(ID);
+	int rc = Ack(ID);
+	endBusTransaction("RegWriteAction", ID, rc, kServoBusSlowLogMs);
+	return rc;
 }
 
 //同步写指令
 //舵机ID[]数组，IDN数组长度，MemAddr内存表地址，写入数据，写入长度
 void SCS::syncWrite(u8 ID[], u8 IDN, u8 MemAddr, u8 *nDat, u8 nLen)
 {
+	if (!beginBusTransaction("syncWrite", 0xfe, kServoBusMutexTimeoutMs)) {
+		return;
+	}
 	rFlushSCS();
 	u8 mesLen = ((nLen+1)*IDN+4);
 	u8 Sum = 0;
@@ -147,60 +287,81 @@ void SCS::syncWrite(u8 ID[], u8 IDN, u8 MemAddr, u8 *nDat, u8 nLen)
 	}
 	writeSCS(~Sum);
 	wFlushSCS();
+	endBusTransaction("syncWrite", 0xfe, 1, kServoBusSlowLogMs);
 }
 
 int SCS::writeByte(u8 ID, u8 MemAddr, u8 bDat)
 {
+	if (!beginBusTransaction("writeByte", ID, kServoBusMutexTimeoutMs)) {
+		return 0;
+	}
 	rFlushSCS();
 	writeBuf(ID, MemAddr, &bDat, 1, INST_WRITE);
 	wFlushSCS();
-	return Ack(ID);
+	int rc = Ack(ID);
+	endBusTransaction("writeByte", ID, rc, kServoBusSlowLogMs);
+	return rc;
 }
 
 int SCS::writeWord(u8 ID, u8 MemAddr, u16 wDat)
 {
 	u8 bBuf[2];
 	Host2SCS(bBuf+0, bBuf+1, wDat);
+	if (!beginBusTransaction("writeWord", ID, kServoBusMutexTimeoutMs)) {
+		return 0;
+	}
 	rFlushSCS();
 	writeBuf(ID, MemAddr, bBuf, 2, INST_WRITE);
 	wFlushSCS();
-	return Ack(ID);
+	int rc = Ack(ID);
+	endBusTransaction("writeWord", ID, rc, kServoBusSlowLogMs);
+	return rc;
 }
 
 //读指令
 //舵机ID，MemAddr内存表地址，返回数据nData，数据长度nLen
 int SCS::Read(u8 ID, u8 MemAddr, u8 *nData, u8 nLen)
 {
+	if (!beginBusTransaction("Read", ID, kServoBusMutexTimeoutMs)) {
+		return 0;
+	}
 	rFlushSCS();
 	writeBuf(ID, MemAddr, &nLen, 1, INST_READ);
 	wFlushSCS();
 	u8Error = 0;
+	int result = 0;
 	if(!checkHead()){
 		u8Error = ERR_NO_REPLY;
-		return 0;
+		endBusTransaction("Read", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	u8 bBuf[4];
 	u8Status = 0;
 	if(readSCS(bBuf, 3)!=3){
 		u8Error = ERR_NO_REPLY;
-		return 0;
+		endBusTransaction("Read", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	if(bBuf[0]!=ID && ID!=0xfe){
 		u8Error = ERR_SLAVE_ID;
-		return 0;
+		endBusTransaction("Read", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	if(bBuf[1]!=(nLen+2)){
 		u8Error = ERR_BUFF_LEN;
-		return 0;
+		endBusTransaction("Read", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	int Size = readSCS(nData, nLen);
 	if(Size!=nLen){
 		u8Error = ERR_NO_REPLY;
-		return 0;
+		endBusTransaction("Read", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	if(readSCS(bBuf+3, 1)!=1){
 		u8Error = ERR_NO_REPLY;
-		return 0;
+		endBusTransaction("Read", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	u8 calSum = bBuf[0]+bBuf[1]+bBuf[2];
 	u8 i;
@@ -210,10 +371,13 @@ int SCS::Read(u8 ID, u8 MemAddr, u8 *nData, u8 nLen)
 	calSum = ~calSum;
 	if(calSum!=bBuf[3]){
 		u8Error = ERR_CRC_CMP;
-		return 0;
+		endBusTransaction("Read", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	u8Status = bBuf[2];
-	return Size;
+	result = Size;
+	endBusTransaction("Read", ID, result, kServoBusSlowLogMs);
+	return result;
 }
 
 //读1字节，超时返回-1
@@ -244,35 +408,46 @@ int SCS::readWord(u8 ID, u8 MemAddr)
 //Ping指令，返回舵机ID，超时返回-1
 int	SCS::Ping(u8 ID)
 {
+	if (!beginBusTransaction("Ping", ID, kServoBusMutexTimeoutMs)) {
+		return -1;
+	}
 	rFlushSCS();
 	writeBuf(ID, 0, NULL, 0, INST_PING);
 	wFlushSCS();
 	u8Status = 0;
+	int result = -1;
 	if(!checkHead()){
 		u8Error = ERR_NO_REPLY;
-		return -1;
+		endBusTransaction("Ping", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	u8 bBuf[4];
 	u8Error = 0;
 	if(readSCS(bBuf, 4)!=4){
 		u8Error = ERR_NO_REPLY;
-		return -1;
+		endBusTransaction("Ping", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	if(bBuf[0]!=ID && ID!=0xfe){
 		u8Error = ERR_SLAVE_ID;
-		return -1;
+		endBusTransaction("Ping", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	if(bBuf[1]!=2){
 		u8Error = ERR_BUFF_LEN;
-		return -1;
+		endBusTransaction("Ping", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	u8 calSum = ~(bBuf[0]+bBuf[1]+bBuf[2]);
 	if(calSum!=bBuf[3]){
 		u8Error = ERR_CRC_CMP;
-		return -1;			
+		endBusTransaction("Ping", ID, result, kServoBusSlowLogMs);
+		return result;
 	}
 	u8Status = bBuf[2];
-	return bBuf[0];
+	result = bBuf[0];
+	endBusTransaction("Ping", ID, result, kServoBusSlowLogMs);
+	return result;
 }
 
 int SCS::checkHead()

@@ -1,0 +1,26 @@
+{
+  "name": "xiaozhi-mcp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal safe XiaoZhi MCP bridge exposing ping, echo, get_time, and read-only plan status tools.",
+  "scripts": {
+    "start": "node bridge.mjs",
+    "start:debug": "node scripts/start-bridge-debug.mjs",
+    "check": "node --check bridge.mjs && node --check scripts/start-bridge-debug.mjs && node --check scripts/generate-plan-state.mjs && node --check scripts/record-completion-event.mjs && node --check scripts/write-openclaw-completion-event.mjs && node --check scripts/play-completion-audio.mjs && node --check scripts/probe-device-messaging-tools.mjs && node --check scripts/probe-messaging-tools.mjs",
+    "dry-run": "node bridge.mjs --dry-run",
+    "probe:messaging:dry-run": "node scripts/probe-messaging-tools.mjs --dry-run",
+    "probe:messaging:url-dry-run": "node -e \"process.stdout.write('https://xiaozhi.me/tools/assets-generator/?token=' + 'x'.repeat(12))\" | node scripts/probe-messaging-tools.mjs --token-from-stdin --dry-run",
+    "probe:messaging:list": "node scripts/probe-messaging-tools.mjs --live",
+    "generate:state": "node scripts/generate-plan-state.mjs --plan /home/yankeeting/.openclaw/.projects/stack-chan/tasks/stackchan-firmware/stackchan-celebration-roadmap.json",
+    "record:event": "node scripts/record-completion-event.mjs --plan /home/yankeeting/.openclaw/.projects/stack-chan/tasks/stackchan-firmware/stackchan-celebration-roadmap.json --event-type task_completed --task-id 9",
+    "write:event": "node scripts/write-openclaw-completion-event.mjs --event task_completed --plan /home/yankeeting/.openclaw/.projects/stack-chan/tasks/stackchan-firmware/stackchan-celebration-roadmap.json --task-id 3",
+    "local:plan": "node bridge.mjs --local-call get_plan_status '{}'",
+    "local:event": "node bridge.mjs --local-call get_latest_completion_event '{}'",
+    "play:audio:dry-run": "node scripts/play-completion-audio.mjs --once --dry-run",
+    "play:audio": "node scripts/play-completion-audio.mjs --once"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

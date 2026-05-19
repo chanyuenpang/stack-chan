@@ -96,6 +96,11 @@ public:
     void moveWithSpeed(int yawAngle, int pitchAngle, int speed);
 
     /**
+     * @brief Move head without hardware ReadPos during target setup.
+     */
+    void moveWithSpeedNoHardwareRead(int yawAngle, int pitchAngle, int speed);
+
+    /**
      * @brief Move head to home position (0,0)
      *
      * @param speed (0-1000)
@@ -149,7 +154,11 @@ public:
     void lookAtPoint(float x, float y, float z, int speed = 500);
 
     bool isMoving();
+    bool hasBusDead() const;
+    bool hasHardwareFailure() const;
     uitk::Vector2i getCurrentAngles();
+    uitk::Vector2i getAnimationAngles();
+    uitk::Vector2i syncAnimationToCurrentAngles();
     int getCurrentYawAngle();
     int getCurrentPitchAngle();
     void setTorqueEnabled(bool enabled);

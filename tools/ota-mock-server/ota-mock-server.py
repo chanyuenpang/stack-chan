@@ -108,7 +108,10 @@ class OTARequestHandler(BaseHTTPRequestHandler):
         print(f"[SEND] binary complete: {sent}/{size} bytes", flush=True)
 
     def _firmware_url(self) -> str:
-        host = self.headers.get("Host", f"localhost:{self.server.server_port}").split(":")[0]
+        if self.lan_ip:
+            host = self.lan_ip
+        else:
+            host = self.headers.get("Host", f"localhost:{self.server.server_port}").split(":")[0]
         return f"http://{host}:{self.server.server_port}/stack-chan.bin"
 
     # ------------------------------------------------------------------ #
@@ -181,9 +184,9 @@ class OTARequestHandler(BaseHTTPRequestHandler):
         pass
 
 
-def create_handler(fw_path: str, manifest_config: ManifestConfig):
+def create_handler(fw_path: str, manifest_config: ManifestConfig, lan_ip: str | None = None):
     """Factory: returns a handler class with firmware_path/config set."""
-    class_dict = {"firmware_path": fw_path, "manifest_config": manifest_config}
+    class_dict = {"firmware_path": fw_path, "manifest_config": manifest_config, "lan_ip": lan_ip}
     return type("_Handler", (OTARequestHandler,), class_dict)
 
 
@@ -212,6 +215,7 @@ def main():
     parser.add_argument("--force", type=parse_force, default=None, help="manifest force flag serialized as numeric 1/0 (default: 0 except upgrade=1)")
     parser.add_argument("--port", type=int, default=8080, help="listen port (default: 8080)")
     parser.add_argument("--firmware", type=str, default=DEFAULT_FIRMWARE, help="path to stack-chan.bin")
+    parser.add_argument("--lan-ip", type=str, default=None, help="LAN IP for manifest firmware URL (default: derive from Host header)")
     args = parser.parse_args()
 
     firmware = os.path.abspath(args.firmware)
@@ -220,11 +224,12 @@ def main():
         sys.exit(1)
 
     manifest_config = build_manifest_config(args)
-    handler = create_handler(firmware, manifest_config)
+    handler = create_handler(firmware, manifest_config, lan_ip=args.lan_ip)
     server = HTTPServer(("0.0.0.0", args.port), handler)
 
     fw_size = os.path.getsize(firmware)
-    downloadable_firmware_url = f"http://<LAN_IP>:{args.port}/stack-chan.bin"
+    lan_ip_display = args.lan_ip or "<LAN_IP>"
+    downloadable_firmware_url = f"http://{lan_ip_display}:{args.port}/stack-chan.bin"
     manifest_url = downloadable_firmware_url if manifest_config.mode == "upgrade" else ""
     manifest_preview = {
         "mode": manifest_config.mode,

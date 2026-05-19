@@ -172,6 +172,16 @@ int SCSerial::writeSCS(unsigned char bDat)
 	return uart_write_bytes(uart_num, reinterpret_cast<const char *>(&bDat), 1);
 }
 
+void SCSerial::flushInput()
+{
+	rFlushSCS();
+}
+
+void SCSerial::waitTxDone()
+{
+	wFlushSCS();
+}
+
 void SCSerial::rFlushSCS()
 {
 	if (uart_num >= UART_NUM_MAX) {

@@ -23,6 +23,8 @@ public:
 	SCSerial(u8 End, u8 Level);
 	bool begin(uart_port_t uart_num, int baud_rate, int tx_pin, int rx_pin, int buf_size = 1024);
 	void end();
+	void flushInput();
+	void waitTxDone();
 
 protected:
 	int writeSCS(unsigned char *nDat, int nLen);//输出nLen字节

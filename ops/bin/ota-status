@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -u
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+LOG_PATH="${HOME}/.local/state/stackchan-ota/ota-server.log"
+ACTIVE_JSON="${ROOT_DIR}/ops/ota/active.json"
+ACTIVE_RELEASE="${ROOT_DIR}/exp-pkg/active-release"
+
+section() {
+  printf '\n== %s ==\n' "$1"
+}
+
+section "systemctl --user status stackchan-ota"
+systemctl --user status stackchan-ota --no-pager || true
+
+section "8080 listener"
+if command -v ss >/dev/null 2>&1; then
+  ss -ltnp '( sport = :8080 )' || true
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -nP -iTCP:8080 -sTCP:LISTEN || true
+else
+  echo "ss/lsof not found; skip listener check"
+fi
+
+section "GET /ota/"
+curl -fsS --max-time 3 http://127.0.0.1:8080/ota/ || true
+printf '\n'
+
+section "HEAD /stack-chan.bin"
+curl -fsSI --max-time 3 http://127.0.0.1:8080/stack-chan.bin || true
+
+section "active.json"
+if [[ -f "${ACTIVE_JSON}" ]]; then
+  cat "${ACTIVE_JSON}"
+  printf '\n'
+else
+  echo "missing: ${ACTIVE_JSON}"
+fi
+
+section "active-release symlink"
+if [[ -L "${ACTIVE_RELEASE}" ]]; then
+  printf '%s -> %s\n' "${ACTIVE_RELEASE}" "$(readlink "${ACTIVE_RELEASE}")"
+elif [[ -e "${ACTIVE_RELEASE}" ]]; then
+  printf '%s exists but is not a symlink\n' "${ACTIVE_RELEASE}"
+else
+  printf '%s missing\n' "${ACTIVE_RELEASE}"
+fi
+
+section "log path"
+echo "${LOG_PATH}"
+if [[ -f "${LOG_PATH}" ]]; then
+  tail -n 40 "${LOG_PATH}" || true
+else
+  echo "log file does not exist yet"
+fi

@@ -132,6 +132,14 @@ enum class MicTestStatus {
     Failed,
 };
 
+enum class FirmwareUpdateResult {
+    CheckFailed = 0,
+    NoUpdate,
+    UpgradeFailed,
+    Rebooting,
+    Busy,
+};
+
 /**
  * @brief
  *
@@ -292,6 +300,7 @@ public:
 
     /* ----------------------------------- OTA ---------------------------------- */
     bool updateFirmware(std::function<void(std::string_view)> onLog);
+    FirmwareUpdateResult updateFirmwareEx(std::function<void(std::string_view)> onLog);
 
     /* ---------------------------------- Audio --------------------------------- */
     void setSpeakerVolume(uint8_t volume, bool permanent = false);

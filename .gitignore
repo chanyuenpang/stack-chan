@@ -1,2 +1,43 @@
 .DS_Store
 .idea/
+.gitnexus
+
+# Build outputs (ESP-IDF / local experiments)
+/build*/
+firmware/build*/
+
+# Generated firmware/NVS artifacts
+nvs-*.bin
+nvs-*.csv
+
+# Runtime logs and pid files
+*.log
+*.pid
+ota-server.log
+ota-server.pid
+remote/*.log
+remote/*.pid
+
+# Local backup/temp artifacts
+/backups/
+backup/
+*.tmp
+*.temp
+*.temp.*
+/tmp/
+*/tmp/
+
+# One-off local patch scripts
+/patch_*.py
+/patch_*.sh
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Do not ignore project truth docs; user asked to submit them when present.
+!.claw/
+!.claw/truth/
+!.claw/truth/**
+!truth/
+!truth/**

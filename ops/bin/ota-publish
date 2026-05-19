@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: ota-publish <release-dir> --version <x.y.z> [--force 0|1]" >&2
+}
+
+if [[ $# -lt 3 ]]; then
+  usage
+  exit 2
+fi
+
+RELEASE_DIR="$1"
+shift
+VERSION=""
+FORCE="0"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      VERSION="$2"
+      shift 2
+      ;;
+    --force)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      FORCE="$2"
+      shift 2
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "${VERSION}" ]]; then
+  echo "error: --version is required" >&2
+  exit 2
+fi
+if [[ "${FORCE}" != "0" && "${FORCE}" != "1" ]]; then
+  echo "error: --force must be 0 or 1" >&2
+  exit 2
+fi
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [[ "${RELEASE_DIR}" != /* ]]; then
+  RELEASE_DIR="${ROOT_DIR}/${RELEASE_DIR}"
+fi
+RELEASE_DIR="$(cd "${RELEASE_DIR}" && pwd)"
+
+if [[ ! -f "${RELEASE_DIR}/stack-chan.bin" ]]; then
+  echo "error: missing firmware: ${RELEASE_DIR}/stack-chan.bin" >&2
+  exit 1
+fi
+
+EXP_DIR="${ROOT_DIR}/exp-pkg"
+ACTIVE_LINK="${EXP_DIR}/active-release"
+ACTIVE_JSON="${ROOT_DIR}/ops/ota/active.json"
+TMP_LINK="${EXP_DIR}/.active-release.$$"
+TMP_JSON="${ACTIVE_JSON}.$$"
+
+case "${RELEASE_DIR}" in
+  "${EXP_DIR}"/*) LINK_TARGET="$(basename "${RELEASE_DIR}")" ;;
+  *) LINK_TARGET="${RELEASE_DIR}" ;;
+esac
+
+cleanup() {
+  rm -f "${TMP_LINK}" "${TMP_JSON}"
+}
+trap cleanup EXIT
+
+ln -s "${LINK_TARGET}" "${TMP_LINK}"
+mv -Tf "${TMP_LINK}" "${ACTIVE_LINK}"
+
+python3 - "${TMP_JSON}" "${VERSION}" "${FORCE}" <<'PY'
+import json
+import sys
+path, version, force = sys.argv[1], sys.argv[2], int(sys.argv[3])
+data = {
+    "version": version,
+    "force": force,
+    "firmware": "exp-pkg/active-release/stack-chan.bin",
+    "lan_ip": "192.168.0.12",
+    "port": 8080,
+}
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PY
+mv -f "${TMP_JSON}" "${ACTIVE_JSON}"
+trap - EXIT
+cleanup
+
+echo "Published StackChan OTA ${VERSION} (force=${FORCE})"
+echo "active-release -> ${LINK_TARGET}"
+echo "active.json -> ${ACTIVE_JSON}"
+echo "Next step: systemctl --user restart stackchan-ota"

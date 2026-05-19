@@ -5,6 +5,7 @@
  */
 #include "servo.h"
 #include <hal/hal.h>
+#include <mooncake_log.h>
 
 using namespace uitk;
 
@@ -37,6 +38,16 @@ void Servo::init()
 
 void Servo::update()
 {
+    if (_update_in_progress) {
+        return;
+    }
+
+    struct UpdateGuard {
+        bool& flag;
+        explicit UpdateGuard(bool& flag) : flag(flag) { flag = true; }
+        ~UpdateGuard() { flag = false; }
+    } guard(_update_in_progress);
+
     // Keep update in at most 50Hz
     if (GetHAL().millis() - _last_tick < 20) {
         return;
@@ -68,6 +79,7 @@ void Servo::update()
 
 void Servo::move(int angle)
 {
+    _last_motion_speed = 180;
     apply_default_spring_options();
     update_angle_anim_target(angle);
 }
@@ -83,8 +95,39 @@ void Servo::moveWithSpringParams(int angle, float stiffness, float damping)
 
 void Servo::moveWithSpeed(int angle, int speed)
 {
-    auto spring_options = map_speed_to_spring_options(speed);
+    _last_motion_speed = uitk::clamp(speed, 0, 1000);
+    auto spring_options = map_speed_to_spring_options(_last_motion_speed);
     moveWithSpringParams(angle, spring_options.stiffness, spring_options.damping);
+}
+
+void Servo::moveWithSpeedNoHardwareRead(int angle, int speed)
+{
+    _last_motion_speed = uitk::clamp(speed, 0, 1000);
+    auto spring_options = map_speed_to_spring_options(_last_motion_speed);
+    _angle_anim.springOptions().visualDuration = 0.0f;
+    _angle_anim.springOptions().stiffness      = spring_options.stiffness;
+    _angle_anim.springOptions().damping        = spring_options.damping;
+    update_angle_anim_target(angle, false);
+}
+
+void Servo::stopAnimation()
+{
+    // Do not read the physical servo position here. Scheduler release paths call
+    // Motion::stop() immediately after the spring animation reaches rest; issuing
+    // a ReadPos at that point can wedge an unhealthy half-duplex servo bus. Normal
+    // movement auto-sync still uses getCurrentAngle() in update_angle_anim_target().
+    const int cached_angle = static_cast<int>(_angle_anim.directValue());
+    _angle_anim.teleport(cached_angle);
+    _snap_to_target_on_rest = false;
+    mclog::tagInfo("SERVO-DIAG", "source=stopAnimation read_hardware=0 angle={}", cached_angle);
+}
+
+void Servo::abortAnimationNoRead()
+{
+    const int cached_angle = static_cast<int>(_angle_anim.directValue());
+    _angle_anim.teleport(cached_angle);
+    _snap_to_target_on_rest = false;
+    mclog::tagInfo("SERVO-DIAG", "source=abortAnimationNoRead read_hardware=0 angle={}", cached_angle);
 }
 
 int Servo::getCurrentAngle()
@@ -92,8 +135,24 @@ int Servo::getCurrentAngle()
     return _angle_anim.directValue();
 }
 
+int Servo::getAnimationAngle()
+{
+    return static_cast<int>(_angle_anim.directValue());
+}
+
+int Servo::syncAnimationToCurrentAngle()
+{
+    const int current_angle = getCurrentAngle();
+    _angle_anim.teleport(current_angle);
+    _snap_to_target_on_rest = false;
+    return current_angle;
+}
+
 bool Servo::isMoving()
 {
+    if (isBusDead()) {
+        return false;
+    }
     return _angle_anim.done() == false || is_moving_impl();
 }
 
@@ -105,11 +164,15 @@ void Servo::apply_default_spring_options()
     options.damping        = _default_spring_options.damping;
 }
 
-void Servo::update_angle_anim_target(int angle)
+void Servo::update_angle_anim_target(int angle, bool allowHardwareSync)
 {
     angle = uitk::clamp(angle, _angle_limit.x, _angle_limit.y);
 
-    if (_auto_angle_sync_enabled) {
+    // 2.0.18: motion must explicitly hold torque before any optional
+    // start-position sync/read and before the first position write.
+    setTorqueEnabled(true);
+
+    if (allowHardwareSync && _auto_angle_sync_enabled) {
         _angle_anim.teleport(getCurrentAngle());  // Use current angle as start
     }
     _angle_anim             = angle;  // Apply new target

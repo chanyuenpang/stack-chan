@@ -1,0 +1,31 @@
+--- a/firmware/main/hal/hal_mcp.cpp
++++ b/firmware/main/hal/hal_mcp.cpp
+@@ -1,9 +1,10 @@
+ #include "hal.h"
+ #include <mooncake_log.h>
+ #include <mcp_server.h>
+ #include <stackchan/stackchan.h>
+ #include <apps/common/common.h>
++#include <apps/common/celebrate.h>
+ 
+ using namespace stackchan;
+ 
+ static const std::string_view _tag = "HAL-MCP";
+@@ -145,4 +146,18 @@ void Hal::xiaozhi_mcp_init()
+                            tools::stop_reminder(id);
+                            return true;
+                        });
++
++    // === celebrate tool ===
++    mclog::tagInfo(_tag, "add robot.celebrate tool");
++    mcp_server.AddTool(
++        "self.robot.celebrate",
++        "Celebrate! The robot performs a short happy animation: gentle swaying, "
++        "gradually transitioning LED colors, and a cheerful notification sound. "
++        "Duration is approximately 3-5 seconds. No parameters needed.",
++        std::vector<Property>{},
++        [this](const PropertyList& properties) -> ReturnValue {
++            tools::celebrate();
++            return true;
++        });
+ }

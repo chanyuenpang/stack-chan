@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-15T15:25:38.948Z",
+  "plan": {
+    "plan_id": "StackChan-v2",
+    "plan_title": "StackChan 庆祝链路续接计划 v2",
+    "plan_status": "active",
+    "total_tasks": 6,
+    "completed_tasks": 4,
+    "blocked_tasks": 0,
+    "in_progress_tasks": 1,
+    "progress_text": "4/6 completed",
+    "tasks": [
+      {
+        "id": 1,
+        "title": "清理旧 bridge 进程并启动新版 bridge",
+        "status": "done"
+      },
+      {
+        "id": 2,
+        "title": "确认 XiaoZhi MCP tools/call 稳定",
+        "status": "done"
+      },
+      {
+        "id": 3,
+        "title": "探测官方 messaging 设备工具列表",
+        "status": "done"
+      },
+      {
+        "id": 4,
+        "title": "验证 Chan 端发声/提示入口",
+        "status": "done"
+      },
+      {
+        "id": 5,
+        "title": "验证低风险庆祝动作",
+        "status": "in_progress"
+      },
+      {
+        "id": 6,
+        "title": "记录最终可行方案和限制",
+        "status": "pending"
+      }
+    ]
+  },
+  "latest_completion_event": {
+    "event_id": "StackChan-v2:task_completed:task-4:20260515T152538947Z",
+    "event_type": "task_completed",
+    "plan_id": "StackChan-v2",
+    "plan_title": "StackChan 庆祝链路续接计划 v2",
+    "task_id": 4,
+    "task_title": "验证 Chan 端发声/提示入口",
+    "completed_at": "2026-05-15T15:25:38.947Z",
+    "ttl_seconds": 300,
+    "celebration_key": "StackChan-v2:task:4",
+    "should_celebrate": true
+  }
+}

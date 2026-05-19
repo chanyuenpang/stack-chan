@@ -63,6 +63,12 @@ void Motion::moveWithSpeed(int yawAngle, int pitchAngle, int speed)
     _pitch_servo->moveWithSpeed(pitchAngle, speed);
 }
 
+void Motion::moveWithSpeedNoHardwareRead(int yawAngle, int pitchAngle, int speed)
+{
+    _yaw_servo->moveWithSpeedNoHardwareRead(yawAngle, speed);
+    _pitch_servo->moveWithSpeedNoHardwareRead(pitchAngle, speed);
+}
+
 void Motion::goHome(int speed)
 {
     _yaw_servo->moveWithSpeed(0, speed);
@@ -71,8 +77,13 @@ void Motion::goHome(int speed)
 
 void Motion::stop()
 {
-    _yaw_servo->move(_yaw_servo->getCurrentAngle());
-    _pitch_servo->move(_pitch_servo->getCurrentAngle());
+    if (hasHardwareFailure()) {
+        _yaw_servo->abortAnimationNoRead();
+        _pitch_servo->abortAnimationNoRead();
+        return;
+    }
+    _yaw_servo->stopAnimation();
+    _pitch_servo->stopAnimation();
 }
 
 void Motion::lookAtNormalized(float x, float y, int speed)
@@ -102,7 +113,20 @@ void Motion::lookAtPoint(float x, float y, float z, int speed)
 
 bool Motion::isMoving()
 {
+    if (hasBusDead()) {
+        return false;
+    }
     return _yaw_servo->isMoving() || _pitch_servo->isMoving();
+}
+
+bool Motion::hasBusDead() const
+{
+    return _yaw_servo->isBusDead() || _pitch_servo->isBusDead();
+}
+
+bool Motion::hasHardwareFailure() const
+{
+    return _yaw_servo->hasHardwareFailure() || _pitch_servo->hasHardwareFailure();
 }
 
 int Motion::getCurrentYawAngle()
@@ -118,6 +142,16 @@ int Motion::getCurrentPitchAngle()
 uitk::Vector2i Motion::getCurrentAngles()
 {
     return uitk::Vector2i(_yaw_servo->getCurrentAngle(), _pitch_servo->getCurrentAngle());
+}
+
+uitk::Vector2i Motion::getAnimationAngles()
+{
+    return uitk::Vector2i(_yaw_servo->getAnimationAngle(), _pitch_servo->getAnimationAngle());
+}
+
+uitk::Vector2i Motion::syncAnimationToCurrentAngles()
+{
+    return uitk::Vector2i(_yaw_servo->syncAnimationToCurrentAngle(), _pitch_servo->syncAnimationToCurrentAngle());
 }
 
 void Motion::setTorqueEnabled(bool enabled)

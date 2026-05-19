@@ -185,8 +185,14 @@ public:
 
     Ft6336(i2c_master_bus_handle_t i2c_bus, uint8_t addr) : I2cDevice(i2c_bus, addr)
     {
-        uint8_t chip_id = ReadReg(0xA3);
-        ESP_LOGI(TAG, "Get chip ID: 0x%02X", chip_id);
+        uint8_t chip_id = 0;
+        esp_err_t err = TryReadReg(0xA3, &chip_id);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Get chip ID: 0x%02X", chip_id);
+        } else {
+            ESP_LOGW(TAG, "FT6336 chip ID read failed (%s), continue with touch reads skipped on failure",
+                     esp_err_to_name(err));
+        }
         read_buffer_ = new uint8_t[6];
     }
 
