@@ -31,6 +31,7 @@ StackChan 的 OTA 检查 URL 优先从 NVS `wifi.ota_url` 读取，覆盖编译�
 - USB 串口不能稳定替代这次触摸入口：报告确认 `start_dev_serial_wake_stop_task()` 运行时为空函数，`STACKCHAN_ENABLE_DEV_LOCAL_HTTP_CONTROL` 未启用时也没有本地 HTTP 控制入口；NVS warm_boot 只能滚动到图标位置，不会自动点击。
 - OTA manifest 的 `firmware.version`、bin 内 `PROJECT_VER` / `FIRMWARE_VERSION`、实际提供的 `stack-chan.bin` 路径必须三者一致；不要只相信目录名或脚本默认 `VERSION`。
 - OTA 发布目录、`active-release` symlink、manifest `/ota/` 响应和真实 bin 也必须一致：至少核对 `active.json` / `GET /ota/` 的 `version`、`force`、`sha256`、`size`，并用 `sha256sum` / `stat` 对比 `firmware/build/stack-chan.bin` 与发布目录中的 `stack-chan.bin`。
+- `ops/bin/stackchan-ota-release` 是本地 OTA 发布入口：发布前校验 bin 内 app desc version 与 `--version` 一致，计算 size/sha256，创建 `exp-pkg/candidate-<desc>-<version>/`，原子替换 `exp-pkg/active-release`，写 `ops/ota/active.json`，重启 user `stackchan-ota`，验证 `GET/POST /ota/`、`HEAD /stack-chan.bin`，并运行 `stackchan-doctor --json`；失败必须自动恢复旧 symlink 与旧 `active.json`。
 - 对正常升级发布，`force=0` 是预期；`force=1` 只用于同版本/回退/救援等明确强制 OTA 场景，不要把强制更新作为默认发布口径。
 - 重新打包或回归“点击 App 崩溃”时，必须固定已验证 bin 的路径与 SHA256，再和重打包 bin 对比；当前长期风险不是 OTA slot 容量不足，而是版本、产物和 OTA 参数错位。
 
@@ -40,6 +41,7 @@ StackChan 的 OTA 检查 URL 优先从 NVS `wifi.ota_url` 读取，覆盖编译�
 
 - `firmware/xiaozhi-esp32/main/ota.cc`：OTA URL 读取、manifest 解析、`force` 判断、版本比较、`activation` / `mqtt` / `websocket` 解析、ESP-IDF OTA 写入主链路。
 - `tools/ota-mock-server/ota-mock-server.py`：本地 OTA manifest 与固件下载 mock server，支持 `probe`、`no-upgrade` / `confirm`、`upgrade` 模式。
+- `ops/bin/stackchan-ota-release`：本地 OTA 一键发布脚本，负责校验 app desc version、打包 candidate、原子切换 `active-release`、写 `active.json`、重启 user service、HTTP / doctor 验收和失败回退。
 
 ### 关联锚点
 
@@ -197,6 +199,7 @@ StackChan 的 OTA 检查 URL 优先从 NVS `wifi.ota_url` 读取，覆盖编译�
 | `tools/ota-mock-server/start-upgrade.sh` 的 `VERSION` / `FIRMWARE` | 确认 manifest 广告版本与实际提供 bin 一致。 |
 | `active.json` / `GET /ota/` 的 `version`、`force`、`sha256`、`size` | 确认 OTA server 真实响应与发布目录、bin 产物一致；正常发布默认 `force=0`，强制 OTA 才使用数字 `force=1`。 |
 | `exp-pkg/active-release` symlink | 确认 active symlink 指向当前发布目录，避免服务端仍广告旧包或错包。 |
+| `ops/bin/stackchan-ota-release <bin> --version x.y.z --dry-run` | 发布前模拟全流程；应验证 app desc version、size/sha256、candidate 路径、active manifest 预期变化，但不写文件、不重启服务。 |
 
 已知高风险错位模式：
 

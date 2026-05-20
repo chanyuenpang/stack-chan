@@ -4,17 +4,23 @@
 
 StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义不同：
 
-- 本地设备 LAN dev HTTP：`http://<device-ip>:18080/dev/mcp/call`，由 firmware 直接实现，走 `stackchan_mcp_dispatch_tool()`，只支持一组 `self.robot.*` 工具，且没有 `/dev/mcp/list`。
+- 本地设备 LAN dev HTTP：`http://<device-ip>:18080/dev/mcp/call`，由 firmware 直接实现，走 `stackchan_mcp_dispatch_tool()`，支持一组 `self.robot.*` 工具和受确认保护的 `self.system.reboot`，且没有 `/dev/mcp/list`。
 - 小智官方云端 HTTP Messaging API：`https://xiaozhi.me/api/messaging/device/tools/list|call`，需要 `messaging token`，云端把 HTTP 请求转成设备已建立连接上的 `type:"mcp"` 消息，再由固件 `McpServer` 执行；这条路径可以列出/调用更完整的设备 MCP tools。
 
 未来调查“远控调用内置 MCP 工具”时，先判断走的是本地 dev 控制面还是小智官方 messaging 控制面，不要把两者的请求格式、鉴权 token、可见 tool 范围混在一起。
+
+`self.system.reboot` 是一个容易混淆的边界：它在设备端 MCP 注册层存在，且内部复用 `scheduleSystemReboot()` / `systemRebootTask()` 延迟调用 `esp_restart()`；本地 LAN dev HTTP `/dev/mcp/call` 现在也已由 `stackchan_mcp_dispatch_tool()` 显式分发该 tool，`tools/remote_control/remote_control.py` 可通过完整 `self.*` tool name 或 `reboot --confirm` 子命令表达它。长期规则是复用 `/dev/mcp/call` 与 confirm 语义，不新增独立 `/dev/reboot`。
 
 ## 长期行为 / 规则
 
 - 本地 dev HTTP 控制面端口为 `18080`，控制端口为 `18081`；普通 body 最大约 `512 bytes`，`/dev/mcp/call` 最大 body 约 `1024 bytes`。
 - 本地 dev HTTP 需要 Header `X-StackChan-Dev-Token`；默认 token 来自 `STACKCHAN_DEV_LOCAL_CONTROL_TOKEN`，默认值 `stackchan-dev`，只适合 LAN/dev 环境。
-- 本地 `/dev/mcp/call` 不是标准 JSON-RPC `tools/call`，请求体使用自定义字段 `tool` + `arguments`，成功响应为 `{ "ok": true }` 或 `{ "ok": true, "result": ... }`。
+- 本地 `/dev/mcp/call` 不是标准 JSON-RPC `tools/call`，请求体使用自定义字段 `tool` + `arguments`；普通 tool 成功响应为 `{ "ok": true }` 或 `{ "ok": true, "result": ... }`，`self.system.reboot` 返回 `{ "accepted": true|false, "delay_ms": ..., "reason": ... }` 一类结构化结果。
 - 本地 `/dev/mcp/call` 没有对应 `/dev/mcp/list`；可调用工具范围由 `stackchan_mcp_dispatch_tool()` 手写分发决定，主要是 `self.robot.*`。
+- `self.system.reboot` 已经通过 `McpServer::AddTool("self.system.reboot", ...)` 注册在 MCP 层，要求 `confirm=true`，`delay_ms` 约束在 `500..10000ms`，最终由 `scheduleSystemReboot()` 创建 `systemRebootTask()` 执行 `esp_restart()`。
+- 本地 `/dev/mcp/call` dispatcher 接 `get_head_angles`、`set_head_angles`、`set_head_targets`、`set_led_color`、`celebrate`、reminder 等工具；现在也显式接入 `self.system.reboot` 分支，未知 tool 仍返回 false。
+- `tools/remote_control/remote_control.py::StackChanClient.mcp_call()` 支持完整 `self.*` tool name：传入 `self.system.reboot` 时原样发送，未带 `self.` 的旧 robot shorthand 仍按 `self.robot.*` 兼容。
+- 当前 Dev HTTP route 清单仍没有 `/dev/reboot`；本地重启黄金入口已经固定为 `/dev/mcp/call` + `self.system.reboot` + `confirm` 语义，不建议新增无必要的独立 `/dev/reboot` 控制面。
 - 当前本地 dev HTTP 控制面也没有稳定的 OTA trigger endpoint；不要在 `/dev/mcp/call` 或 `/dev/*` 清单中假设存在 `/dev/ota/check`、`/dev/ota/update`。Launcher 阶段手动 OTA 走 `SETUP -> SystemUpdateWorker -> GetHAL().updateFirmware()`，远程 OTA trigger 需要另行新增并明确阶段边界。
 - 官方小智 HTTP Messaging API endpoint 是 `POST /api/messaging/device/tools/list` 和 `POST /api/messaging/device/tools/call`，鉴权使用 `Authorization: Bearer <messaging-token>`。
 - 官方 messaging API 需要的是 `messaging token`，不是外部 MCP endpoint token `XIAOZHI_MCP_TOKEN`。
@@ -27,7 +33,7 @@ StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义�
 ### 主锚点
 
 - `firmware/main/hal/hal_dev_local_control.cpp`：本地 dev HTTP server、endpoint 注册、token 校验、`mcp_call_handler()`、`celebrate_handler()`、`status_handler()`、`play_sound_handler()`、`inject_prompt_handler()`。
-- `firmware/main/hal/hal_mcp.cpp`：`Hal::xiaozhi_mcp_init()` 注册 `self.robot.*` tools；`stackchan_mcp_dispatch_tool()` 是本地 `/dev/mcp/call` 的实际分发入口；`submitHeadMotion()`、`start_celebrate_modifier()`、`stackchan_celebrate_tick()` 负责硬件动作。
+- `firmware/main/hal/hal_mcp.cpp`：`Hal::xiaozhi_mcp_init()` 注册 `self.robot.*` tools 和 `self.system.reboot`；`stackchan_mcp_dispatch_tool()` 是本地 `/dev/mcp/call` 的实际分发入口，已接 `self.system.reboot`；`scheduleSystemReboot()` / `systemRebootTask()` 是确认后延迟重启封装，`jsonEscape()` 保护 HTTP JSON 响应中的 `reason`。
 - `firmware/xiaozhi-esp32/main/mcp_server.cc`：官方 MCP `tools/list` / `tools/call` 的设备端解析与执行入口，包含 `McpServer::ParseMessage()`、`GetToolsList()`、`DoToolCall()`。
 
 ### 关联锚点
@@ -45,7 +51,7 @@ StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义�
 | `firmware/xiaozhi-esp32/main/protocols/mqtt_protocol.cc` | hello/features 中声明 `"mcp": true`。 |
 | `firmware/main/apps/common/reminder/reminder.cpp` | `tools::create_reminder()`、`get_active_reminders()`、`stop_reminder()`。 |
 | `firmware/main/apps/common/reminder/reminder.h` | reminder tools 对外声明。 |
-| `tools/remote_control/remote_control.py` | Python LAN 客户端，封装 `/dev/status`、`/dev/mcp/call`、`/dev/celebrate`、`/dev/play_sound`、`/dev/inject_prompt`。 |
+| `tools/remote_control/remote_control.py` | Python LAN 客户端，封装 `/dev/status`、`/dev/mcp/call`、`/dev/celebrate`、`/dev/play_sound`、`/dev/inject_prompt`；`StackChanClient.mcp_call()` 支持完整 `self.*` tool name，`reboot --confirm` 子命令调用 `self.system.reboot`。 |
 | `tools/xiaozhi-mcp-bridge/scripts/probe-messaging-tools.mjs` | 官方小智 HTTP Messaging API `tools/list` / `tools/call` 探测脚本。 |
 | `tools/xiaozhi-mcp-bridge/README.md` | 记录官方 messaging API 的 token 与 endpoint 用法。 |
 
@@ -59,7 +65,8 @@ StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义�
 4. `mcp_call_handler()` 校验 `X-StackChan-Dev-Token`，读取 JSON body，解析 `tool` 与 `arguments`。
 5. handler 调用 `stackchan_mcp_dispatch_tool(tool, arguments, ...)`。
 6. `stackchan_mcp_dispatch_tool()` 按 tool name 手写分发到 `self.robot.get_head_angles`、`self.robot.set_head_angles`、`self.robot.set_led_color`、`self.robot.celebrate`、reminder tools 等。
-7. 头部动作进入 `submitHeadMotion()`；庆祝进入 `start_celebrate_modifier()`，后续由 `_stackchan_update_task()` / `stackchan_celebrate_tick()` 异步推进。
+7. 传入 `self.system.reboot` 时进入本地 dispatcher 的显式分支，读取 `confirm` / `delay_ms` / `reason`，`confirm=false` 返回 `confirm_required` 且不 schedule，`confirm=true` 复用 `scheduleSystemReboot()` 并先返回 JSON 响应。
+8. 头部动作进入 `submitHeadMotion()`；庆祝进入 `start_celebrate_modifier()`，后续由 `_stackchan_update_task()` / `stackchan_celebrate_tick()` 异步推进。
 
 ### 官方小智 HTTP Messaging API
 
@@ -84,6 +91,7 @@ StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义�
 | `/dev/stop` | `POST` | 调用 `Application::StopListening()` | 显式 stop，不是 toggle。 |
 | `/dev/play_sound` | `POST` | `{ "sound": "success" }` | 不是 MCP tool；未知音效返回 `unknown_sound`。 |
 | `/dev/inject_prompt` | `POST` | 注入内置 WAV prompt 到 XiaoZhi 上行音频队列 | 不是 MCP tool；并发返回 `inject_already_active`。 |
+| `/dev/reboot` | - | 当前不存在 | 不要假设有独立 reboot endpoint；本地重启已走 `/dev/mcp/call` 分发 `self.system.reboot` 并强制 `confirm`。 |
 
 本地常见错误词：`unauthorized`、`invalid_json`、`missing_tool`、`unknown_tool`、`body_too_large`、`already_active`、`not_ready`、`unknown_sound`、`inject_already_active`。
 
@@ -109,6 +117,8 @@ StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义�
 | `self.robot.get_reminders` | 返回 active reminders 列表。 |
 | `self.robot.stop_reminder` | 按 id 停止 reminder。 |
 
+当前本地 `/dev/mcp/call` **支持** `self.system.reboot`；该 tool 在 MCP 注册层存在，也已接入 `stackchan_mcp_dispatch_tool()`，但必须显式 `confirm=true`。
+
 ### 设备 MCP server 暴露的工具
 
 - StackChan 自定义 robot tools：`self.robot.get_head_angles`、`self.robot.set_head_angles`、`self.robot.set_head_targets`、`self.robot.set_led_color`、`self.robot.celebrate`、`self.robot.create_reminder`、`self.robot.get_reminders`、`self.robot.stop_reminder`。
@@ -124,6 +134,9 @@ StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义�
 - 不要把本地 `X-StackChan-Dev-Token` 当成官方 messaging API token；官方路径使用 Bearer `messaging token`。
 - 不要把 `tools/xiaozhi-mcp-bridge` 误判为设备 LAN 控制桥；官方 messaging API 探测脚本在 `tools/xiaozhi-mcp-bridge/scripts/probe-messaging-tools.mjs`，但真实设备执行仍在固件 `McpServer`。
 - 不要用 `self.audio_speaker.set_volume` 期待播放提示音；播放内置音效走 `/dev/play_sound`，庆祝动作 sound 参数当前也不是音效播放链路。
+- 不要把 `McpServer::AddTool("self.system.reboot", ...)` 当成所有通道自动可用；本地 dispatcher 是另一层手写分发，当前已经单独接线，但后续新增其他 user-only tool 仍需逐个确认。
+- 不要用 `remote_control.py mcp system.reboot` 这类缺少 `self.` 前缀的命令假设能触发重启；稳定 CLI 是 `remote_control.py reboot --confirm`，或在通用 MCP 调用里传完整 `self.system.reboot`。
+- 不要为了 reboot 再新增 `/dev/reboot`；除非有明确需求，否则复用 `/dev/mcp/call` + `self.system.reboot` + `confirm=true` 能减少控制面面积。
 
 ## 验证标准
 
@@ -133,6 +146,8 @@ StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义�
 - 本地 `/dev/mcp/call` 与官方 messaging `tools/call` 的请求字段、鉴权 token 和可见工具范围是否在文档和客户端里区分明确。
 - `stackchan_mcp_dispatch_tool()` 支持列表与 `Hal::xiaozhi_mcp_init()` 注册的 `self.robot.*` 是否保持一致；若新增 robot tool，应同步考虑本地 HTTP dispatcher 是否需要支持。
 - 官方 `tools/list` 是否能看到 common tools / user-only tools 的预期范围，尤其不要误开放 `self.reboot`、`self.upgrade_firmware` 等高风险工具。
+- 本地 reboot 回归必须确认 `stackchan_mcp_dispatch_tool()` 仍显式支持 `self.system.reboot`，并复用已有 `confirm` / `delay_ms` / `reason` / `scheduleSystemReboot()` 语义；`confirm=false` 必须安全拒绝。
+- CLI 回归必须确认 `remote_control.py` 仍能表达 full tool name（传入以 `self.` 开头时不再补 `self.robot.`），且显式 `reboot --confirm` 子命令默认不得误触发设备重启。
 - 头部、LED、celebrate、reminder tools 的回归测试应覆盖快速返回、参数 clamp、`already_active`、reminder 触发显示与通知音。
 
 ## 关键检索词
@@ -159,4 +174,13 @@ StackChan 当前有两条“HTTP 调用 MCP tool”的稳定入口，但语义�
 - `self.robot.create_reminder`
 - `self.audio_speaker.set_volume`
 - `self.reboot`
+- `self.system.reboot`
+- `systemRebootTask`
+- `scheduleSystemReboot`
+- `confirm_required`
+- `/dev/reboot`
+- `StackChanClient.mcp_call`
+- `remote_control.py reboot --confirm`
+- `jsonEscape()`
+- `self.robot.{tool}`
 - `self.upgrade_firmware`

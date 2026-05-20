@@ -2,7 +2,7 @@
 
 ## Status
 
-proposed
+accepted
 
 ## Context
 
@@ -12,7 +12,7 @@ proposed
 
 后续“StackChan 工具链收尾与文档保全”已落地本地 reboot 最小闭环：本地 `/dev/mcp/call` dispatcher 支持完整 `self.system.reboot`，CLI 侧 `remote_control.py reboot --confirm` 可调用该 tool；默认不刷机、不写设备、不写 NVS、不触发 OTA，也没有新增独立 `/dev/reboot` route。
 
-同一收尾阶段已落地 `ops/bin/stackchan-doctor` 只读 doctor：默认检查 OTA user service、本机 OTA manifest / bin、`active.json`、active release bin、bin app desc version、USB 串口和 Xiaozhi token 存在性；默认不访问设备状态，只有 `--check-device` 才只读 `GET /dev/status`。doctor / smoke test / runbook 仍保持 proposed 约束：动作类能力必须有显式 `--confirm` / `--allow-action`；token 只检查存在性，不输出原文、片段、哈希或任何可复用凭据。
+同一收尾阶段已落地 `ops/bin/stackchan-doctor` 只读 doctor：默认检查 OTA user service、本机 OTA manifest / bin、`active.json`、active release bin、bin app desc version、USB 串口和 Xiaozhi token 存在性；默认不访问设备状态，只有 `--check-device` 才只读 `GET /dev/status`。doctor、OTA release 与 runbook 已进入 accepted 边界：`ops/bin/stackchan-doctor` 保持只读诊断，`ops/bin/stackchan-ota-release` 负责本地 OTA 发布与回退，`docs/runbook/stackchan-ops.md` 作为人工运维入口；动作类能力必须有显式 `--confirm` / `--allow-action`；token 只检查存在性，不输出原文、片段、哈希或任何可复用凭据。
 
 ## Decision
 
@@ -28,6 +28,7 @@ proposed
 - `ops/bin/stackchan-doctor` 是当前已落地的只读 doctor；默认检查 OTA user service、`GET/POST /ota/`、`HEAD /stack-chan.bin`、`ops/ota/active.json`、`exp-pkg/active-release/stack-chan.bin` size/sha256、bin app desc `App version`、token 存在性与 USB 串口；支持 `--json` 机器可读输出。
 - doctor 默认不访问设备 endpoint；只有显式 `--check-device` 才只读 `GET /dev/status`。
 - doctor / smoke test 的动作类检查必须标记为 `skipped_destructive`；只有显式 `--allow-action` 才能执行动作类能力。
+- `docs/runbook/stackchan-ops.md` 是工具链人工入口，应优先引用 golden entrypoint、doctor 与 release 脚本，而不是复制临场命令。
 - token 检查只能报告存在性或缺失状态，不得输出 token 原文、片段、哈希或任何可复用凭据。
 - 发布到设备只能走 OTA；不得把 USB、`esptool` 或 `idf.py flash` 直刷当作默认发布 / 恢复路径。
 - runbook、doctor 和 smoke test 应固化能力矩阵：能力、入口路径 / 命令、当前状态、证据、失效原因、风险、保全动作和后续计划建议。
@@ -50,12 +51,15 @@ proposed
 | `/dev/mcp/call` | 本地 HTTP MCP 调用入口；不得默认等同于云端 dispatcher。 |
 | `self.system.reboot` | 远程重启能力锚点；MCP 注册层与本地 `/dev/mcp/call` dispatcher 已支持，本地 CLI 入口为 `remote_control.py reboot --confirm`。 |
 | `stackchan-ota.service` | OTA 服务检查锚点，当前有效检查口径为 user systemd。 |
+| `ops/bin/stackchan-doctor` | 只读诊断入口，默认不执行重启、NVS 写入、OTA trigger 或 flash。 |
+| `ops/bin/stackchan-ota-release` | 本地 OTA 发布入口，负责 candidate、active-release、active.json、user service restart、HTTP / doctor 验收与失败回退。 |
+| `docs/runbook/stackchan-ops.md` | 人工运维 runbook，记录通道边界、doctor、release 与安全确认口径。 |
 
 ## Consequences
 
 - 正向效果：后续排障和发布前检查可以先用统一能力矩阵确认入口、凭据、服务口径和当前可用性，减少反复猜入口。
 - 约束：新增 runbook、doctor 或 smoke test 时，必须显式区分本地 HTTP、云端 messaging / MCP、USB 串口和 OTA 服务，而不是只写一个“远程控制”总称。
-- 取舍：本地 reboot dispatcher / CLI 闭环和只读 doctor 已存在；smoke test / runbook 仍不能声称已完全落地。动作类自检仍应默认 skipped，只有显式 `--allow-action` 才执行。
+- 取舍：本地 reboot dispatcher / CLI 闭环和只读 doctor 已存在；runbook、doctor 与 release 脚本已落地；后续 smoke test 仍应默认 skipped 动作类能力，只有显式 `--allow-action` 才执行。
 - 验证锚点：本地 reboot 收尾验证覆盖 `python3 -m py_compile StackChan/tools/remote_control/remote_control.py` 与 firmware build；未连接设备、未调用 `/dev/mcp/call`、未触发重启、未触发 OTA、未写 NVS、未刷机。doctor 验证覆盖默认模式与 `--json` 模式；默认模式未访问设备动作端点，`/dev/status` 只在 `--check-device` 下只读访问；当前环境 token 缺失会让 overall 为 `warning`，但 OTA/manifest/bin/app_desc 核心检查可为 `ok`。
 
 ## Search Terms
@@ -81,6 +85,8 @@ proposed
 - `exp-pkg/active-release/stack-chan.bin`
 - `App version`
 - `smoke test`
+- `docs/runbook/stackchan-ops.md`
+- `ops/bin/stackchan-ota-release`
 - `remote_control.py`
 - `--confirm`
 - `--allow-action`
