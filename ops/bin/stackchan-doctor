@@ -20,6 +20,8 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 ACTIVE_JSON = ROOT_DIR / "ops" / "ota" / "active.json"
 ACTIVE_RELEASE_BIN = ROOT_DIR / "exp-pkg" / "active-release" / "stack-chan.bin"
 OTA_BASE = "http://127.0.0.1:8080"
+USB_LOGS_TOOL = ROOT_DIR / "ops" / "bin" / "stackchan-usb-logs"
+CELEBRATE_DIAGNOSE_TOOL = ROOT_DIR / "ops" / "bin" / "stackchan-celebrate-diagnose"
 
 
 def sha256_file(path: Path) -> str:
@@ -52,7 +54,84 @@ def run_cmd(argv: list[str], timeout: float = 5.0) -> tuple[int | None, str, str
     except FileNotFoundError as exc:
         return None, "", str(exc)
     except subprocess.TimeoutExpired as exc:
-        return None, exc.stdout or "", f"timeout after {timeout}s"
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return None, stdout.strip(), f"timeout after {timeout}s"
+
+
+def run_json_tool(tool_path: Path, timeout: float = 10.0) -> dict[str, Any]:
+    """Run a read-only helper with --json and normalize its result for doctor.
+
+    Exit code 2 means the helper is unsupported/skipped in the current local
+    context (for example no existing logs). It should not make doctor fail.
+    """
+    argv = [str(tool_path), "--json"]
+    code, stdout, stderr = run_cmd(argv, timeout=timeout)
+    result: dict[str, Any] = {
+        "tool_path": str(tool_path),
+        "command": argv,
+        "exit_code": code,
+        "status": "ok",
+        "readonly": True,
+    }
+
+    data: Any = None
+    parse_error: str | None = None
+    if stdout:
+        try:
+            data = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            parse_error = str(exc)
+
+    if data is not None:
+        result["result"] = data
+        child_overall = data.get("overall") if isinstance(data, dict) else None
+        if child_overall is not None:
+            result["overall"] = child_overall
+        child_summary = data.get("summary") if isinstance(data, dict) else None
+        if child_summary is not None:
+            result["summary"] = child_summary
+    elif stdout:
+        result["stdout"] = stdout[-4000:]
+
+    if stderr:
+        result["stderr"] = stderr[-4000:]
+    if parse_error:
+        result["error"] = f"failed to parse JSON output: {parse_error}"
+    if code is None:
+        result["status"] = "warning"
+        result.setdefault("error", stderr or "tool did not complete")
+    elif code == 2:
+        result["status"] = "skipped"
+        result.setdefault("overall", "unsupported")
+        result.setdefault("summary", "helper reported unsupported for this environment")
+    elif code != 0:
+        result["status"] = "warning"
+        result.setdefault("error", stderr or parse_error or f"helper exited {code}")
+    elif parse_error:
+        result["status"] = "warning"
+    elif result.get("overall") in ("warning", "error"):
+        result["status"] = "warning"
+    return result
+
+
+def extension_check(name: str, node: dict[str, Any]) -> dict[str, Any]:
+    status = node.get("status")
+    if status == "skipped":
+        check_status = "skipped"
+    elif status == "ok":
+        check_status = "ok"
+    else:
+        check_status = "warning"
+    return make_check(
+        name,
+        check_status,
+        tool_path=node.get("tool_path"),
+        exit_code=node.get("exit_code"),
+        overall=node.get("overall"),
+        summary=node.get("summary"),
+        error=node.get("error"),
+        readonly=True,
+    )
 
 
 def http_request(method: str, path: str, timeout: float = 3.0) -> dict[str, Any]:
@@ -191,6 +270,16 @@ def main() -> int:
         "--check-device",
         action="store_true",
         help="also GET /dev/status (read-only); skipped by default",
+    )
+    parser.add_argument(
+        "--include-usb-logs",
+        action="store_true",
+        help="include read-only output from ops/bin/stackchan-usb-logs --json",
+    )
+    parser.add_argument(
+        "--include-celebrate-logs",
+        action="store_true",
+        help="include read-only output from ops/bin/stackchan-celebrate-diagnose --json",
     )
     args = parser.parse_args()
 
@@ -373,6 +462,16 @@ def main() -> int:
         )
     )
 
+    usb_logs: dict[str, Any] | None = None
+    if args.include_usb_logs:
+        usb_logs = run_json_tool(USB_LOGS_TOOL)
+        checks.append(extension_check("usb_logs_helper", usb_logs))
+
+    celebrate_diagnosis: dict[str, Any] | None = None
+    if args.include_celebrate_logs:
+        celebrate_diagnosis = run_json_tool(CELEBRATE_DIAGNOSE_TOOL)
+        checks.append(extension_check("celebrate_diagnosis_helper", celebrate_diagnosis))
+
     overall = "ok"
     if any(check["status"] == "error" for check in checks):
         overall = "error"
@@ -387,11 +486,21 @@ def main() -> int:
         "overall": overall,
         "checks": checks,
     }
+    if usb_logs is not None:
+        result["usb_logs"] = usb_logs
+    if celebrate_diagnosis is not None:
+        result["celebrate_diagnosis"] = celebrate_diagnosis
 
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
         print(f"stackchan-doctor: overall={overall} mode=readonly root={ROOT_DIR}")
+        if usb_logs is not None:
+            summary = usb_logs.get("summary") or f"exit_code={usb_logs.get('exit_code')}"
+            print(f"usb_logs: overall={usb_logs.get('overall', usb_logs.get('status'))} summary={summary}")
+        if celebrate_diagnosis is not None:
+            summary = celebrate_diagnosis.get("summary") or f"exit_code={celebrate_diagnosis.get('exit_code')}"
+            print(f"celebrate_diagnosis: overall={celebrate_diagnosis.get('overall', celebrate_diagnosis.get('status'))} summary={summary}")
         for check in checks:
             print(f"[{check['status']}] {check['name']}")
             for key, value in check.items():

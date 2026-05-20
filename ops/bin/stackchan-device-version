@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""Read-only StackChan device/OTA/USB version probe.
+
+This tool intentionally avoids action endpoints: it only reads /dev/status,
+local OTA metadata, active firmware image metadata, and existing serial logs.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+ACTIVE_RELEASE_BIN = ROOT_DIR / "exp-pkg" / "active-release" / "stack-chan.bin"
+DEFAULT_IP = "192.168.0.8"
+DEFAULT_PORT = 18080
+DEFAULT_TOKEN = "stackchan-dev"
+DEFAULT_OTA_BASE = "http://127.0.0.1:8080"
+
+
+VERSION_PATTERNS = [
+    re.compile(r"\bApp version:\s*(?P<version>\S+)", re.IGNORECASE),
+    re.compile(r"\bapp[_ -]?version[=:]\s*(?P<version>\S+)", re.IGNORECASE),
+    re.compile(r"\bboot(?:loader)?[_ -]?version[=:]\s*(?P<version>\S+)", re.IGNORECASE),
+    re.compile(r"\bversion[=:]\s*(?P<version>\d+(?:\.\d+)+(?:[-+][\w.]+)?)", re.IGNORECASE),
+]
+
+
+def http_get_json(url: str, *, token: str | None = None, timeout: float = 3.0) -> dict[str, Any]:
+    req = urllib.request.Request(url, method="GET")
+    if token is not None:
+        req.add_header("X-StackChan-Dev-Token", token)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            parsed = json.loads(body) if body else None
+            return {
+                "ok": True,
+                "status_code": resp.status,
+                "url": url,
+                "body": body,
+                "json": parsed if isinstance(parsed, dict) else None,
+            }
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return {
+            "ok": False,
+            "status_code": exc.code,
+            "url": url,
+            "body": body,
+            "error": str(exc),
+        }
+    except json.JSONDecodeError as exc:
+        return {"ok": False, "url": url, "error": f"invalid_json: {exc}"}
+    except Exception as exc:  # noqa: BLE001 - diagnostic tool should return structured errors.
+        return {"ok": False, "url": url, "error": str(exc)}
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def run_cmd(argv: list[str], timeout: float = 20.0) -> tuple[int | None, str, str]:
+    try:
+        proc = subprocess.run(
+            argv,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+        return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
+    except FileNotFoundError as exc:
+        return None, "", str(exc)
+    except subprocess.TimeoutExpired as exc:
+        return None, exc.stdout or "", f"timeout after {timeout}s"
+
+
+def find_esptool() -> list[str]:
+    for cmd in ("esptool", "esptool.py"):
+        found = shutil.which(cmd)
+        if found:
+            return [found]
+    return [sys.executable, "-m", "esptool"]
+
+
+def parse_app_desc(output: str) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    mapping = {
+        "Project name": "project_name",
+        "App version": "app_version",
+        "ESP-IDF": "idf_version",
+        "Compile time": "compile_time",
+        "ELF file SHA256": "elf_sha256",
+        "Secure version": "secure_version",
+    }
+    for label, key in mapping.items():
+        match = re.search(rf"^{re.escape(label)}:\s*(.+?)\s*$", output, re.MULTILINE)
+        if match:
+            fields[key] = match.group(1)
+    return fields
+
+
+def read_active_bin_app_desc(bin_path: Path) -> dict[str, Any]:
+    result: dict[str, Any] = {"path": str(bin_path), "exists": bin_path.exists()}
+    if not bin_path.exists():
+        result.update({"status": "missing", "error": "active bin not found"})
+        return result
+
+    result.update({"size": bin_path.stat().st_size, "sha256": sha256_file(bin_path)})
+    esptool = find_esptool()
+    candidates = [esptool + ["image-info", str(bin_path)], esptool + ["image_info", str(bin_path)]]
+    last_error = ""
+    for argv in candidates:
+        code, stdout, stderr = run_cmd(argv)
+        output = "\n".join(part for part in (stdout, stderr) if part)
+        if code == 0:
+            desc = parse_app_desc(output)
+            result.update({"status": "ok" if desc else "unsupported_no_app_desc", "method": " ".join(argv[:2]), **desc})
+            if not desc:
+                result["error"] = "app descriptor not found in esptool output"
+            return result
+        last_error = stderr or stdout or "esptool failed"
+    result.update({"status": "error", "method": " ".join(candidates[-1][:2]), "error": last_error})
+    return result
+
+
+def probe_http(ip: str, port: int, token: str) -> dict[str, Any]:
+    url = f"http://{ip}:{port}/dev/status"
+    resp = http_get_json(url, token=token)
+    result: dict[str, Any] = {"url": url, "readonly": True, "status_code": resp.get("status_code")}
+    if not resp.get("ok"):
+        if resp.get("status_code") == 401:
+            result.update({"status": "unauthorized", "error": resp.get("error") or resp.get("body")})
+        else:
+            result.update({"status": "unavailable", "error": resp.get("error") or resp.get("body")})
+        return result
+
+    data = resp.get("json") or {}
+    result["raw"] = data
+    required = ("app_version", "project_name", "idf_version")
+    if not all(data.get(key) for key in required):
+        result.update(
+            {
+                "status": "unsupported_old_firmware",
+                "device_running_version": None,
+                "app_version": data.get("app_version"),
+                "project_name": data.get("project_name"),
+                "idf_version": data.get("idf_version"),
+                "legacy_version": data.get("version"),
+                "note": "current firmware /dev/status lacks app_version/project_name/idf_version; OTA required before reliable read",
+            }
+        )
+        return result
+
+    result.update(
+        {
+            "status": "ok",
+            "device_running_version": data.get("app_version"),
+            "app_version": data.get("app_version"),
+            "project_name": data.get("project_name"),
+            "idf_version": data.get("idf_version"),
+            "legacy_version": data.get("version"),
+            "state": data.get("state"),
+            "ip": data.get("ip"),
+        }
+    )
+    return result
+
+
+def probe_ota_server(ota_base: str = DEFAULT_OTA_BASE) -> dict[str, Any]:
+    url = ota_base.rstrip("/") + "/ota/"
+    resp = http_get_json(url)
+    active_desc = read_active_bin_app_desc(ACTIVE_RELEASE_BIN)
+    result: dict[str, Any] = {"url": url, "readonly": True, "active_bin_app_desc": active_desc}
+    if not resp.get("ok"):
+        result.update({"status": "unavailable", "error": resp.get("error") or resp.get("body")})
+        return result
+    data = resp.get("json") or {}
+    fw = data.get("firmware") if isinstance(data.get("firmware"), dict) else {}
+    result.update(
+        {
+            "status": "ok",
+            "ota_server_version": data.get("version") or fw.get("version"),
+            "force": data.get("force", fw.get("force")),
+            "sha": data.get("sha256") or fw.get("sha256"),
+            "size": data.get("size") or fw.get("size"),
+            "raw": data,
+        }
+    )
+    return result
+
+
+def parse_serial_logs(log_paths: list[Path]) -> tuple[str | None, dict[str, Any] | None]:
+    best: dict[str, Any] | None = None
+    for path in sorted(log_paths, key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")[-200_000:]
+        except Exception:
+            continue
+        for pattern in VERSION_PATTERNS:
+            matches = list(pattern.finditer(text))
+            if matches:
+                match = matches[-1]
+                version = match.group("version")
+                best = {"path": str(path), "version": version, "matched": match.group(0)}
+                return version, best
+    return None, best
+
+
+def probe_usb(usb_device: str | None = None) -> dict[str, Any]:
+    devices = [usb_device] if usb_device else sorted(glob.glob("/dev/ttyACM*"))
+    log_paths = [Path(p) for p in glob.glob("/tmp/stackchan-serial*.log")]
+    version, log_match = parse_serial_logs(log_paths)
+    result: dict[str, Any] = {
+        "readonly": True,
+        "devices": devices,
+        "usb_device": usb_device,
+        "log_paths": [str(p) for p in sorted(log_paths)],
+        "opened_device": False,
+    }
+    if version:
+        result.update({"status": "ok", "device_running_version": version, "version_log": log_match})
+    else:
+        result.update({"status": "unsupported_no_version_log", "device_running_version": None})
+    return result
+
+
+def human_print(result: dict[str, Any]) -> None:
+    print(f"stackchan-device-version: mode={result['mode']} root={result['root']}")
+    http = result.get("http")
+    if http:
+        print(f"HTTP device: status={http.get('status')} device_running_version={http.get('device_running_version')}")
+        print(f"  app_version={http.get('app_version')} project_name={http.get('project_name')} idf_version={http.get('idf_version')}")
+        if http.get("legacy_version"):
+            print(f"  legacy_version={http.get('legacy_version')}")
+        if http.get("error"):
+            print(f"  error={http.get('error')}")
+        if http.get("note"):
+            print(f"  note={http.get('note')}")
+    ota = result.get("ota_server")
+    if ota:
+        active = ota.get("active_bin_app_desc") or {}
+        print(f"OTA server: status={ota.get('status')} ota_server_version={ota.get('ota_server_version')}")
+        print(f"  force={ota.get('force')} sha={ota.get('sha')} size={ota.get('size')}")
+        print(f"  active_bin_app_desc: status={active.get('status')} app_version={active.get('app_version')} project_name={active.get('project_name')} idf_version={active.get('idf_version')}")
+        if ota.get("error"):
+            print(f"  error={ota.get('error')}")
+    usb = result.get("usb")
+    if usb:
+        print(f"USB logs: status={usb.get('status')} device_running_version={usb.get('device_running_version')}")
+        print(f"  devices={usb.get('devices')}")
+        if usb.get("version_log"):
+            print(f"  version_log={usb.get('version_log')}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Read-only StackChan device, OTA server, and USB log version check.")
+    parser.add_argument("--ip", default=DEFAULT_IP, help=f"device IP for /dev/status (default: {DEFAULT_IP})")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"device dev HTTP port (default: {DEFAULT_PORT})")
+    parser.add_argument("--token", default=DEFAULT_TOKEN, help="X-StackChan-Dev-Token value (default: stackchan-dev)")
+    parser.add_argument("--usb-device", help="specific USB device path to report; device is not opened")
+    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--http", action="store_true", help="check device HTTP /dev/status and local OTA server")
+    mode.add_argument("--usb", action="store_true", help="check USB presence and existing serial logs only")
+    mode.add_argument("--all", action="store_true", help="check HTTP/OTA and USB (default)")
+    args = parser.parse_args()
+
+    selected = "all" if args.all or not (args.http or args.usb) else ("http" if args.http else "usb")
+    result: dict[str, Any] = {
+        "tool": "stackchan-device-version",
+        "root": str(ROOT_DIR),
+        "mode": selected,
+        "readonly": True,
+    }
+
+    if selected in ("http", "all"):
+        result["http"] = probe_http(args.ip, args.port, args.token)
+        result["ota_server"] = probe_ota_server()
+    if selected in ("usb", "all"):
+        result["usb"] = probe_usb(args.usb_device)
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True))
+    else:
+        human_print(result)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cJSON.h>
 #include <cstring>
+#include <esp_app_desc.h>
 #include <esp_err.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
@@ -294,12 +295,17 @@ esp_err_t status_handler(httpd_req_t* req)
     auto& wifi = WifiManager::GetInstance();
     auto& app  = Application::GetInstance();
 
+    const esp_app_desc_t* app_desc = esp_app_get_description();
+
     ArduinoJson::JsonDocument doc;
-    doc["version"]   = FIRMWARE_VERSION;
-    doc["ip"]        = wifi.GetIpAddress();
-    doc["state"]     = device_state_str(static_cast<int>(app.GetDeviceState()));
-    doc["heap_free"] = esp_get_free_heap_size();
-    doc["wifi_rssi"] = wifi.GetRssi();
+    doc["version"]      = FIRMWARE_VERSION;
+    doc["app_version"]  = app_desc ? app_desc->version : "";
+    doc["project_name"] = app_desc ? app_desc->project_name : "";
+    doc["idf_version"]  = app_desc ? app_desc->idf_ver : "";
+    doc["ip"]           = wifi.GetIpAddress();
+    doc["state"]        = device_state_str(static_cast<int>(app.GetDeviceState()));
+    doc["heap_free"]    = esp_get_free_heap_size();
+    doc["wifi_rssi"]    = wifi.GetRssi();
 
     std::string out;
     ArduinoJson::serializeJson(doc, out);

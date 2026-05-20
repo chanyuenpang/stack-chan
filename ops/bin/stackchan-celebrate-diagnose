@@ -1,0 +1,396 @@
+#!/usr/bin/env python3
+"""Read-only StackChan celebrate failure diagnostics from existing serial logs.
+
+This tool intentionally does not open serial devices and does not call
+/dev/celebrate or any other device action endpoint.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+import re
+import sys
+from collections import Counter, deque
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+TOOL = "stackchan-celebrate-diagnose"
+DEFAULT_LOG_GLOB = "/tmp/stackchan-serial*.log"
+DEFAULT_TAIL_LINES = 5000
+MAX_TEXT_LEN = 500
+
+
+@dataclass(frozen=True)
+class Keyword:
+    kind: str
+    needle: str
+    count_key: str
+
+
+KEYWORDS: tuple[Keyword, ...] = (
+    Keyword("bus_dead", "SERVO-BUS event=bus_dead", "bus_dead"),
+    Keyword("bus_dead_hold", "event=bus_dead_hold", "bus_dead_hold"),
+    Keyword("rejected_bus_dead", "SERVO-SCHED event=reject_bus_dead", "reject_bus_dead"),
+    Keyword("force_release_bus_dead", "force_release reason=bus_dead", "force_release_bus_dead"),
+    Keyword("force_release_bus_dead_before_dispatch", "force_release reason=bus_dead_before_dispatch", "force_release_bus_dead_before_dispatch"),
+    Keyword("force_release_hard_timeout", "force_release reason=hard_timeout", "force_release_hard_timeout"),
+    Keyword("queued", "celebrate queued", "queued"),
+    Keyword("started", "celebrate executor started", "started"),
+    Keyword("finished", "celebrate executor finished", "finished"),
+    Keyword("led_started", "celebrate_led_mode_start", "led_started"),
+    Keyword("led_step", "celebrate_led_mode_step", "led_step"),
+    Keyword("led_finished", "celebrate_led_mode_finish", "led_finished"),
+    Keyword("motion_frame_scheduled", "celebrate_frame_schedule", "motion_frame_scheduled"),
+    Keyword("source_celebrate_frame", "source=celebrate_frame", "motion_frame"),
+    Keyword("source_celebrate_finish", "source=celebrate_finish", "source_celebrate_finish"),
+)
+
+TIMESTAMP_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?P<ts>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?)"),
+    re.compile(r"(?P<ts>\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?)"),
+)
+
+
+def local_tz() -> timezone:
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def parse_timestamp(line: str, file_mtime: datetime) -> str | None:
+    for pattern in TIMESTAMP_PATTERNS:
+        match = pattern.search(line)
+        if not match:
+            continue
+        raw = match.group("ts").replace(",", ".")
+        try:
+            if raw.endswith("Z"):
+                dt = datetime.fromisoformat(raw[:-1] + "+00:00")
+            elif raw[2:3] == ":":
+                t = datetime.strptime(raw, "%H:%M:%S.%f" if "." in raw else "%H:%M:%S").time()
+                dt = datetime.combine(file_mtime.date(), t, tzinfo=local_tz())
+            else:
+                dt = datetime.fromisoformat(raw)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=local_tz())
+            return dt.astimezone().isoformat(timespec="milliseconds")
+        except ValueError:
+            continue
+    return None
+
+
+def ts_to_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def tail_file(path: Path, line_count: int) -> list[tuple[int, str]]:
+    # Text-only, read-only tail. Keeps memory bounded for large serial logs.
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        q: deque[tuple[int, str]] = deque(maxlen=max(0, line_count))
+        for num, line in enumerate(f, start=1):
+            q.append((num, line.rstrip("\n\r")))
+    return list(q)
+
+
+def truncate(text: str, limit: int = MAX_TEXT_LEN) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def match_keywords(line: str, case_sensitive: bool) -> list[Keyword]:
+    haystack = line if case_sensitive else line.lower()
+    flags = 0 if case_sensitive else re.IGNORECASE
+    matches: list[Keyword] = []
+    exact_value_needles = {
+        "SERVO-BUS event=bus_dead",
+        "force_release reason=bus_dead",
+    }
+    for kw in KEYWORDS:
+        if kw.needle in exact_value_needles:
+            # Avoid treating bus_dead_hold / bus_dead_before_dispatch as the shorter value.
+            if re.search(re.escape(kw.needle) + r"(?![_A-Za-z0-9])", line, flags=flags):
+                matches.append(kw)
+            continue
+        needle = kw.needle if case_sensitive else kw.needle.lower()
+        if needle in haystack:
+            matches.append(kw)
+    return matches
+
+
+def resolve_log_paths(args: argparse.Namespace) -> tuple[list[Path], dict[str, Any]]:
+    source: dict[str, Any] = {
+        "log": str(args.log) if args.log else None,
+        "log_glob": args.log_glob,
+        "since_min": args.since_min,
+        "tail_lines": args.tail_lines,
+        "logs": [],
+    }
+    if args.log:
+        paths = [Path(args.log)]
+    else:
+        paths = [Path(p) for p in sorted(glob.glob(args.log_glob))]
+    # Preserve order while de-duplicating.
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in paths:
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            unique.append(path)
+    return unique, source
+
+
+def scan_logs(args: argparse.Namespace) -> dict[str, Any]:
+    paths, source = resolve_log_paths(args)
+    warnings: list[str] = []
+    errors: list[str] = []
+    timeline: list[dict[str, Any]] = []
+    counts: Counter[str] = Counter()
+    any_related_line = False
+    parsed_ts_count = 0
+    considered_ts_count = 0
+    now = datetime.now(tz=local_tz())
+    cutoff = now - timedelta(minutes=args.since_min) if args.since_min is not None else None
+
+    for path in paths:
+        log_info: dict[str, Any] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "size": None,
+            "mtime": None,
+            "lines_scanned": 0,
+        }
+        source["logs"].append(log_info)
+        if not path.exists():
+            warnings.append(f"log does not exist: {path}")
+            continue
+        try:
+            stat = path.stat()
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=local_tz())
+            log_info["size"] = stat.st_size
+            log_info["mtime"] = mtime.isoformat(timespec="seconds")
+            raw_lines = tail_file(path, args.tail_lines)
+        except OSError as exc:
+            log_info["error"] = str(exc)
+            errors.append(f"cannot read log {path}: {exc}")
+            continue
+
+        parsed_in_file = 0
+        prepared: list[tuple[int, str, str | None]] = []
+        for num, text in raw_lines:
+            ts = parse_timestamp(text, mtime)
+            if ts:
+                parsed_in_file += 1
+            prepared.append((num, text, ts))
+        parsed_ts_count += parsed_in_file
+        considered_ts_count += len(prepared)
+
+        use_since_filter = cutoff is not None and parsed_in_file > 0
+        if cutoff is not None and parsed_in_file == 0 and prepared:
+            warnings.append(f"--since-min requested but no parseable timestamps in {path}; analyzed tail lines without time filtering")
+
+        for num, text, ts in prepared:
+            if use_since_filter:
+                dt = ts_to_datetime(ts)
+                if dt is not None and dt < cutoff:
+                    continue
+            log_info["lines_scanned"] += 1
+            matches = match_keywords(text, args.case_sensitive)
+            if not matches:
+                continue
+            any_related_line = True
+            for kw in matches:
+                counts[kw.count_key] += 1
+                timeline.append(
+                    {
+                        "ts": ts,
+                        "file": str(path),
+                        "line": num,
+                        "kind": kw.kind,
+                        "text": truncate(text),
+                    }
+                )
+
+    if args.since_min is not None and considered_ts_count and parsed_ts_count == 0:
+        warnings.append("no parseable timestamps found in scanned logs; --since-min degraded to tail-only analysis")
+
+    timeline.sort(key=lambda item: (item.get("ts") or "", item.get("file") or "", item.get("line") or 0, item.get("kind") or ""))
+
+    signals = build_signals(counts)
+    overall, summary = classify(paths, source, signals, counts, any_related_line, warnings, errors)
+    return {
+        "tool": TOOL,
+        "readonly": True,
+        "opened_device": False,
+        "source": source,
+        "overall": overall,
+        "summary": summary,
+        "signals": signals,
+        "counts": stable_counts(counts),
+        "timeline": timeline,
+        "warnings": warnings,
+        "errors": errors,
+    }
+
+
+def stable_counts(counts: Counter[str]) -> dict[str, int]:
+    keys = [
+        "bus_dead",
+        "bus_dead_hold",
+        "reject_bus_dead",
+        "force_release_bus_dead",
+        "force_release_bus_dead_before_dispatch",
+        "force_release_hard_timeout",
+        "queued",
+        "started",
+        "finished",
+        "led_started",
+        "led_step",
+        "led_finished",
+        "motion_frame_scheduled",
+        "motion_frame",
+        "source_celebrate_finish",
+    ]
+    return {key: counts[key] for key in keys}
+
+
+def build_signals(counts: Counter[str]) -> dict[str, Any]:
+    force_release_total = counts["force_release_bus_dead"] + counts["force_release_bus_dead_before_dispatch"] + counts["force_release_hard_timeout"]
+    return {
+        "queued": counts["queued"] > 0,
+        "started": counts["started"] > 0,
+        "finished": counts["finished"] > 0,
+        "bus_dead": counts["bus_dead"] > 0,
+        "bus_dead_hold": counts["bus_dead_hold"] > 0,
+        "rejected_bus_dead": counts["reject_bus_dead"] > 0,
+        "force_release": force_release_total > 0,
+        "force_release_bus_dead": counts["force_release_bus_dead"] > 0,
+        "force_release_bus_dead_before_dispatch": counts["force_release_bus_dead_before_dispatch"] > 0,
+        "force_release_hard_timeout": counts["force_release_hard_timeout"] > 0,
+        "led_started": counts["led_started"] > 0,
+        "led_steps": counts["led_step"],
+        "led_finished": counts["led_finished"] > 0,
+        "motion_frame_scheduled": counts["motion_frame_scheduled"] > 0,
+        "motion_frames": counts["motion_frame"],
+        "source_celebrate_finish": counts["source_celebrate_finish"] > 0,
+    }
+
+
+def classify(
+    paths: list[Path],
+    source: dict[str, Any],
+    signals: dict[str, Any],
+    counts: Counter[str],
+    any_related_line: bool,
+    warnings: list[str],
+    errors: list[str],
+) -> tuple[str, str]:
+    existing_logs = [log for log in source["logs"] if log.get("exists")]
+    if errors:
+        return "error", "one or more logs could not be read; no device action was attempted"
+    if not paths or not existing_logs:
+        return "unsupported", "no serial logs found; not opening serial device by design"
+    if not any_related_line:
+        return "unsupported", "no celebrate or servo diagnostic lines found in scanned logs"
+
+    completed = bool(signals["queued"] and signals["started"] and signals["finished"])
+    has_failure = bool(signals["bus_dead"] or signals["rejected_bus_dead"] or signals["force_release"])
+    has_activity = bool(signals["led_steps"] or signals["motion_frames"] or signals["motion_frame_scheduled"] or signals["source_celebrate_finish"])
+
+    if has_failure and not signals["finished"]:
+        return "error", "celebrate appears blocked or aborted by servo bus failure before executor finished"
+    if (signals["queued"] or signals["started"]) and not signals["finished"] and not (signals["motion_frames"] or signals["source_celebrate_finish"]):
+        return "error", "celebrate queued/started but no finish or motion completion signal was found"
+    if completed and not has_failure and has_activity:
+        return "ok", "celebrate queued, executor started and finished without bus-dead or force-release signals"
+
+    if has_failure and signals["finished"]:
+        return "warning", "bus-dead/reject/force-release signals appeared, but celebrate executor eventually finished"
+    if not completed:
+        return "warning", "celebrate-related lines found, but queued -> started -> finished chain is incomplete"
+    if not has_activity:
+        return "warning", "celebrate executor finished, but LED/motion/frame activity was not observed"
+    if warnings:
+        return "warning", "celebrate diagnosis completed with warnings"
+    return "warning", "celebrate signals found, but they do not match the normal complete chain"
+
+
+def print_human(result: dict[str, Any], show_lines: bool) -> None:
+    print(f"{TOOL}: {result['overall']}")
+    print(f"readonly: true; opened_device: false")
+    print(f"summary: {result['summary']}")
+    print("logs:")
+    for log in result["source"].get("logs", []):
+        status = "exists" if log.get("exists") else "missing"
+        extra = f", scanned={log.get('lines_scanned', 0)}"
+        if log.get("error"):
+            extra += f", error={log['error']}"
+        print(f"  - {log.get('path')} ({status}{extra})")
+    print("signals:")
+    for key, value in result["signals"].items():
+        print(f"  {key}: {value}")
+    if result["warnings"]:
+        print("warnings:")
+        for warning in result["warnings"]:
+            print(f"  - {warning}")
+    if result["errors"]:
+        print("errors:")
+        for error in result["errors"]:
+            print(f"  - {error}")
+    if show_lines:
+        print("timeline:")
+        for item in result["timeline"]:
+            loc = f"{item['file']}:{item['line']}"
+            ts = f" {item['ts']}" if item.get("ts") else ""
+            print(f"  -{ts} {item['kind']} {loc}: {item['text']}")
+
+
+def exit_code(overall: str) -> int:
+    if overall == "error":
+        return 1
+    if overall == "unsupported":
+        return 2
+    return 0
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Read-only diagnose StackChan celebrate failures from existing serial logs. "
+            "Does not open serial devices and does not call /dev/celebrate or device action endpoints."
+        )
+    )
+    parser.add_argument("--log", metavar="PATH", help="analyze one existing log file only (read-only)")
+    parser.add_argument("--log-glob", default=DEFAULT_LOG_GLOB, help=f"serial log glob to analyze when --log is not set (default: {DEFAULT_LOG_GLOB})")
+    parser.add_argument("--since-min", type=float, help="only analyze lines from the last N minutes when parseable timestamps are present")
+    parser.add_argument("--tail-lines", type=int, default=DEFAULT_TAIL_LINES, help=f"maximum tail lines to scan per log (default: {DEFAULT_TAIL_LINES})")
+    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    parser.add_argument("--show-lines", action="store_true", help="in human mode, print matching raw log lines")
+    parser.add_argument("--case-sensitive", action="store_true", help="match keywords case-sensitively (default: case-insensitive)")
+    args = parser.parse_args(argv)
+    if args.tail_lines < 0:
+        parser.error("--tail-lines must be >= 0")
+    if args.since_min is not None and args.since_min < 0:
+        parser.error("--since-min must be >= 0")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    result = scan_logs(args)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=False))
+    else:
+        print_human(result, args.show_lines)
+    return exit_code(result["overall"])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
