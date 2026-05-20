@@ -174,7 +174,7 @@ MCP endpoints / product MCP endpoints
 
 这与用户说的“只能从 App 设置性格、音色等”一致。
 
-## 7. messaging token / assets-generator 状态
+## 7. messaging token / assets-generator 状态（不作为路线）
 
 当前源码研究没有找到 StackChan App 中公开展示：
 
@@ -195,7 +195,7 @@ https://xiaozhi.me/tools/assets-generator/?token=...
 - StackChan App/后端封装了 XiaoZhi developer token；
 - App 只公开 MCP endpoint 地址；
 - messaging token 不作为用户可见入口暴露；
-- 设备主动控制入口需要继续从 App/后端/固件通道研究。
+- 不要把 messaging token / assets-generator token 作为 StackChan 运维、设备控制、重启或 OTA 路线；设备侧入口以后只从 App/后端/固件源码作只读研究，不要求用户提供云端 token。
 
 ## 8. Token 分类
 
@@ -203,9 +203,9 @@ https://xiaozhi.me/tools/assets-generator/?token=...
 |---|---|---|---|
 | StackChan 后端 JWT | App 登录 M5Stack 账号后返回 | 访问 StackChan 后端 | 否 |
 | XiaoZhi developer bearer token | M5Stack 后端用 `xiaozhi.secret_key` 换取，App 缓存 | 管理 XiaoZhi devices/agents/MCP endpoint | 否，不建议导出 |
-| MCP endpoint token | StackChan App 的 MCP 页面生成/显示 | OpenClaw bridge 连接小智 MCP endpoint | 是，App 官方展示，可复制 |
+| MCP endpoint token | StackChan App 的 MCP 页面生成/显示 | 仅用于 OpenClaw bridge 联调，让小智调用 OpenClaw 只读工具；不是 StackChan 运维/设备控制/重启/OTA 凭据 | 可由用户现场复制用于 bridge 联调，不作为运维路线 |
 | 设备 WebSocket/MQTT token | OTA/config 下发到设备 NVS | 设备连接云端音频/会话 | 否，真实设备凭据 |
-| messaging token/assets-generator token | StackChan App 未发现公开入口 | 网页调用设备 tools/list/call | 暂不可得，不作为主线 |
+| messaging token/assets-generator token | StackChan App 未发现公开入口 | 历史研究中对应网页 tools/list/call | 不可用，不作为任何运维/设备控制路线 |
 
 ## 9. 对当前方案的修正
 
@@ -217,22 +217,22 @@ https://xiaozhi.me/tools/assets-generator/?token=...
 
 这对 StackChan App 绑定设备不可靠。
 
-### 保留路径
+### 可保留但降级为“bridge 联调”
 
 ```text
 StackChan App MCP 页面
 → 复制 wss://api.XiaoZhi.me/mcp/?token=...
 → OpenClaw bridge 连接
-→ 小智调用 OpenClaw 工具
+→ 小智调用 OpenClaw 只读工具
 ```
 
-这条已经实测可用。
+这条只说明小智能调用 OpenClaw bridge；它不是 StackChan 运维、设备控制、设备重启或 OTA 路线。
 
 ### 下一步研究方向
 
 1. 继续稳定 OpenClaw bridge。
 2. 继续优化工具名称和 description，让小智更容易调用。
-3. 追 App/后端是否有隐藏的设备 tools/call 或 messaging 封装。
+3. 只读追 App/后端是否有官方设备 tools/call 封装；不要要求用户提供 messaging token。
 4. 追固件设备 MCP 消息链，确认 set_led_color / set_head_angles / create_reminder 是从哪个云端通道下发。
 5. 若需要真实设备 NVS，只能做只读检查：不打印、不保存真实 token。
 

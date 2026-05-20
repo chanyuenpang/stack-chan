@@ -43,6 +43,17 @@ static const char *taskName(TaskHandle_t task)
 	return name ? name : "<none>";
 }
 
+static int clampLogMs(int64_t value_ms)
+{
+	if (value_ms <= 0) {
+		return 0;
+	}
+	if (value_ms > 2147483647LL) {
+		return 2147483647;
+	}
+	return static_cast<int>(value_ms);
+}
+
 SCS::SCS()
 {
 	Level = 1;//除广播指令所有指令返回应答
@@ -89,13 +100,13 @@ bool SCS::beginBusTransaction(const char *operation, int id, unsigned long timeo
 
 	if (xSemaphoreTake(mutex, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) {
 		const int64_t waited_ms = (esp_timer_get_time() - wait_start_us) / 1000;
+		const int64_t owner_held_ms = s_servo_bus_owner_start_us ? (esp_timer_get_time() - s_servo_bus_owner_start_us) / 1000 : 0;
 		u8Error = ERR_NO_REPLY;
 		ESP_LOGW(SERVO_IO_TAG,
-		         "event=mutex_timeout op=%s axis_id=%d timeout_ms=%lu waited_ms=%lld task=%s core=%d owner_task=%s owner_op=%s owner_axis_id=%d owner_held_ms=%lld stack_hwm=%lu",
-		         operation, id, timeoutMs, static_cast<long long>(waited_ms), taskName(self), xPortGetCoreID(),
+		         "event=mutex_timeout op=%s axis_id=%d timeout_ms=%lu waited_ms=%d task=%s core=%d owner_task=%s owner_op=%s owner_axis_id=%d owner_held_ms=%d stack_hwm=%lu",
+		         operation, id, timeoutMs, clampLogMs(waited_ms), taskName(self), xPortGetCoreID(),
 		         taskName(s_servo_bus_owner), s_servo_bus_owner_op ? s_servo_bus_owner_op : "<none>",
-		         s_servo_bus_owner_id,
-		         s_servo_bus_owner_start_us ? static_cast<long long>((esp_timer_get_time() - s_servo_bus_owner_start_us) / 1000) : 0LL,
+		         s_servo_bus_owner_id, clampLogMs(owner_held_ms),
 		         static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
 		return false;
 	}
@@ -108,8 +119,8 @@ bool SCS::beginBusTransaction(const char *operation, int id, unsigned long timeo
 
 	const int64_t waited_ms = (s_servo_bus_owner_start_us - wait_start_us) / 1000;
 	if (waited_ms > 20) {
-		ESP_LOGI(SERVO_IO_TAG, "event=mutex_wait op=%s axis_id=%d waited_ms=%lld task=%s core=%d",
-		         operation, id, static_cast<long long>(waited_ms), taskName(self), xPortGetCoreID());
+		ESP_LOGI(SERVO_IO_TAG, "event=mutex_wait op=%s axis_id=%d waited_ms=%d task=%s core=%d",
+		         operation, id, clampLogMs(waited_ms), taskName(self), xPortGetCoreID());
 	}
 	return true;
 }
@@ -133,12 +144,12 @@ void SCS::endBusTransaction(const char *operation, int id, int result, unsigned 
 	}
 
 	const bool failed = result <= 0;
-	if (failed || duration_ms > static_cast<int64_t>(slowLogThresholdMs)) {
-		ESP_LOGW(SERVO_IO_TAG,
-		         "event=transaction_done op=%s axis_id=%d rc=%d duration_ms=%lld task=%s core=%d stack_hwm=%lu err=%u",
-		         operation, id, result, static_cast<long long>(duration_ms), taskName(self), xPortGetCoreID(),
-		         static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)), u8Error);
-	}
+	const bool should_log = failed || duration_ms > static_cast<int64_t>(slowLogThresholdMs);
+	const int log_axis_id = id;
+	const int log_result = result;
+	const int log_duration_ms = clampLogMs(duration_ms);
+	const int log_core = xPortGetCoreID();
+	const unsigned int log_error = static_cast<unsigned int>(u8Error);
 
 	s_servo_bus_owner = nullptr;
 	s_servo_bus_owner_op = nullptr;
@@ -147,6 +158,12 @@ void SCS::endBusTransaction(const char *operation, int id, int result, unsigned 
 	s_servo_bus_owner_start_us = 0;
 	if (mutex != nullptr) {
 		xSemaphoreGive(mutex);
+	}
+
+	if (should_log) {
+		ESP_LOGW(SERVO_IO_TAG,
+		         "event=transaction_done axis_id=%d rc=%d duration_ms=%d core=%d err=%u",
+		         log_axis_id, log_result, log_duration_ms, log_core, log_error);
 	}
 }
 

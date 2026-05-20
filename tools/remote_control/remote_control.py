@@ -7,11 +7,13 @@
   - 设置 LED 颜色
   - 触发庆祝动画
   - 管理提醒
+  - 显式确认后重启设备
 
 用法:
   python3 remote_control.py --ip 192.168.0.8 status
   python3 remote_control.py wake
   python3 remote_control.py head --yaw 45 --pitch 30
+  python3 remote_control.py reboot --confirm
 """
 
 import argparse
@@ -91,9 +93,10 @@ class StackChanClient:
         return self._post("/dev/stop")
 
     def mcp_call(self, tool, arguments):
-        """调用 MCP 工具"""
+        """调用 MCP 工具；短名称默认走 self.robot.*，完整 self.* 名称原样传递。"""
+        full_tool = tool if tool.startswith("self.") else f"self.robot.{tool}"
         body = {
-            "tool": f"self.robot.{tool}",
+            "tool": full_tool,
             "arguments": arguments,
         }
         return self._post("/dev/mcp/call", body)
@@ -156,6 +159,13 @@ class StackChanClient:
     def inject_prompt(self):
         """唤醒小智并注入嵌入式语音 prompt"""
         return self._post("/dev/inject_prompt")
+
+    def reboot(self, delay_ms=1500, reason="remote_control"):
+        """通过完整 MCP 工具名请求系统重启。"""
+        return self.mcp_call(
+            "self.system.reboot",
+            {"confirm": True, "delay_ms": int(delay_ms), "reason": str(reason)},
+        )
 
 
 # ─── 命令处理 ────────────────────────────────────────────────────────────────
@@ -273,6 +283,18 @@ def cmd_inject_prompt(client, args):
         print(red(f"✗ 注入失败: {resp.get('error', '未知错误')}"))
 
 
+def cmd_reboot(client, args):
+    if not args.confirm:
+        print(red("✗ 重启需要显式 --confirm"))
+        sys.exit(1)
+    resp = client.reboot(delay_ms=args.delay_ms, reason=args.reason)
+    if resp.get("ok"):
+        print(green("✓ 重启请求已接受"))
+    else:
+        print(red(f"✗ 重启请求失败: {resp.get('error', '未知错误')}"))
+    print(cyan(json.dumps(resp, indent=2, ensure_ascii=False)))
+
+
 # ─── 主入口 ──────────────────────────────────────────────────────────────────
 
 def main():
@@ -285,6 +307,7 @@ def main():
   %(prog)s head --yaw 45 --pitch 30       控制头部
   %(prog)s led --r 168 --g 0 --b 0        设置 LED 红色
   %(prog)s celebrate --style cheer        庆祝动画
+  %(prog)s reboot --confirm               显式确认后重启设备
   %(prog)s mcp --tool get_head_angles     通用 MCP 调用
 """,
     )
@@ -371,6 +394,13 @@ def main():
     # inject-prompt
     sub = subparsers.add_parser("inject-prompt", help="Wake XiaoZhi and inject embedded voice prompt")
     sub.set_defaults(func=cmd_inject_prompt)
+
+    # reboot
+    sub = subparsers.add_parser("reboot", help="Reboot device via self.system.reboot MCP tool (requires --confirm)")
+    sub.add_argument("--confirm", action="store_true", required=True, help="required explicit confirmation")
+    sub.add_argument("--delay-ms", type=int, default=1500, help="delay before reboot; firmware clamps to 500..10000 ms")
+    sub.add_argument("--reason", default="remote_control", help="reboot reason passed to firmware")
+    sub.set_defaults(func=cmd_reboot)
 
     # 解析
     args = parser.parse_args()

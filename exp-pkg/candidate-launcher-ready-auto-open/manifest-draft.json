@@ -1,0 +1,21 @@
+{
+  "type": "ota_manifest",
+  "version": "2.0.29",
+  "build_tag": "candidate-launcher-ready-auto-open",
+  "force": false,
+  "url": "/stack-chan.bin",
+  "size": 3961104,
+  "sha256": "71566872ef348c925a8cabc4257c7ca9273d5e860ec55ecc98df13a3e970b752",
+  "date": "2026-05-19",
+  "compile_time": "May 19 2026 16:40:28",
+  "chip": "ESP32-S3",
+  "esp_idf": "v5.5.4",
+  "status": "candidate",
+  "published": false,
+  "changes": [
+    "Fix: NVS key length trimmed to ≤15 chars (boot/start_once, boot/fail_count)",
+    "Fix: Launcher auto-open AI.AGENT via openApp lifecycle instead of direct requestXiaozhiStart",
+    "Cleanup: requestXiaozhiStart only called from AppAiAgent::onOpen"
+  ],
+  "notes": "Candidate draft version bumped to 2.0.29 for natural OTA (force=0). Rebuild required before publishing so stack-chan.bin/image_info, size, and sha256 match 2.0.29."
+}

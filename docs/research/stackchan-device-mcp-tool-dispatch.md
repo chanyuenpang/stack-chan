@@ -229,9 +229,9 @@ self.robot.create_reminder
 
 ## 8. 当前无刷可执行路径
 
-由于 OpenClaw 没有设备云端会话 token，也没有 StackChan App 公开 messaging token，OpenClaw 不能直接伪造云端 `type:"mcp"` 消息推给设备。
+当前结论：**不存在可用“小智 token / 云端 token”运维路线**。OpenClaw 不应依赖设备云端会话 token、StackChan App 未公开的 messaging token，或 xiaozhi.me 控制台 token 来伪造云端 `type:"mcp"` 消息推给设备。
 
-当前无刷最现实路径是：
+当前无刷可观察路径只限用户现场通过官方小智自然对话验证：
 
 ```text
 小智自然对话
@@ -272,4 +272,4 @@ self.robot.create_reminder
 
 - 这依赖小智云端 LLM 是否愿意同时调用外部 MCP 和设备内置 MCP tools；
 - 可能需要在 App 的性格/记忆/Agent 配置中写清工具使用规则；
-- 没有公开 messaging token 时，OpenClaw 不能主动直接调用设备 tools。
+- 不存在可用的 messaging token 运维路线；OpenClaw 不能主动直接调用设备 tools。

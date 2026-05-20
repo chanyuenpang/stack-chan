@@ -302,7 +302,7 @@ StackChan 绑定后小智自动可用
 App 里只能设置性格、音色等
 ```
 
-## 7. 对当前方案的影响
+## 7. 对当前方案的影响（无小智 token 运维路线）
 
 ### 不能从 App 登录直接拿设备控制 token
 
@@ -333,9 +333,9 @@ api/agents/{id}/generate-mcp-endpoint-token
 https://api.XiaoZhi.me/mcp/endpoints/list
 ```
 
-这解释了我们能生成 MCP endpoint token，让小智调用 OpenClaw bridge。
+这解释了 bridge 联调为什么可行：小智能调用 OpenClaw 暴露的只读工具。
 
-但源码没有证明这些 API 可直接让设备“主动说一句话”。
+但 MCP endpoint token / developer token / App JWT 都不是 StackChan 运维、设备控制、设备重启或 OTA 凭据；源码没有证明这些 API 可直接让设备“主动说一句话”。
 
 ### 真正设备接入凭据在 NVS / OTA 响应
 
@@ -361,9 +361,9 @@ OTA/config 服务响应
 
 这是当前已经跑通的官方路径。
 
-### B. 追 App/后端管理 API
+### B. 只读追 App/后端管理 API（不索取 token）
 
-可以继续查：
+可以继续查源码：
 
 ```text
 app/lib/view/home/mcp_page.dart
@@ -371,7 +371,7 @@ XiaoZhiUtil
 server/internal/xiaozhi/*
 ```
 
-目标：确认 App 是否能获取或间接生成类似 `assets-generator` / messaging token 的入口。
+目标：确认是否存在官方封装的设备能力入口；不要把 `assets-generator` / messaging token 当作可用路线，也不要要求用户提供云端 token。
 
 ### C. 追固件设备 MCP 消息链
 

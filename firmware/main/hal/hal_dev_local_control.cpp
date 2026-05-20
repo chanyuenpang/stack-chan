@@ -503,7 +503,7 @@ void inject_prompt_task(void*)
 
     auto& app = Application::GetInstance();
     ESP_LOGW(TAG, "inject_prompt: starting injection, frames=%u", static_cast<unsigned>(prompt_frames));
-    app.StartListening();
+    app.StartListeningDefaultMode();
 
     // Wait for listening state
     {
@@ -544,7 +544,6 @@ void inject_prompt_task(void*)
     ESP_LOGI(TAG, "inject_prompt: injected %u frames, waiting %d ms for VAD",
              static_cast<unsigned>(injected_frames), kPostInjectVadWaitMs);
     vTaskDelay(pdMS_TO_TICKS(kPostInjectVadWaitMs));
-    app.StopListening();
     ESP_LOGI(TAG, "inject_prompt: done");
 
     g_inject_active.store(false);

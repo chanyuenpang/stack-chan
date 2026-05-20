@@ -1,0 +1,589 @@
+#!/usr/bin/env bash
+# stackchan-ota-release — 一键 OTA 发布 + 验证 + 自动回退
+#
+# 把固件 bin 打包到 exp-pkg，更新 active-release 和 active.json，
+# 重启 OTA 服务、验证 HTTP 端点、跑 doctor 一致性检查。
+# 任何一步失败自动回退：恢复旧 active-release 和 active.json，重启服务。
+#
+# 用法:
+#   stackchan-ota-release <bin或release目录> --version x.y.z [--desc 描述] [--force 0|1] [--dry-run]
+#   stackchan-ota-release <bin或release目录> --version x.y.z --reboot-device --confirm
+#   stackchan-ota-release --help
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+EXP_DIR="${ROOT_DIR}/exp-pkg"
+ACTIVE_LINK="${EXP_DIR}/active-release"
+ACTIVE_JSON="${ROOT_DIR}/ops/ota/active.json"
+DOCTOR_BIN="${SCRIPT_DIR}/stackchan-doctor"
+REMOTE_CONTROL="${ROOT_DIR}/tools/remote_control/remote_control.py"
+OTA_BASE="http://127.0.0.1:8080"
+
+# ─── 彩色输出 ────────────────────────────────────────────────────────────────
+
+USE_COLOR="${USE_COLOR:-auto}"
+if [[ "$USE_COLOR" == "auto" ]]; then
+  if [[ -t 1 ]]; then USE_COLOR=1; else USE_COLOR=0; fi
+fi
+_c() { [[ "$USE_COLOR" == "1" ]] && printf '\033[%sm%s\033[0m' "$1" "$2" || printf '%s' "$2"; }
+green()  { _c 32 "$*"; }
+red()    { _c 31 "$*"; }
+yellow() { _c 33 "$*"; }
+cyan()   { _c 36 "$*"; }
+bold()   { _c 1 "$*"; }
+
+# ─── 用法 ────────────────────────────────────────────────────────────────────
+
+usage() {
+  local status="${1:-2}"
+  if [[ "$status" == "0" ]]; then
+    cat <<'EOF'
+stackchan-ota-release — 一键 OTA 发布 + 验证 + 自动回退
+
+用法:
+  stackchan-ota-release <bin或release目录> --version <x.y.z> [选项]
+
+必需参数:
+  <路径>              固件 bin 文件路径，或包含 stack-chan.bin 的 release 目录
+  --version <x.y.z>   目标版本号
+
+可选参数:
+  --desc <描述>       候选目录描述（用于 exp-pkg/candidate-<描述>-<version>）
+                      未指定时从固件 app_desc 自动提取，或使用 "release"
+  --force <0|1>       强制 OTA 标志，默认 0
+  --dry-run           仅模拟执行，不写入任何文件，不重启服务
+  --reboot-device     发布成功后重启设备（须同时带 --confirm）
+  --confirm           确认设备重启操作
+  --help              显示此帮助
+
+安全规则:
+  - 默认 force=0，除非 --force 1
+  - 不得刷机、不写 NVS、不访问设备 IP（除非 --reboot-device --confirm）
+  - 不输出真实 token
+EOF
+  else
+    cat >&2 <<'EOF'
+stackchan-ota-release — 一键 OTA 发布 + 验证 + 自动回退
+
+用法:
+  stackchan-ota-release <bin或release目录> --version <x.y.z> [选项]
+
+必需参数:
+  <路径>              固件 bin 文件路径，或包含 stack-chan.bin 的 release 目录
+  --version <x.y.z>   目标版本号
+
+可选参数:
+  --desc <描述>       候选目录描述（用于 exp-pkg/candidate-<描述>-<version>）
+                      未指定时从固件 app_desc 自动提取，或使用 "release"
+  --force <0|1>       强制 OTA 标志，默认 0
+  --dry-run           仅模拟执行，不写入任何文件，不重启服务
+  --reboot-device     发布成功后重启设备（须同时带 --confirm）
+  --confirm           确认设备重启操作
+  --help              显示此帮助
+
+安全规则:
+  - 默认 force=0，除非 --force 1
+  - 不得刷机、不写 NVS、不访问设备 IP（除非 --reboot-device --confirm）
+  - 不输出真实 token
+EOF
+  fi
+  exit "$status"
+}
+
+# ─── 参数解析 ────────────────────────────────────────────────────────────────
+
+INPUT_PATH=""
+VERSION=""
+DESC=""
+FORCE="0"
+DRY_RUN=0
+REBOOT_DEVICE=0
+CONFIRMED=0
+
+if [[ $# -eq 0 ]]; then usage; fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h) usage 0 ;;
+    --version)
+      [[ $# -ge 2 ]] || { red "error: --version 需要参数" >&2; usage; }
+      VERSION="$2"; shift 2 ;;
+    --desc)
+      [[ $# -ge 2 ]] || { red "error: --desc 需要参数" >&2; usage; }
+      DESC="$2"; shift 2 ;;
+    --force)
+      [[ $# -ge 2 ]] || { red "error: --force 需要参数" >&2; usage; }
+      FORCE="$2"; shift 2 ;;
+    --dry-run)
+      DRY_RUN=1; shift ;;
+    --reboot-device)
+      REBOOT_DEVICE=1; shift ;;
+    --confirm)
+      CONFIRMED=1; shift ;;
+    -*)
+      red "error: 未知选项 $1" >&2; usage ;;
+    *)
+      if [[ -z "$INPUT_PATH" ]]; then
+        INPUT_PATH="$1"
+      else
+        red "error: 多余参数 $1" >&2; usage
+      fi
+      shift ;;
+  esac
+done
+
+# ─── 参数校验 ────────────────────────────────────────────────────────────────
+
+if [[ -z "$INPUT_PATH" ]]; then
+  red "error: 必须提供 bin 文件路径或 release 目录" >&2
+  usage
+fi
+if [[ -z "$VERSION" ]]; then
+  red "error: --version 是必需的" >&2
+  usage
+fi
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  red "error: --version 格式必须为 x.y.z (如 2.0.36)" >&2
+  exit 2
+fi
+if [[ "$FORCE" != "0" && "$FORCE" != "1" ]]; then
+  red "error: --force 必须为 0 或 1" >&2
+  exit 2
+fi
+if [[ "$REBOOT_DEVICE" == "1" && "$CONFIRMED" != "1" ]]; then
+  red "error: --reboot-device 必须同时带 --confirm" >&2
+  exit 2
+fi
+if [[ "$CONFIRMED" == "1" && "$REBOOT_DEVICE" != "1" ]]; then
+  yellow "note: --confirm 仅在 --reboot-device 时有效，已忽略" >&2
+  CONFIRMED=0
+fi
+
+# ─── 路径规范化 ──────────────────────────────────────────────────────────────
+
+resolve_input_path() {
+  local input="$1"
+  local candidate=""
+
+  if [[ "$input" == /* ]]; then
+    # 绝对路径：原样规范化。
+    candidate="$input"
+  elif [[ "$input" == StackChan/* ]]; then
+    # 从项目根传入的路径，例如 StackChan/exp-pkg/...。
+    candidate="$(dirname "$ROOT_DIR")/${input}"
+  else
+    # 默认按 StackChan 根目录解析，例如 firmware/... 或 exp-pkg/...。
+    candidate="${ROOT_DIR}/${input}"
+  fi
+
+  if command -v realpath &>/dev/null; then
+    realpath -m "$candidate"
+  else
+    local dir base
+    dir="$(dirname "$candidate")"
+    base="$(basename "$candidate")"
+    (cd "$dir" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$base") || return 1
+  fi
+}
+
+INPUT_PATH="$(resolve_input_path "$INPUT_PATH")" || {
+  red "error: 无法解析路径: $INPUT_PATH" >&2
+  exit 1
+}
+
+if [[ -d "$INPUT_PATH" ]]; then
+  BIN_PATH="${INPUT_PATH}/stack-chan.bin"
+else
+  BIN_PATH="$INPUT_PATH"
+fi
+
+if [[ ! -f "$BIN_PATH" ]]; then
+  red "error: 找不到固件文件: $BIN_PATH" >&2
+  exit 1
+fi
+
+cyan "==> 输入固件: ${BIN_PATH}"
+cyan "==> 目标版本: ${VERSION}"
+cyan "==> force: ${FORCE}"
+if [[ "$DRY_RUN" == "1" ]]; then
+  yellow "==> DRY-RUN 模式: 不会实际修改任何文件、不重启服务"
+fi
+
+# ─── 步骤 1: 读取 app_desc 版本 ─────────────────────────────────────────────
+
+get_app_desc_version() {
+  local bin="$1"
+  local version=""
+  local method=""
+
+  # 方法 A: esptool.py image_info
+  if command -v esptool &>/dev/null; then
+    local esptool_cmd="esptool"
+  elif command -v esptool.py &>/dev/null; then
+    local esptool_cmd="esptool.py"
+  else
+    esptool_cmd=""
+  fi
+
+  if [[ -n "$esptool_cmd" ]]; then
+    # 兼容新旧 CLI: image-info 或 image_info
+    local output
+    if output=$("$esptool_cmd" image-info "$bin" 2>&1) || \
+       output=$("$esptool_cmd" image_info "$bin" 2>&1); then
+      version=$(echo "$output" | grep -oP 'App version:\s*\K\S+')
+      method="$esptool_cmd image-info"
+    fi
+  fi
+
+  # 方法 B: strings + grep (esptool 不可用时的 fallback)
+  if [[ -z "$version" ]] && command -v strings &>/dev/null; then
+    if output=$(strings "$bin" | grep -P '^\d+\.\d+\.\d+$'); then
+      version=$(echo "$output" | head -1)
+      method="strings+grep"
+    fi
+  fi
+
+  if [[ -z "$version" ]]; then
+    red "error: 无法从固件中提取 app_desc 版本号" >&2
+    red "  请确认固件已烧录正确的 app_desc，或安装 esptool/esptool.py" >&2
+    exit 1
+  fi
+
+  echo "$version" "$method"
+}
+
+cyan "==> 步骤 1: 校验固件 app_desc 版本..."
+read -r APP_VERSION APP_METHOD < <(get_app_desc_version "$BIN_PATH")
+APP_METHOD="${APP_METHOD:-unknown}"
+cyan "    app_desc 版本: ${APP_VERSION} (方法: ${APP_METHOD})"
+
+if [[ "$APP_VERSION" != "$VERSION" ]]; then
+  red "✗ 版本不匹配: app_desc=${APP_VERSION}, --version=${VERSION}" >&2
+  red "  拒绝发布。请修正 --version 参数或使用正确的固件文件。" >&2
+  exit 1
+fi
+green "✓ 版本校验通过: ${APP_VERSION} == ${VERSION}"
+
+# ─── 步骤 2: 计算 size 和 sha256 ─────────────────────────────────────────────
+
+cyan "==> 步骤 2: 计算固件校验值..."
+BIN_SIZE=$(stat -c%s "$BIN_PATH")
+BIN_SHA256=$(sha256sum "$BIN_PATH" | awk '{print $1}')
+cyan "    size:   ${BIN_SIZE} bytes"
+cyan "    sha256: ${BIN_SHA256}"
+
+# ─── 步骤 3: 确定候选目录名 ─────────────────────────────────────────────────
+
+if [[ -z "$DESC" ]]; then
+  # 尝试从 app_desc description 提取，或使用 version 中提取的简短描述
+  DESC="release"
+fi
+CANDIDATE_NAME="candidate-${DESC}-${VERSION}"
+CANDIDATE_DIR="${EXP_DIR}/${CANDIDATE_NAME}"
+
+cyan "==> 步骤 3: 候选目录 = ${CANDIDATE_NAME}"
+
+if [[ "$DRY_RUN" == "0" ]]; then
+  if [[ -d "$CANDIDATE_DIR" ]]; then
+    yellow "    warning: 候选目录已存在，将被覆盖"
+    rm -rf "$CANDIDATE_DIR"
+  fi
+  mkdir -p "$CANDIDATE_DIR"
+  cp "$BIN_PATH" "${CANDIDATE_DIR}/stack-chan.bin"
+  green "✓ 已创建候选目录并复制固件"
+else
+  cyan "    [dry-run] 将创建: ${CANDIDATE_DIR}/stack-chan.bin"
+fi
+
+# 回退/备份状态变量（全局）
+BACKUP_LINK_TARGET=""
+BACKUP_JSON=""
+OLD_VERSION="unknown"
+
+# ─── 步骤 4: 备份旧状态（用于回退） ─────────────────────────────────────────
+
+backup_old_state() {
+  if [[ "$DRY_RUN" == "1" ]]; then return 0; fi
+
+  BACKUP_LINK_TARGET=""
+  BACKUP_JSON=""
+  OLD_VERSION="unknown"
+
+  if [[ -L "$ACTIVE_LINK" ]]; then
+    BACKUP_LINK_TARGET=$(readlink "$ACTIVE_LINK")
+    cyan "    备份旧 active-release -> ${BACKUP_LINK_TARGET}"
+  fi
+
+  if [[ -f "$ACTIVE_JSON" ]]; then
+    BACKUP_JSON=$(cat "$ACTIVE_JSON")
+    OLD_VERSION=$(python3 -c "import json,sys; print(json.loads('''${BACKUP_JSON}''').get('version','unknown'))" 2>/dev/null || echo "unknown")
+    cyan "    备份旧 active.json (version=${OLD_VERSION})"
+  fi
+}
+
+rollback() {
+  local reason="$1"
+  red "✗ 发布失败: ${reason}" >&2
+  red "==> 开始自动回退..." >&2
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    yellow "    [dry-run] 跳过回退操作"
+    return 0
+  fi
+
+  local rolled=0
+
+  # 恢复 active-release 软链接
+  if [[ -n "$BACKUP_LINK_TARGET" ]]; then
+    rm -f "$ACTIVE_LINK"
+    ln -s "$BACKUP_LINK_TARGET" "$ACTIVE_LINK"
+    cyan "    已恢复 active-release -> ${BACKUP_LINK_TARGET}"
+    rolled=1
+  elif [[ -L "$ACTIVE_LINK" ]]; then
+    # 如果没有备份但链接存在，保持不动
+    cyan "    active-release 保留当前链接"
+  fi
+
+  # 恢复 active.json
+  if [[ -n "$BACKUP_JSON" ]]; then
+    echo "$BACKUP_JSON" > "$ACTIVE_JSON"
+    cyan "    已恢复 active.json (version=${OLD_VERSION})"
+    rolled=1
+  elif [[ -f "$ACTIVE_JSON" ]]; then
+    cyan "    active.json 保留当前内容"
+  fi
+
+  # 重启服务以恢复到旧状态
+  if systemctl --user restart stackchan-ota.service 2>/dev/null; then
+    cyan "    已重启 stackchan-ota.service (恢复到旧版本)"
+  fi
+
+  if [[ "$rolled" == "1" ]]; then
+    red "  ⚠ 已自动回退到旧版本 ${OLD_VERSION}" >&2
+  fi
+
+  exit 1
+}
+
+cyan "==> 步骤 4: 备份当前状态..."
+backup_old_state
+cyan "    旧版本: ${OLD_VERSION:-unknown}"
+green "✓ 状态已备份"
+
+# ─── 步骤 5: 更新 active-release 软链接 ─────────────────────────────────────
+
+cyan "==> 步骤 5: 更新 active-release 软链接..."
+
+if [[ "$DRY_RUN" == "0" ]]; then
+  # 原子替换: 先建临时链接再 mv
+  TMP_LINK="${EXP_DIR}/.active-release.$$"
+  rm -f "$TMP_LINK"
+
+  # 判断目标用相对路径还是绝对路径
+  case "$CANDIDATE_DIR" in
+    "${EXP_DIR}"/*) LINK_TARGET="${CANDIDATE_NAME}" ;;
+    *) LINK_TARGET="$CANDIDATE_DIR" ;;
+  esac
+
+  ln -s "$LINK_TARGET" "$TMP_LINK"
+  mv -Tf "$TMP_LINK" "$ACTIVE_LINK"
+  green "✓ active-release -> ${LINK_TARGET}"
+else
+  cyan "    [dry-run] 将更新: active-release -> ${CANDIDATE_NAME}"
+fi
+
+# ─── 步骤 6: 写入 active.json ────────────────────────────────────────────────
+
+cyan "==> 步骤 6: 写入 active.json..."
+
+if [[ "$DRY_RUN" == "0" ]]; then
+  python3 - "${ACTIVE_JSON}" "${VERSION}" "${FORCE}" "${BIN_SIZE}" "${BIN_SHA256}" <<'PY'
+import json, sys
+path, version, force, size, sha256 = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+data = {
+    "version": version,
+    "force": force,
+    "size": size,
+    "sha256": sha256,
+    "firmware": "exp-pkg/active-release/stack-chan.bin",
+    "lan_ip": "192.168.0.12",
+    "port": 8080,
+}
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PY
+  green "✓ active.json 已更新"
+  cyan "    version=${VERSION} force=${FORCE} size=${BIN_SIZE} sha256=${BIN_SHA256}"
+else
+  cyan "    [dry-run] 将写入 active.json"
+fi
+
+# ─── 步骤 7: 重启 OTA 服务 ──────────────────────────────────────────────────
+
+cyan "==> 步骤 7: 重启 stackchan-ota.service..."
+
+if [[ "$DRY_RUN" == "0" ]]; then
+  if ! systemctl --user restart stackchan-ota.service 2>/dev/null; then
+    rollback "systemctl --user restart 失败"
+  fi
+  green "✓ 服务已重启"
+
+  # 等待服务就绪
+  cyan "    等待服务就绪..."
+  for i in $(seq 1 10); do
+    if systemctl --user is-active stackchan-ota.service 2>/dev/null | grep -q '^active$'; then
+      sleep 1
+      green "✓ 服务就绪"
+      break
+    fi
+    if [[ $i -eq 10 ]]; then
+      rollback "服务启动超时"
+    fi
+    sleep 1
+  done
+else
+  cyan "    [dry-run] 将重启 stackchan-ota.service"
+fi
+
+# ─── 步骤 8: 验证 HTTP 端点 ─────────────────────────────────────────────────
+
+verify_http() {
+  local ok=1
+
+  # 8a: GET /ota/
+  cyan "    GET /ota/ ..."
+  local get_body
+  if get_body=$(curl -fsS --max-time 5 "${OTA_BASE}/ota/" 2>/dev/null); then
+    if echo "$get_body" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('version')=='${VERSION}' else 1)" 2>/dev/null; then
+      green "    ✓ GET /ota/ 版本正确"
+    else
+      red "    ✗ GET /ota/ 版本不匹配: $(echo "$get_body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version","?"))' 2>/dev/null || echo 'parse error')"
+      ok=0
+    fi
+  else
+    red "    ✗ GET /ota/ 请求失败"
+    ok=0
+  fi
+
+  # 8b: POST /ota/
+  cyan "    POST /ota/ ..."
+  local post_body
+  if post_body=$(curl -fsS --max-time 5 -X POST -H 'Content-Type: application/json' -d '{}' "${OTA_BASE}/ota/" 2>/dev/null); then
+    if echo "$post_body" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('version')=='${VERSION}' else 1)" 2>/dev/null; then
+      green "    ✓ POST /ota/ 版本正确"
+    else
+      red "    ✗ POST /ota/ 版本不匹配"
+      ok=0
+    fi
+  else
+    red "    ✗ POST /ota/ 请求失败"
+    ok=0
+  fi
+
+  # 8c: HEAD /stack-chan.bin
+  cyan "    HEAD /stack-chan.bin ..."
+  local head_code
+  if head_code=$(curl -fsSI --max-time 5 -o /dev/null -w '%{http_code}' "${OTA_BASE}/stack-chan.bin" 2>/dev/null); then
+    if [[ "$head_code" == "200" ]]; then
+      green "    ✓ HEAD /stack-chan.bin -> 200"
+    else
+      red "    ✗ HEAD /stack-chan.bin -> ${head_code}"
+      ok=0
+    fi
+  else
+    red "    ✗ HEAD /stack-chan.bin 请求失败"
+    ok=0
+  fi
+
+  return $(( 1 - ok ))
+}
+
+cyan "==> 步骤 8: 验证 HTTP 端点..."
+
+if [[ "$DRY_RUN" == "0" ]]; then
+  if ! verify_http; then
+    rollback "HTTP 端点验证失败"
+  fi
+  green "✓ HTTP 端点验证全部通过"
+else
+  cyan "    [dry-run] 将验证 GET/POST /ota/ 和 HEAD /stack-chan.bin"
+fi
+
+# ─── 步骤 9: stackchan-doctor 一致性检查 ────────────────────────────────────
+
+cyan "==> 步骤 9: stackchan-doctor 一致性检查..."
+
+if [[ "$DRY_RUN" == "0" ]]; then
+  if [[ -x "$DOCTOR_BIN" ]]; then
+    python3 "$DOCTOR_BIN" --json > /tmp/stackchan-doctor-result.$$.json 2>/dev/null || true
+
+    OVERALL=$(python3 -c "import json; d=json.load(open('/tmp/stackchan-doctor-result.$$.json')); print(d.get('overall','error'))" 2>/dev/null || echo "error")
+    rm -f /tmp/stackchan-doctor-result.$$.json
+
+    if [[ "$OVERALL" == "ok" ]]; then
+      green "✓ stackchan-doctor: overall=ok"
+    elif [[ "$OVERALL" == "warning" ]]; then
+      yellow "⚠ stackchan-doctor: overall=warning (非阻塞)"
+    else
+      red "✗ stackchan-doctor: overall=error"
+      rollback "stackchan-doctor 一致性检查未通过"
+    fi
+  else
+    yellow "    warning: stackchan-doctor 不可用，跳过"
+  fi
+else
+  cyan "    [dry-run] 将运行 stackchan-doctor --json"
+fi
+
+# ─── 步骤 10 (可选): 设备重启 ───────────────────────────────────────────────
+
+if [[ "$REBOOT_DEVICE" == "1" && "$CONFIRMED" == "1" ]]; then
+  cyan "==> 步骤 10: 重启设备 (已确认)..."
+
+  if [[ "$DRY_RUN" == "0" ]]; then
+    if [[ -f "$REMOTE_CONTROL" ]]; then
+      if python3 "$REMOTE_CONTROL" reboot --confirm --delay-ms 1500 --reason ota_release 2>&1; then
+        green "✓ 设备重启命令已发送 (delay=1500ms, reason=ota_release)"
+      else
+        yellow "⚠ 设备重启命令执行时出现警告/错误（可能设备当前不可达）"
+        # 不因设备不可达而回退 — OTA 发布本身已成功
+      fi
+    else
+      yellow "    warning: remote_control.py 不存在，跳过设备重启"
+    fi
+  else
+    cyan "    [dry-run] 将运行: remote_control.py reboot --confirm --delay-ms 1500 --reason ota_release"
+  fi
+fi
+
+# ─── 完成 ────────────────────────────────────────────────────────────────────
+
+echo ""
+bold "$(green "═══ OTA 发布完成 ═══")"
+echo ""
+cyan "  版本:       ${VERSION}"
+cyan "  候选目录:   ${CANDIDATE_NAME}"
+cyan "  固件大小:   ${BIN_SIZE} bytes"
+cyan "  SHA256:     ${BIN_SHA256}"
+cyan "  Force:      ${FORCE}"
+cyan "  active.json:${ACTIVE_JSON}"
+cyan "  active-link: ${ACTIVE_LINK} -> $(readlink "$ACTIVE_LINK" 2>/dev/null || echo "${CANDIDATE_NAME}")"
+if [[ "$OLD_VERSION" != "unknown" && "$OLD_VERSION" != "$VERSION" ]]; then
+  cyan "  旧版本:     ${OLD_VERSION}"
+  echo ""
+  yellow "  回退提示:"
+  yellow "    如需手动回退: cd ${EXP_DIR} && ln -sfn candidate-<旧描述>-${OLD_VERSION} active-release"
+  yellow "    并恢复 active.json 后 systemctl --user restart stackchan-ota"
+fi
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo ""
+  yellow "  ※ 这是 dry-run，未做任何实际修改。"
+fi
+
+echo ""
+green "✓ 发布流程全部完成"

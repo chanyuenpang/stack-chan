@@ -5,6 +5,7 @@
  */
 #include "motion.h"
 #include <cmath>
+#include <mooncake_log.h>
 
 using namespace uitk;
 using namespace stackchan::motion;
@@ -84,6 +85,13 @@ void Motion::stop()
     }
     _yaw_servo->stopAnimation();
     _pitch_servo->stopAnimation();
+}
+
+void Motion::release()
+{
+    stop();
+    setTorqueEnabled(false);
+    mclog::tagInfo("SERVO-SCHED", "event=motion_release torque_enable=0");
 }
 
 void Motion::lookAtNormalized(float x, float y, int speed)

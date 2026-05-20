@@ -2,6 +2,8 @@
 
 这个目录提供一个**最小、安全边界明确**的 XiaoZhi MCP bridge，用于验证 XiaoZhi MCP 侧能否发现并调用基础工具，并额外暴露两个低权限、只读的 OpenClaw plan 状态查询工具。
 
+> 运维边界：`XIAOZHI_MCP_TOKEN` 只属于 bridge 联调凭据，不是 StackChan 运维、设备控制、设备重启或 OTA 路线。StackChan 运维不要依赖小智 token/云端 token；按本地 Dev HTTP、`remote_control.py`、OTA user service、USB 只读日志执行。
+
 当前暴露 5 个工具：
 
 - `ping`：测试 MCP / bridge 是否在线，返回 `pong`
@@ -42,7 +44,7 @@ Plan 状态工具只读取一个明确的、脱敏后的最小 JSON 状态文件
 
 Token 只允许通过环境变量读取：
 
-- `XIAOZHI_MCP_TOKEN`：真实连接时必填，XiaoZhi MCP token
+- `XIAOZHI_MCP_TOKEN`：仅 bridge 联调真实连接时必填；不是 StackChan 运维/设备控制/重启/OTA 凭据
 - `XIAOZHI_MCP_BASE_URL`：可选，默认 `wss://api.XiaoZhi.me/mcp/`
 - `XIAOZHI_MCP_DRY_RUN=1`：可选，只打印工具列表，不连接网络，不读取 token
 - `XIAOZHI_MCP_DEBUG=1`：可选，打印脱敏 MCP 收发流程日志（也可用 `--debug`）
@@ -371,83 +373,25 @@ XIAOZHI_MCP_DEBUG=1 node bridge.mjs --dry-run
 
 `--dry-run` 只打印工具列表，不读取 token，也不会创建 WebSocket 连接。工具列表应包含：`ping`、`echo`、`get_time`、`get_plan_status`、`get_latest_completion_event`。
 
-## 小智 messaging 设备工具探测与 Task 4/19 本地联调入口
+## 小智 messaging 探测脚本（历史保留，不作为运维路线）
 
-`scripts/probe-messaging-tools.mjs` 是 Task 18/19 准备的安全探测脚本，用于用户在本地合法获得 XiaoZhi messaging token 后，列出设备 MCP 工具，并判断是否存在主动发声/提示能力。
+`scripts/probe-messaging-tools.mjs` 与旧的 `probe-device-messaging-tools.mjs` 仅保留为历史研究/脚本安全逻辑参考。当前 StackChan 项目**不存在可用的“小智 messaging token / assets-generator token”运维路线**，也不要把 `XIAOZHI_MESSAGING_TOKEN` 作为设备控制、重启、发声、提示、OTA 或日常巡检入口。
 
-已知官方公开前端入口：
+保留这些脚本的原因只有两个：
 
-- `POST /api/messaging/device/tools/list`
-- `POST /api/messaging/device/tools/call`
-- Header: `Authorization: Bearer <messaging token>`
+- 记录旧研究阶段的只读探测约束；
+- 避免误传真实 token：脚本仍只允许从 `XIAOZHI_MESSAGING_TOKEN` 或 stdin 读取、拒绝 CLI 参数、默认 dry-run、不打印 token。
 
-这里使用的是设备页 `assets-generator` / `generate-messaging-token` 得到的 **messaging token**，不是 MCP endpoint token（`XIAOZHI_MCP_TOKEN`）。不要把真实 token 发给 agent、聊天窗口、截图、README、代码或提交记录。
+不要再要求用户登录 xiaozhi.me 控制台、打开 assets-generator / generate-messaging-token 页面，或提供 messaging token。若需要 StackChan 运维，请使用本地 Dev HTTP、`remote_control.py`、OTA user service、USB 只读日志。若需要设备侧动作/庆祝能力，走已确认的本地/OTA 固件路线或由用户现场通过官方 App/语音交互验证；不要依赖云端 token 主动调用设备。
 
-安全默认值：
-
-- 默认 `--dry-run` / list-only，不联网。
-- token 只从 `XIAOZHI_MESSAGING_TOKEN` 或 `--token-from-stdin` 的 stdin 文本读取。
-- 不支持命令行参数直接传 token，避免 shell history 泄漏。
-- 不打印、不保存、不写入 token；输出只显示 `token_present` / `token_source` / `token_length`。
-- 默认只调用 `tools/list`。
-- 不自动调用 `tools/call`。
-- 即使使用 `--call`，也只允许显式选择安全只读的 `get/list/read/status/info` 类工具。
-- 默认拒绝动作/发声/设备控制类工具，例如 `set_led`、`head`、`reminder`、`audio`、`play`、`speak`、`tts`、`broadcast`。
-
-Task 19：从浏览器 URL/文本通过 stdin 安全提取 token：
+历史脚本的安全自检仍可在本地离线执行：
 
 ```bash
-# 1) 无 token / 不联网自检
 npm run probe:messaging:dry-run
-
-# 2) 从 assets-generator / generate-messaging-token 页面复制 URL 或文本后，stdin dry-run
-#    不联网，只显示 token_present 与 token_length，不打印 token
-printf '%s' '<copied-assets-generator-url-or-token-text>' | \
-  node scripts/probe-messaging-tools.mjs --token-from-stdin --dry-run
-
-# 3) npm 内置 dummy URL dry-run，不联网、不含真实 token
 npm run probe:messaging:url-dry-run
 ```
 
-用户现场合法 token 探测工具列表（二选一）：
-
-```bash
-# 方式 A：env，兼容旧流程
-export XIAOZHI_MESSAGING_TOKEN='<messaging-token-from-console>'
-npm run probe:messaging:list
-
-# 方式 B：stdin，一条命令解析 URL/text 后立即 tools/list
-printf '%s' '<copied-assets-generator-url-or-token-text>' | \
-  node scripts/probe-messaging-tools.mjs --token-from-stdin --live
-```
-
-输出会列出工具名、描述摘要、参数摘要，并标记候选关键词：
-
-```text
-speak, tts, audio, play, sound, speaker, reminder, notification, broadcast
-```
-
-判断分支：
-
-- 若存在 `speak` / `tts` / `audio` / `play` / `sound` 相关工具：先不要调用；记录工具名、描述和 input summary，再人工评估是否属于安全只读或动作工具。
-- 若存在 `reminder` / `notification` 相关工具：可作为提示音/通知候选，但仍不要自动调用动作工具。
-- 若只存在只读状态工具，例如 `self.get_device_status` / `self.get_system_info` / `self.screen.get_info`：说明当前公开工具不能主动发声，Task 4 应降级到 LED/head/reminder（如官方 UI 或小智自然对话可触发）或外部音频旁路。
-- 若没有命中候选关键词：按 Task 13/16 的外部音频旁路方案推进，同时保留小智自然对话 TTS 作为人工触发路径。
-
-显式调用安全只读工具示例（不会自动调用动作类工具）：
-
-```bash
-XIAOZHI_MESSAGING_TOKEN='<messaging-token-from-console>'   node scripts/probe-messaging-tools.mjs --call self.get_device_status
-```
-
-常见错误处理：
-
-- token 未设置：脚本输出 `no_token_dry_run`，不联网。
-- `HTTP 401/403`：token 无效、过期，或误用了 MCP endpoint token。
-- 非 JSON 响应：脚本只打印短预览。
-- 网络异常：脚本失败退出，不重试、不执行动作工具。
-
-> 注意：该脚本只是能力探测工具，不提供官方未公开的 send-message/TTS broadcast API，也不确认任何 speak/play_audio 工具一定存在；实际能力以用户本地 token 返回的工具列表为准。旧的 `probe-device-messaging-tools.mjs` 仅保留兼容，不再作为推荐入口。
+以上命令不含真实 token、不联网、不控制设备。
 
 ## Local-call fixture 测试（不连接网络、不需要 token）
 
@@ -508,7 +452,7 @@ XIAOZHI_PLAN_STATE_FILE=/tmp/plan-status.txt \
 
 ## 真实连接方式（需要用户显式执行）
 
-确认 token 安全后，由用户在**本地同一个终端**手动运行：
+仅做 bridge 联调、且由用户确认凭据安全后，可在**本地同一个终端**手动运行。它不会成为 StackChan 运维/设备控制/重启/OTA 入口：
 
 ```bash
 cd StackChan/tools/xiaozhi-mcp-bridge
@@ -632,4 +576,4 @@ npm start
 2. 再运行 `node bridge.mjs --dry-run`，确认工具列表包含五个工具。
 3. 用临时状态 JSON 和 `--local-call` 验证两个只读状态工具。
 4. 确认没有真实 token 写入文件或日志。
-5. 仅在需要联调时，由用户显式设置 `XIAOZHI_MCP_TOKEN` 并执行 `npm start`。
+5. 仅在需要 bridge 联调时，由用户显式设置 `XIAOZHI_MCP_TOKEN` 并执行 `npm start`；不要把它用于 StackChan 运维、设备控制、重启或 OTA。

@@ -24,6 +24,30 @@ static constexpr std::string_view _xiaozhi_config_nvs_ns                        
 static constexpr std::string_view _xiaozhi_config_idle_shutdown_time_key           = "idle_sec";
 static constexpr std::string_view _xiaozhi_config_allow_shutdown_when_charging_key = "ext_pwr";
 static constexpr std::string_view _xiaozhi_config_idle_random_movement_key         = "idle_lv";
+static constexpr const char* kBootNvsNamespace                                     = "boot";
+static constexpr const char* kBootAutoStartFailCountKey                            = "fail_count";
+
+namespace {
+bool s_boot_fail_count_reset_after_xiaozhi_runtime_started = false;
+
+void reset_boot_fail_count_after_xiaozhi_runtime_started()
+{
+    if (s_boot_fail_count_reset_after_xiaozhi_runtime_started) {
+        return;
+    }
+    s_boot_fail_count_reset_after_xiaozhi_runtime_started = true;
+
+    Settings boot_settings(kBootNvsNamespace, false);
+    const int fail_count = boot_settings.GetInt(kBootAutoStartFailCountKey, 0);
+    if (fail_count != 0) {
+        Settings writable_boot_settings(kBootNvsNamespace, true);
+        writable_boot_settings.SetInt(kBootAutoStartFailCountKey, 0);
+    }
+
+    ESP_LOGI(_tag, "BOOT-MODE event=reset_fail_count source=xiaozhi_runtime_started fail_count=%d next_fail_count=0",
+             fail_count);
+}
+}  // namespace
 
 namespace hal_bridge {
 
@@ -115,6 +139,7 @@ void start_xiaozhi_app()
     // Initialize and run the application
     auto& app = Application::GetInstance();
     app.Initialize();
+    reset_boot_fail_count_after_xiaozhi_runtime_started();
     app.Run();  // This function runs the main event loop and never returns
 }
 

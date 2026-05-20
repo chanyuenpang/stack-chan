@@ -11,11 +11,16 @@
 #include <mcp_server.h>
 #include <stackchan/stackchan.h>
 #include <apps/common/common.h>
+#include <esp_system.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <new>
 
 using namespace stackchan;
 
@@ -163,7 +168,7 @@ public:
             const bool moving = motion.isMoving();
             const bool busHealthy = !motion.hasHardwareFailure();
             logState("force_release", now, moving, false, elapsed_ms, "hard_timeout", busHealthy);
-            motion.stop();
+            motion.release();
             _active        = false;
             _has_pending   = false;
             _release_at_ms = 0;
@@ -181,7 +186,7 @@ public:
             } else if (now >= _release_at_ms) {
                 const bool busHealthy = !motion.hasHardwareFailure();
                 logState("released", now, moving, false, elapsed_ms, nullptr, busHealthy);
-                stackchan.motion().stop();
+                stackchan.motion().release();
                 _active          = false;
                 _release_at_ms   = 0;
                 _active_since_ms = 0;
@@ -297,6 +302,79 @@ static CelebrateStyle parseCelebrateStyle(const std::string& style)
         return CelebrateStyle::Calm;
     }
     return CelebrateStyle::Cheer;
+}
+
+struct SystemRebootContext {
+    int delay_ms = 1500;
+    char reason[65] = "remote_mcp";
+};
+
+static void copySafeRebootReason(char* dest, size_t destSize, const std::string& reason)
+{
+    if (destSize == 0) {
+        return;
+    }
+
+    const std::string& source = reason.empty() ? std::string("remote_mcp") : reason;
+    size_t pos = 0;
+    for (; pos + 1 < destSize && pos < source.size(); ++pos) {
+        const unsigned char ch = static_cast<unsigned char>(source[pos]);
+        dest[pos] = (ch >= 32 && ch <= 126) ? static_cast<char>(ch) : '_';
+    }
+    dest[pos] = '\0';
+}
+
+static std::string jsonEscape(const char* value)
+{
+    std::string escaped;
+    if (!value) {
+        return escaped;
+    }
+    for (const char* p = value; *p; ++p) {
+        if (*p == '\\' || *p == '"') {
+            escaped.push_back('\\');
+        }
+        escaped.push_back(*p);
+    }
+    return escaped;
+}
+
+static void systemRebootTask(void* arg)
+{
+    auto* ctx = static_cast<SystemRebootContext*>(arg);
+    mclog::tagWarn(_tag, "mcp_reboot scheduled: delay_ms={} reason={}", ctx->delay_ms, ctx->reason);
+    vTaskDelay(pdMS_TO_TICKS(ctx->delay_ms));
+    mclog::tagWarn(_tag, "mcp_reboot now: reason={}", ctx->reason);
+    delete ctx;
+    esp_restart();
+}
+
+static bool scheduleSystemReboot(int delayMs, const std::string& reason, int* scheduledDelayMs = nullptr)
+{
+    delayMs = clampInt(delayMs, 500, 10000);
+    if (scheduledDelayMs) {
+        *scheduledDelayMs = delayMs;
+    }
+
+    auto* ctx = new (std::nothrow) SystemRebootContext{};
+    if (!ctx) {
+        mclog::tagError(_tag, "mcp_reboot schedule failed: alloc_failed delay_ms={}", delayMs);
+        return false;
+    }
+
+    ctx->delay_ms = delayMs;
+    copySafeRebootReason(ctx->reason, sizeof(ctx->reason), reason);
+
+    BaseType_t rc = xTaskCreate(systemRebootTask, "mcp_reboot", 4096, ctx, tskIDLE_PRIORITY + 1, nullptr);
+    if (rc != pdPASS) {
+        mclog::tagError(_tag, "mcp_reboot schedule failed: task_create_failed delay_ms={} reason={}",
+                        ctx->delay_ms, ctx->reason);
+        delete ctx;
+        return false;
+    }
+
+    mclog::tagWarn(_tag, "mcp_reboot accepted: delay_ms={} reason={}", ctx->delay_ms, ctx->reason);
+    return true;
 }
 
 struct CelebrateRgb {
@@ -717,6 +795,38 @@ void Hal::xiaozhi_mcp_init()
                            tools::stop_reminder(id);
                            return true;
                        });
+
+    mclog::tagWarn(_tag, "add system.reboot tool");
+    mcp_server.AddTool("self.system.reboot",
+                       "DANGEROUS: reboot this device to trigger first-boot OTA/upgrade checks. Only use when the user "
+                       "explicitly asks to restart/reboot the StackChan system. Requires confirm=true; delay_ms is "
+                       "clamped to 500..10000 ms. The reply is sent before the delayed reboot task runs.",
+                       PropertyList({Property("confirm", kPropertyTypeBoolean, false),
+                                     Property("delay_ms", kPropertyTypeInteger, 1500, 500, 10000),
+                                     Property("reason", kPropertyTypeString, std::string("remote_mcp"))}),
+                       [this](const PropertyList& properties) -> ReturnValue {
+                           bool confirm      = properties["confirm"].value<bool>();
+                           int delay_ms      = properties["delay_ms"].value<int>();
+                           std::string reason = properties["reason"].value<std::string>();
+
+                           if (!confirm) {
+                               mclog::tagWarn(_tag, "system_reboot rejected: confirm_required");
+                               return std::string(R"({"accepted":false,"error":"confirm_required"})");
+                           }
+
+                           char scheduled_reason[65];
+                           copySafeRebootReason(scheduled_reason, sizeof(scheduled_reason), reason);
+
+                           int scheduled_delay_ms = 1500;
+                           const std::string escaped_reason = jsonEscape(scheduled_reason);
+                           if (!scheduleSystemReboot(delay_ms, scheduled_reason, &scheduled_delay_ms)) {
+                               return fmt::format(R"({{"accepted":false,"error":"schedule_failed","delay_ms":{},"reason":"{}"}})",
+                                                  scheduled_delay_ms, escaped_reason);
+                           }
+
+                           return fmt::format(R"({{"accepted":true,"delay_ms":{},"reason":"{}"}})",
+                                              scheduled_delay_ms, escaped_reason);
+                       });
 }
 
 /* ---------------------------------------------------------------------------
@@ -841,6 +951,41 @@ bool stackchan_mcp_dispatch_tool(const std::string& tool_name, const cJSON* argu
         mclog::tagInfo(_tag, "http dispatch stop_reminder: id={}", id);
         tools::stop_reminder(id);
         out_result = "ok";
+        return true;
+    }
+
+    if (tool_name == "self.system.reboot") {
+        bool confirm = false;
+        int delay_ms = 1500;
+        std::string reason = "remote_mcp";
+        auto* v = cJSON_GetObjectItem(arguments, "confirm");
+        if (v && cJSON_IsBool(v)) confirm = cJSON_IsTrue(v);
+        v = cJSON_GetObjectItem(arguments, "delay_ms");
+        if (v && cJSON_IsNumber(v)) delay_ms = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "reason");
+        if (v && cJSON_IsString(v)) reason = v->valuestring;
+
+        char scheduled_reason[65];
+        copySafeRebootReason(scheduled_reason, sizeof(scheduled_reason), reason);
+        const int scheduled_delay_ms = clampInt(delay_ms, 500, 10000);
+
+        const std::string escaped_reason = jsonEscape(scheduled_reason);
+        if (!confirm) {
+            mclog::tagWarn(_tag, "http dispatch system_reboot rejected: confirm_required");
+            out_result = fmt::format(R"({{"accepted":false,"error":"confirm_required","delay_ms":{},"reason":"{}"}})",
+                                     scheduled_delay_ms, escaped_reason);
+            return true;
+        }
+
+        int actual_delay_ms = scheduled_delay_ms;
+        if (!scheduleSystemReboot(delay_ms, scheduled_reason, &actual_delay_ms)) {
+            out_result = fmt::format(R"({{"accepted":false,"error":"schedule_failed","delay_ms":{},"reason":"{}"}})",
+                                     actual_delay_ms, escaped_reason);
+            return true;
+        }
+
+        out_result = fmt::format(R"({{"accepted":true,"delay_ms":{},"reason":"{}"}})",
+                                 actual_delay_ms, escaped_reason);
         return true;
     }
 

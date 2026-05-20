@@ -114,6 +114,12 @@ public:
     void stop();
 
     /**
+     * @brief Stop head movement and release servo torque.
+     *
+     */
+    void release();
+
+    /**
      * @brief Moves the head using normalized coordinates ranging from -1.0 to 1.0.
      *
      * This method maps a proportional input to the full physical range of the servos.
