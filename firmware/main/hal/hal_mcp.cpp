@@ -21,6 +21,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <string_view>
 
 using namespace stackchan;
 
@@ -152,7 +153,8 @@ public:
 
         auto& motion = stackchan.motion();
         const uint32_t active_elapsed_ms = (_active && _active_since_ms != 0) ? (now - _active_since_ms) : 0;
-        if ((_has_pending || _active) && motion.hasBusDead()) {
+        const bool hardTimeoutReached = _active && _active_since_ms != 0 && active_elapsed_ms >= kHardActiveTimeoutMs;
+        if ((_has_pending || _active) && !hardTimeoutReached && motion.hasBusDead()) {
             logState("force_release", now, false, false, active_elapsed_ms, "bus_dead", false);
             motion.stop();
             _active          = false;
@@ -163,15 +165,23 @@ public:
             return;
         }
 
-        if (_active && _active_since_ms != 0 && now - _active_since_ms >= kHardActiveTimeoutMs) {
-            const uint32_t elapsed_ms = now - _active_since_ms;
-            const bool moving = motion.isMoving();
-            const bool busHealthy = !motion.hasHardwareFailure();
-            logState("force_release", now, moving, false, elapsed_ms, "hard_timeout", busHealthy);
-            motion.release();
-            _active        = false;
-            _has_pending   = false;
-            _release_at_ms = 0;
+        if (hardTimeoutReached) {
+            const uint32_t elapsed_ms       = active_elapsed_ms;
+            const bool moving              = motion.isMoving();
+            const bool busDead             = motion.hasBusDead();
+            const bool transientIoError    = motion.hasTransientIoError();
+            const bool hardwareFailure     = motion.hasHardwareFailure();
+            const bool canReleaseWithWrite = !busDead && !transientIoError && !hardwareFailure;
+            logState("force_release", now, moving, false, elapsed_ms, "hard_timeout", canReleaseWithWrite,
+                     canReleaseWithWrite ? "release" : "no_write_stop", busDead, transientIoError, hardwareFailure);
+            if (canReleaseWithWrite) {
+                motion.release();
+            } else {
+                motion.stop();
+            }
+            _active          = false;
+            _has_pending     = false;
+            _release_at_ms   = 0;
             _active_since_ms = 0;
             requestDestroy();
             return;
@@ -209,16 +219,19 @@ private:
     }
 
     void logState(const char* event, uint32_t now, bool isMoving, bool syncFromPresent,
-                  uint32_t elapsedMs, const char* reason = nullptr, bool busHealthy = true) const
+                  uint32_t elapsedMs, const char* reason = nullptr, bool busHealthy = true,
+                  const char* action = "none", bool busDead = false, bool transientIoError = false,
+                  bool hardwareFailure = false) const
     {
         const int targetYaw   = _has_pending ? _pending_yaw : _last_yaw;
         const int targetPitch = _has_pending ? _pending_pitch : _last_pitch;
         const int targetSpeed = _has_pending ? _pending_speed : _pending_speed;
         mclog::tagInfo("SERVO-SCHED",
-                       "event={} active={} has_pending={} isMoving={} elapsed_ms={} target_yaw={} target_pitch={} speed={} sync_from_present={} reason={} bus_healthy={}",
+                       "event={} active={} has_pending={} isMoving={} elapsed_ms={} target_yaw={} target_pitch={} speed={} sync_from_present={} reason={} action={} bus_healthy={} bus_dead={} transient_io_error={} hardware_failure={}",
                        event, _active ? 1 : 0, _has_pending ? 1 : 0, isMoving ? 1 : 0, elapsedMs,
                        targetYaw, targetPitch, targetSpeed, syncFromPresent ? 1 : 0, reason ? reason : "none",
-                       busHealthy ? 1 : 0);
+                       action, busHealthy ? 1 : 0, busDead ? 1 : 0, transientIoError ? 1 : 0,
+                       hardwareFailure ? 1 : 0);
         (void)now;
     }
 
@@ -274,6 +287,8 @@ struct CelebrateExecutor {
     uint32_t next_led_ms = 0;
     uint32_t step_index = 0;
     uint32_t led_step_index = 0;
+    bool preflight_started = false;
+    uint32_t preflight_start_ms = 0;
 };
 
 CelebrateExecutor g_celebrate_executor;
@@ -392,6 +407,21 @@ static void setCelebrateLightHard(Modifiable& stackchan, CelebrateRgb left, Cele
     stackchan.rightNeonLight().snapColor(right.r, right.g, right.b);
 }
 
+static bool isCelebrateBusErrorReason(const char* reason)
+{
+    if (!reason) {
+        return false;
+    }
+    const std::string_view r(reason);
+    return r == "bus_dead" || r == "preflight_bus_dead";
+}
+
+static void applyCelebrateErrorLight(Modifiable& stackchan, const char* reason)
+{
+    setCelebrateLightHard(stackchan, {255, 0, 0}, {255, 0, 0});
+    mclog::tagWarn(_tag, "celebrate_led_mode_error reason={} color=red action=no_servo_write", reason ? reason : "unknown");
+}
+
 static void applyCelebrateStartLight(Modifiable& stackchan, CelebrateStyle style, int intensity)
 {
     (void)style;
@@ -466,20 +496,38 @@ static void applyCelebrateMotion(Modifiable& stackchan, uint32_t step)
 static void finishCelebrateLocked(Modifiable& stackchan, const char* reason)
 {
     static constexpr int kReturnSpeed = 120;
+    static constexpr uint32_t kCelebrateTransientPassiveCooldownMs = 8000;
 
-    stackchan.leftNeonLight().snapColor(0, 0, 0);
-    stackchan.rightNeonLight().snapColor(0, 0, 0);
-
-    // Release the active latch. If the servo bus has reported failures, do not
-    // send a final home frame: that residual write caused large force-release
-    // deltas in 2.0.16 when the bus had already disappeared.
-    if (stackchan.motion().hasHardwareFailure()) {
-        mclog::tagWarn("SERVO-REQ", "source=celebrate_finish reason={} action=no_write bus_failed=1",
-                       reason ? reason : "done");
-        stackchan.motion().stop();
+    if (isCelebrateBusErrorReason(reason)) {
+        applyCelebrateErrorLight(stackchan, reason);
     } else {
-        mclog::tagInfo("SERVO-REQ", "source=celebrate_finish reason={} yaw=0 pitch=0 speed={} action=scheduler_queue",
-                       reason ? reason : "done", kReturnSpeed);
+        stackchan.leftNeonLight().snapColor(0, 0, 0);
+        stackchan.rightNeonLight().snapColor(0, 0, 0);
+    }
+
+    // Release the active latch. Keep bus_dead distinct from transient I/O:
+    // bus_dead means the backend explicitly declared the bus dead; transient I/O
+    // is a conservative no-write condition but must not be logged as bus_failed.
+    const bool busDead          = stackchan.motion().hasBusDead();
+    const bool transientIoError = stackchan.motion().hasTransientIoError();
+    const bool hardwareFailure  = stackchan.motion().hasHardwareFailure();
+    if (busDead) {
+        mclog::tagWarn("SERVO-REQ",
+                       "source=celebrate_finish reason={} action=no_write bus_dead=1 transient_io_error={} hardware_failure={}",
+                       reason ? reason : "done", transientIoError ? 1 : 0, hardwareFailure ? 1 : 0);
+        stackchan.motion().stop();
+    } else if (transientIoError) {
+        mclog::tagWarn("SERVO-REQ",
+                       "source=celebrate_finish reason={} action=no_write_transient bus_dead=0 transient_io_error=1 hardware_failure={} transient_passive_cooldown=1 no_powercycle=1 cooldown_ms={} passive_reason=celebrate_finish_duration_complete",
+                       reason ? reason : "done", hardwareFailure ? 1 : 0,
+                       kCelebrateTransientPassiveCooldownMs);
+        stackchan.motion().stop();
+        stackchan.motion().enterTransientPassiveCooldown(kCelebrateTransientPassiveCooldownMs,
+                                                         "celebrate_finish_duration_complete");
+    } else {
+        mclog::tagInfo("SERVO-REQ",
+                       "source=celebrate_finish reason={} yaw=0 pitch=0 speed={} action=scheduler_queue bus_dead=0 transient_io_error=0 hardware_failure={}",
+                       reason ? reason : "done", kReturnSpeed, hardwareFailure ? 1 : 0);
         submitHeadMotion(true, 0, true, 0, kReturnSpeed);
     }
     g_celebrate_executor = CelebrateExecutor{};
@@ -520,6 +568,8 @@ bool start_celebrate_modifier(std::string style, int durationMs, int intensity, 
         g_celebrate_executor.next_led_ms   = 0;
         g_celebrate_executor.step_index    = 0;
         g_celebrate_executor.led_step_index = 0;
+        g_celebrate_executor.preflight_started = false;
+        g_celebrate_executor.preflight_start_ms = 0;
         g_celebrate_active.store(true);
     }
 
@@ -544,6 +594,7 @@ void stackchan_celebrate_tick(stackchan::Modifiable& stackchan, uint32_t nowMs)
     static constexpr uint32_t kFallbackGraceMs      = 1500;
     static constexpr uint32_t kHardTimeoutMs        = 10500;
     static constexpr uint32_t kMotionFrameCount     = kCelebrateMotionFrameCount;
+    static constexpr uint32_t kBusPreflightTimeoutMs = 1800;
 
     if (!g_celebrate_active.load()) {
         return;
@@ -558,6 +609,32 @@ void stackchan_celebrate_tick(stackchan::Modifiable& stackchan, uint32_t nowMs)
     }
 
     if (g_celebrate_executor.state == CelebrateState::Pending) {
+        if (stackchan.motion().hasBusDead()) {
+            if (!g_celebrate_executor.preflight_started) {
+                g_celebrate_executor.preflight_started = true;
+                g_celebrate_executor.preflight_start_ms = nowMs;
+                mclog::tagWarn("SERVO-REQ",
+                               "source=celebrate_preflight event=bus_dead_detected action=recovery_probe_no_write timeout_ms={}",
+                               kBusPreflightTimeoutMs);
+            }
+
+            const bool recovered = stackchan.motion().serviceBusRecoveryProbe(nowMs, "celebrate_preflight");
+            if (!recovered) {
+                const uint32_t preflightElapsed = nowMs - g_celebrate_executor.preflight_start_ms;
+                if (preflightElapsed >= kBusPreflightTimeoutMs) {
+                    mclog::tagWarn("SERVO-REQ",
+                                   "source=celebrate_preflight event=failed elapsed_ms={} action=error_led_no_motion",
+                                   preflightElapsed);
+                    finishCelebrateLocked(stackchan, "preflight_bus_dead");
+                }
+                return;
+            }
+
+            mclog::tagInfo("SERVO-REQ",
+                           "source=celebrate_preflight event=recovered elapsed_ms={} action=start_executor",
+                           nowMs - g_celebrate_executor.preflight_start_ms);
+        }
+
         g_celebrate_executor.state         = CelebrateState::Running;
         g_celebrate_executor.started       = true;
         g_celebrate_executor.start_ms      = nowMs;

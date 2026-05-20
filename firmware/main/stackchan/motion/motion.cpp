@@ -132,9 +132,27 @@ bool Motion::hasBusDead() const
     return _yaw_servo->isBusDead() || _pitch_servo->isBusDead();
 }
 
+bool Motion::hasTransientIoError() const
+{
+    return _yaw_servo->hasTransientIoError() || _pitch_servo->hasTransientIoError();
+}
+
 bool Motion::hasHardwareFailure() const
 {
-    return _yaw_servo->hasHardwareFailure() || _pitch_servo->hasHardwareFailure();
+    return hasBusDead() || hasTransientIoError();
+}
+
+bool Motion::serviceBusRecoveryProbe(uint32_t nowMs, const char* reason)
+{
+    const bool yawOk   = _yaw_servo->serviceBusRecoveryProbe(nowMs, reason);
+    const bool pitchOk = _pitch_servo->serviceBusRecoveryProbe(nowMs, reason);
+    return yawOk && pitchOk;
+}
+
+void Motion::enterTransientPassiveCooldown(uint32_t durationMs, const char* reason)
+{
+    _yaw_servo->enterTransientPassiveCooldown(durationMs, reason);
+    _pitch_servo->enterTransientPassiveCooldown(durationMs, reason);
 }
 
 int Motion::getCurrentYawAngle()

@@ -34,7 +34,17 @@ class Keyword:
 
 KEYWORDS: tuple[Keyword, ...] = (
     Keyword("bus_dead", "SERVO-BUS event=bus_dead", "bus_dead"),
+    Keyword("bus_dead_reason", "reason=bus_dead", "bus_dead_reason"),
+    Keyword("executor_finished_bus_dead", "celebrate executor finished: bus_dead", "executor_finished_bus_dead"),
+    Keyword("led_finished_bus_dead", "celebrate_led_mode_finish reason=bus_dead", "led_finished_bus_dead"),
+    # Legacy 2.0.39 and older finish logs used bus_failed=1 for both real bus_dead
+    # and transient/recent I/O errors. New firmware emits explicit fields.
+    Keyword("bus_failed", "bus_failed=1", "bus_failed"),
+    Keyword("finish_bus_dead", "bus_dead=1", "finish_bus_dead"),
+    Keyword("transient_io_error", "transient_io_error=1", "transient_io_error"),
+    Keyword("no_write_transient", "action=no_write_transient", "no_write_transient"),
     Keyword("bus_dead_hold", "event=bus_dead_hold", "bus_dead_hold"),
+    Keyword("recovery_probe_failed", "event=recovery_probe_failed", "recovery_probe_failed"),
     Keyword("rejected_bus_dead", "SERVO-SCHED event=reject_bus_dead", "reject_bus_dead"),
     Keyword("force_release_bus_dead", "force_release reason=bus_dead", "force_release_bus_dead"),
     Keyword("force_release_bus_dead_before_dispatch", "force_release reason=bus_dead_before_dispatch", "force_release_bus_dead_before_dispatch"),
@@ -110,6 +120,9 @@ def match_keywords(line: str, case_sensitive: bool) -> list[Keyword]:
     matches: list[Keyword] = []
     exact_value_needles = {
         "SERVO-BUS event=bus_dead",
+        "reason=bus_dead",
+        "celebrate executor finished: bus_dead",
+        "celebrate_led_mode_finish reason=bus_dead",
         "force_release reason=bus_dead",
     }
     for kw in KEYWORDS:
@@ -243,7 +256,15 @@ def scan_logs(args: argparse.Namespace) -> dict[str, Any]:
 def stable_counts(counts: Counter[str]) -> dict[str, int]:
     keys = [
         "bus_dead",
+        "bus_dead_reason",
+        "executor_finished_bus_dead",
+        "led_finished_bus_dead",
+        "bus_failed",
+        "finish_bus_dead",
+        "transient_io_error",
+        "no_write_transient",
         "bus_dead_hold",
+        "recovery_probe_failed",
         "reject_bus_dead",
         "force_release_bus_dead",
         "force_release_bus_dead_before_dispatch",
@@ -263,12 +284,25 @@ def stable_counts(counts: Counter[str]) -> dict[str, int]:
 
 def build_signals(counts: Counter[str]) -> dict[str, Any]:
     force_release_total = counts["force_release_bus_dead"] + counts["force_release_bus_dead_before_dispatch"] + counts["force_release_hard_timeout"]
+    direct_bus_dead_total = (
+        counts["bus_dead"]
+        + counts["bus_dead_reason"]
+        + counts["executor_finished_bus_dead"]
+        + counts["led_finished_bus_dead"]
+        + counts["bus_failed"]
+        + counts["finish_bus_dead"]
+    )
+    transient_io_total = counts["transient_io_error"] + counts["no_write_transient"]
+    bus_issue_total = direct_bus_dead_total + transient_io_total + counts["bus_dead_hold"] + counts["recovery_probe_failed"]
     return {
         "queued": counts["queued"] > 0,
         "started": counts["started"] > 0,
         "finished": counts["finished"] > 0,
-        "bus_dead": counts["bus_dead"] > 0,
+        "bus_dead": direct_bus_dead_total > 0,
+        "transient_io_error": transient_io_total > 0,
         "bus_dead_hold": counts["bus_dead_hold"] > 0,
+        "recovery_probe_failed": counts["recovery_probe_failed"] > 0,
+        "bus_issue": bus_issue_total > 0,
         "rejected_bus_dead": counts["reject_bus_dead"] > 0,
         "force_release": force_release_total > 0,
         "force_release_bus_dead": counts["force_release_bus_dead"] > 0,
@@ -304,6 +338,12 @@ def classify(
     has_failure = bool(signals["bus_dead"] or signals["rejected_bus_dead"] or signals["force_release"])
     has_activity = bool(signals["led_steps"] or signals["motion_frames"] or signals["motion_frame_scheduled"] or signals["source_celebrate_finish"])
 
+    if signals["bus_dead"]:
+        return "error", "celebrate log contains bus_dead/bus_failed servo bus failure signals"
+    if signals["transient_io_error"] and not has_failure:
+        return "warning", "celebrate finished with transient servo I/O diagnostics but no bus_dead signal"
+    if signals["bus_issue"] and not has_failure:
+        return "warning", "servo bus issue signals appeared during celebrate diagnostics"
     if has_failure and not signals["finished"]:
         return "error", "celebrate appears blocked or aborted by servo bus failure before executor finished"
     if (signals["queued"] or signals["started"]) and not signals["finished"] and not (signals["motion_frames"] or signals["source_celebrate_finish"]):

@@ -87,11 +87,60 @@ public:
     }
 
     /**
-     * @brief True when recent hardware reads/writes are unreliable.
+     * @brief True only after the backend has explicitly declared the bus dead.
+     */
+    bool hasBusDead() const
+    {
+        return isBusDead();
+    }
+
+    /**
+     * @brief True when recent hardware I/O was unreliable, but bus_dead may still be false.
+     *
+     * Examples include consecutive write/read failures below the bus_dead threshold,
+     * failed ReadPos, or failed ReadMove diagnostics. This is a transient/recent
+     * signal and must not be treated as an explicit bus_dead declaration.
+     */
+    virtual bool hasTransientIoError() const
+    {
+        return false;
+    }
+
+    /**
+     * @brief Broad hardware-unhealthy signal: bus_dead OR transient/recent I/O errors.
+     *
+     * Prefer hasBusDead() when the caller needs to distinguish a declared dead bus
+     * from a conservative no-write decision caused by transient I/O errors.
      */
     virtual bool hasHardwareFailure() const
     {
-        return isBusDead();
+        return hasBusDead() || hasTransientIoError();
+    }
+
+    /**
+     * @brief Service a safe read-only bus recovery probe if the backend is bus_dead.
+     *
+     * Implementations must not write servo targets from this path. Returns true
+     * when the backend is currently usable (or was never dead).
+     */
+    virtual bool serviceBusRecoveryProbe(uint32_t nowMs, const char* reason)
+    {
+        (void)nowMs;
+        (void)reason;
+        return !isBusDead();
+    }
+
+    /**
+     * @brief Temporarily keep transient I/O errors in passive/no-powercycle mode.
+     *
+     * Used after a safe no-write motion finish: read-only probes may still clear
+     * the transient state, but probe failures must not escalate to bus_dead or
+     * power-cycle until a real motion/write demand needs the bus again.
+     */
+    virtual void enterTransientPassiveCooldown(uint32_t durationMs, const char* reason)
+    {
+        (void)durationMs;
+        (void)reason;
     }
 
     /**

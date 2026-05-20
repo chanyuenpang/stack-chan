@@ -160,8 +160,20 @@ public:
     void lookAtPoint(float x, float y, float z, int speed = 500);
 
     bool isMoving();
+    /**
+     * @brief True only when at least one servo backend has explicitly declared bus_dead.
+     */
     bool hasBusDead() const;
+    /**
+     * @brief True when at least one servo has recent transient I/O errors without necessarily being bus_dead.
+     */
+    bool hasTransientIoError() const;
+    /**
+     * @brief Broad unhealthy signal: hasBusDead() OR hasTransientIoError().
+     */
     bool hasHardwareFailure() const;
+    bool serviceBusRecoveryProbe(uint32_t nowMs, const char* reason);
+    void enterTransientPassiveCooldown(uint32_t durationMs, const char* reason);
     uitk::Vector2i getCurrentAngles();
     uitk::Vector2i getAnimationAngles();
     uitk::Vector2i syncAnimationToCurrentAngles();

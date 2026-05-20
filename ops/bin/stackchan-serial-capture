@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""Read-only StackChan serial log capture.
+
+Captures bytes emitted by the StackChan USB CDC/JTAG serial device into a local
+/tmp log file. The tool never writes payload bytes to the serial device and never
+invokes flashing or device action commands.
+"""
+
+from __future__ import annotations
+
+import argparse
+import errno
+import json
+import os
+import re
+import select
+import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import BinaryIO, Pattern
+
+DEFAULT_USB_DEVICE = "/dev/ttyACM0"
+DEFAULT_DURATION_SECONDS = 15.0
+DEFAULT_BAUDRATE = 115200
+READ_CHUNK_SIZE = 4096
+
+EXIT_OK = 0
+EXIT_DEVICE_NOT_FOUND = 2
+EXIT_PERMISSION_DENIED = 3
+EXIT_OPEN_FAILED = 4
+EXIT_BAD_REGEX = 5
+EXIT_RUNTIME_ERROR = 6
+EXIT_INTERRUPTED = 130
+
+
+@dataclass
+class CaptureSummary:
+    opened_device: str
+    output_path: str
+    bytes: int = 0
+    lines: int = 0
+    duration: float = 0.0
+    status: str = "not_started"
+    matches: int = 0
+    error: str | None = None
+    reader: str | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        result: dict[str, object] = {
+            "opened_device": self.opened_device,
+            "output_path": self.output_path,
+            "bytes": self.bytes,
+            "lines": self.lines,
+            "duration": round(self.duration, 3),
+            "status": self.status,
+            "matches": self.matches,
+        }
+        if self.error:
+            result["error"] = self.error
+        if self.reader:
+            result["reader"] = self.reader
+        return result
+
+
+class SerialReader:
+    """Small interface for read-only serial readers."""
+
+    name = "base"
+
+    def read(self, size: int) -> bytes:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def close(self) -> None:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+
+class PosixReadOnlySerialReader(SerialReader):
+    """Read a tty using an O_RDONLY, non-blocking file descriptor."""
+
+    name = "posix-rdonly"
+
+    def __init__(self, device: str, baudrate: int = DEFAULT_BAUDRATE) -> None:
+        self.fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
+        self._old_attrs = None
+        self._configure_raw_if_possible(baudrate)
+
+    def _configure_raw_if_possible(self, baudrate: int) -> None:
+        try:
+            import termios
+            import tty
+        except ImportError:
+            return
+        try:
+            attrs = termios.tcgetattr(self.fd)
+            self._old_attrs = attrs[:]
+            tty.setraw(self.fd, termios.TCSANOW)
+
+            # Best-effort baudrate setting for UART-style tty devices. USB CDC
+            # devices often ignore it, but keeping 115200 is conventional for
+            # ESP logs. This changes tty attributes only; it writes no bytes.
+            speed_name = f"B{baudrate}"
+            speed = getattr(termios, speed_name, None)
+            if speed is not None:
+                attrs = termios.tcgetattr(self.fd)
+                attrs[4] = speed
+                attrs[5] = speed
+                termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+        except OSError:
+            # Reading may still work even when termios setup is unavailable.
+            return
+
+    def read(self, size: int) -> bytes:
+        ready, _, _ = select.select([self.fd], [], [], 0.2)
+        if not ready:
+            return b""
+        try:
+            return os.read(self.fd, size)
+        except BlockingIOError:
+            return b""
+
+    def close(self) -> None:
+        try:
+            if self._old_attrs is not None:
+                try:
+                    import termios
+
+                    termios.tcsetattr(self.fd, termios.TCSANOW, self._old_attrs)
+                except OSError:
+                    pass
+        finally:
+            os.close(self.fd)
+
+
+class PySerialReader(SerialReader):
+    """Fallback reader for non-POSIX environments with pyserial installed."""
+
+    name = "pyserial"
+
+    def __init__(self, device: str, baudrate: int = DEFAULT_BAUDRATE) -> None:
+        try:
+            import serial  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover - environment-dependent
+            raise RuntimeError(
+                "pyserial is not installed and POSIX read-only open is unavailable; "
+                "install pyserial in a virtualenv or run on Linux/POSIX"
+            ) from exc
+
+        self._serial = serial.Serial(
+            port=device,
+            baudrate=baudrate,
+            timeout=0.2,
+            write_timeout=0,
+        )
+
+    def read(self, size: int) -> bytes:
+        return self._serial.read(size)
+
+    def close(self) -> None:
+        self._serial.close()
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Capture StackChan serial logs into /tmp. Read-only: this command "
+            "opens the serial device for reading where supported, writes no "
+            "bytes to the device, and never flashes firmware."
+        )
+    )
+    parser.add_argument(
+        "--usb-device",
+        default=DEFAULT_USB_DEVICE,
+        help=f"serial device to read (default: {DEFAULT_USB_DEVICE})",
+    )
+    parser.add_argument(
+        "--output",
+        help="output log path (default: /tmp/stackchan-serial-YYYYMMDD-HHMMSS.log)",
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=DEFAULT_DURATION_SECONDS,
+        help=f"capture duration in seconds (default: {DEFAULT_DURATION_SECONDS:g})",
+    )
+    parser.add_argument("--json", action="store_true", help="emit JSON summary")
+    parser.add_argument("--grep", metavar="REGEX", help="regex to count in captured log lines")
+    parser.add_argument(
+        "--baudrate",
+        type=int,
+        default=DEFAULT_BAUDRATE,
+        help=f"best-effort tty baudrate (default: {DEFAULT_BAUDRATE}); USB CDC may ignore it",
+    )
+    return parser.parse_args(argv)
+
+
+def default_output_path() -> str:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"/tmp/stackchan-serial-{stamp}.log"
+
+
+def compile_grep(pattern: str | None) -> Pattern[str] | None:
+    if not pattern:
+        return None
+    return re.compile(pattern)
+
+
+def open_reader(device: str, baudrate: int) -> SerialReader:
+    if os.name == "posix":
+        return PosixReadOnlySerialReader(device, baudrate=baudrate)
+    return PySerialReader(device, baudrate=baudrate)
+
+
+def update_line_and_match_counts(
+    pending_text: str,
+    data: bytes,
+    grep: Pattern[str] | None,
+) -> tuple[str, int, int]:
+    """Return updated pending text, complete line count, grep match count."""
+    text = pending_text + data.decode("utf-8", errors="replace")
+    parts = text.splitlines(keepends=True)
+    if parts and not (parts[-1].endswith("\n") or parts[-1].endswith("\r")):
+        pending = parts.pop()
+    else:
+        pending = ""
+
+    line_count = len(parts)
+    match_count = 0
+    if grep is not None:
+        match_count = sum(1 for line in parts if grep.search(line))
+    return pending, line_count, match_count
+
+
+def capture(args: argparse.Namespace, summary: CaptureSummary) -> int:
+    device_path = Path(args.usb_device)
+    if not device_path.exists():
+        summary.status = "device_not_found"
+        summary.error = f"serial device does not exist: {args.usb_device}"
+        return EXIT_DEVICE_NOT_FOUND
+
+    try:
+        grep = compile_grep(args.grep)
+    except re.error as exc:
+        summary.status = "bad_regex"
+        summary.error = f"invalid --grep regex: {exc}"
+        return EXIT_BAD_REGEX
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    reader: SerialReader | None = None
+    start = time.monotonic()
+    pending_text = ""
+
+    try:
+        try:
+            reader = open_reader(args.usb_device, args.baudrate)
+            summary.reader = reader.name
+            summary.status = "capturing"
+        except PermissionError as exc:
+            summary.status = "permission_denied"
+            summary.error = f"permission denied opening {args.usb_device}: {exc}"
+            return EXIT_PERMISSION_DENIED
+        except OSError as exc:
+            if exc.errno in (errno.EACCES, errno.EPERM):
+                summary.status = "permission_denied"
+                summary.error = f"permission denied opening {args.usb_device}: {exc}"
+                return EXIT_PERMISSION_DENIED
+            summary.status = "open_failed"
+            summary.error = f"failed to open {args.usb_device}: {exc}"
+            return EXIT_OPEN_FAILED
+        except RuntimeError as exc:
+            summary.status = "open_failed"
+            summary.error = str(exc)
+            return EXIT_OPEN_FAILED
+
+        with output_path.open("wb") as out:
+            run_capture_loop(args.duration, reader, out, grep, summary, start, pending_text)
+
+        summary.status = "duration_elapsed"
+        return EXIT_OK
+    except KeyboardInterrupt:
+        summary.status = "interrupted"
+        return EXIT_INTERRUPTED
+    except OSError as exc:
+        summary.status = "runtime_error"
+        summary.error = str(exc)
+        return EXIT_RUNTIME_ERROR
+    finally:
+        summary.duration = time.monotonic() - start
+        if reader is not None:
+            try:
+                reader.close()
+            except OSError:
+                pass
+
+
+def run_capture_loop(
+    duration: float,
+    reader: SerialReader,
+    out: BinaryIO,
+    grep: Pattern[str] | None,
+    summary: CaptureSummary,
+    start: float,
+    pending_text: str,
+) -> None:
+    if duration < 0:
+        raise ValueError("--duration must be non-negative")
+
+    while True:
+        elapsed = time.monotonic() - start
+        if elapsed >= duration:
+            if pending_text:
+                summary.lines += 1
+                if grep is not None and grep.search(pending_text):
+                    summary.matches += 1
+            break
+
+        data = reader.read(READ_CHUNK_SIZE)
+        if not data:
+            continue
+
+        out.write(data)
+        out.flush()
+        summary.bytes += len(data)
+        pending_text, lines, matches = update_line_and_match_counts(pending_text, data, grep)
+        summary.lines += lines
+        summary.matches += matches
+
+
+def emit_summary(summary: CaptureSummary, json_output: bool) -> None:
+    if json_output:
+        print(json.dumps(summary.as_dict(), ensure_ascii=False, sort_keys=True))
+        return
+
+    print(f"status: {summary.status}")
+    print(f"device: {summary.opened_device}")
+    print(f"output: {summary.output_path}")
+    print(f"bytes: {summary.bytes}")
+    print(f"lines: {summary.lines}")
+    print(f"matches: {summary.matches}")
+    print(f"duration: {summary.duration:.3f}s")
+    if summary.reader:
+        print(f"reader: {summary.reader}")
+    if summary.error:
+        print(f"error: {summary.error}", file=sys.stderr)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    if args.duration < 0:
+        print("error: --duration must be non-negative", file=sys.stderr)
+        return EXIT_RUNTIME_ERROR
+
+    if args.output is None:
+        args.output = default_output_path()
+
+    summary = CaptureSummary(opened_device=args.usb_device, output_path=args.output)
+    code = capture(args, summary)
+    emit_summary(summary, args.json)
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

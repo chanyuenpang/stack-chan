@@ -10,6 +10,7 @@
 #include <mooncake_log.h>
 #include <settings.h>
 #include <esp_timer.h>
+#include <cstring>
 
 using namespace smooth_ui_toolkit;
 using namespace stackchan::motion;
@@ -43,8 +44,10 @@ public:
 
     void update() override
     {
+        const uint32_t now_ms = GetHAL().millis();
+        service_transient_probe(now_ms, "update_tick");
         if (_bus_dead) {
-            probe_bus_recovery(GetHAL().millis(), "update_tick");
+            probe_bus_recovery(now_ms, "update_tick");
         }
         Servo::update();
     }
@@ -98,6 +101,11 @@ public:
             probe_bus_recovery(now_ms, "write_skip");
             return;
         }
+        service_transient_probe(now_ms, "write_skip");
+        if (is_transient_cooldown_active(now_ms)) {
+            log_transient_write_skip(now_ms, "transient_cooldown");
+            return;
+        }
 
         const int requested_angle = angle;
         const int command_angle   = kSingleWriteFinalTargetMode ? static_cast<int>(_angle_anim.end) : requested_angle;
@@ -146,25 +154,43 @@ public:
             return;
         }
 
+        if (_has_last_attempted && mapped_angle == _last_attempted_raw &&
+            now_ms - _last_attempted_ms < kWriteAttemptCooldownMs) {
+            log_write_backoff(now_ms, requested_angle, command_angle, mapped_angle, present_state, present_raw,
+                              present_angle, fallback_src, last_raw, last_angle, delta_angle, delta_raw, dt_ms,
+                              deg_per_sec, sync_state);
+            return;
+        }
+
+        if (!try_acquire_axis_write_slot(now_ms, requested_angle, command_angle, mapped_angle, present_state,
+                                         present_raw, present_angle, fallback_src, last_raw, last_angle,
+                                         delta_angle, delta_raw, dt_ms, deg_per_sec, sync_state)) {
+            return;
+        }
+
         check_mode(Mode::Position);
+        record_write_attempt(mapped_angle, write_angle, now_ms);
         const int64_t write_start_us = esp_timer_get_time();
         const int write_rc           = _scs_bus.WritePos(_config.id, mapped_angle, write_time, kWriteSpeed);
+        record_axis_write_slot(now_ms);
         const int64_t write_cost_us  = esp_timer_get_time() - write_start_us;
         const bool write_ok          = write_rc > 0;
+        const int write_err          = _scs_bus.getLastError();
         if (write_ok) {
             record_bus_success();
         } else {
-            record_bus_failure("write_pos", write_rc, now_ms);
+            handle_write_pos_failure(write_rc, write_err, mapped_angle, write_angle, now_ms);
         }
 
         ++_diag_seq;
         mclog::tagInfo("SERVO-DIAG",
-                       "source=hw_write axis_id={} seq={} t_ms={} write_mode={} read_before_write={} read_move_enabled={} write_interval_ms={} present={} present_raw={} present_ang={} fallback={} last_raw={} last_ang={} anim_req_ang={} command_ang={} write_ang={} write_raw={} delta_ang={} delta_raw={} dt_ms={} deg_s={:.1f} autoSync={} source_speed={} clamped_speed={} computed_write_time={} write_time={} base_write_time={} write_speed={} torque_enable_rc={} rc={} cost_us={}",
+                       "source=hw_write axis_id={} seq={} t_ms={} write_mode={} read_before_write={} read_move_enabled={} write_interval_ms={} write_attempt_cooldown_ms={} present={} present_raw={} present_ang={} fallback={} last_raw={} last_ang={} anim_req_ang={} command_ang={} write_ang={} write_raw={} delta_ang={} delta_raw={} dt_ms={} deg_s={:.1f} autoSync={} source_speed={} clamped_speed={} computed_write_time={} write_time={} base_write_time={} write_speed={} torque_enable_rc={} rc={} err={} cost_us={}",
                        _config.id, _diag_seq, now_ms, write_mode(), kReadBeforeWriteDuringMotion ? 1 : 0,
-                       kReadMoveEnabled ? 1 : 0, kWriteIntervalMs, present_state, present_raw, present_angle,
-                       fallback_src, last_raw, last_angle, requested_angle, command_angle, write_angle, mapped_angle,
-                       delta_angle, delta_raw, dt_ms, deg_per_sec, sync_state, source_speed, clamped_speed, write_time,
-                       write_time, kDefaultWriteTime, kWriteSpeed, _last_torque_enable_rc, write_rc,
+                       kReadMoveEnabled ? 1 : 0, kWriteIntervalMs, kWriteAttemptCooldownMs, present_state,
+                       present_raw, present_angle, fallback_src, last_raw, last_angle, requested_angle,
+                       command_angle, write_angle, mapped_angle, delta_angle, delta_raw, dt_ms, deg_per_sec,
+                       sync_state, source_speed, clamped_speed, write_time, write_time, kDefaultWriteTime,
+                       kWriteSpeed, _last_torque_enable_rc, write_rc, write_err,
                        static_cast<long long>(write_cost_us));
 
         if (write_ok) {
@@ -181,6 +207,10 @@ public:
         if (_bus_dead) {
             probe_bus_recovery(now_ms, "read_pos_skip");
             return uitk::clamp(static_cast<int>(_angle_anim.directValue()), getAngleLimit().x, getAngleLimit().y);
+        }
+        service_transient_probe(now_ms, "read_pos_skip");
+        if (is_transient_cooldown_active(now_ms)) {
+            return fallback_angle();
         }
 
         const int current_pos = _scs_bus.ReadPos(_config.id);
@@ -279,8 +309,15 @@ public:
     void setTorqueEnabled(bool enabled) override
     {
         Servo::setTorqueEnabled(enabled);
+        const uint32_t now_ms = GetHAL().millis();
+        const char* transient_probe_reason = enabled ? "torque_enable_skip" : "torque_release_skip";
         if (_bus_dead) {
-            probe_bus_recovery(GetHAL().millis(), "torque_skip");
+            probe_bus_recovery(now_ms, transient_probe_reason);
+            return;
+        }
+        service_transient_probe(now_ms, transient_probe_reason);
+        if (is_transient_cooldown_active(now_ms)) {
+            log_transient_write_skip(now_ms, "torque_transient_cooldown");
             return;
         }
         if (_torque_enabled_shadow == enabled && _last_torque_enable_rc > 0) {
@@ -292,7 +329,7 @@ public:
             _torque_enabled_shadow = enabled;
             record_bus_success();
         } else {
-            record_bus_failure("torque_enable", rc, GetHAL().millis());
+            record_bus_failure("torque_enable", rc, now_ms);
         }
         mclog::tagInfo("SERVO-DIAG", "axis_id={} torque_enable={} torque_enable_rc={} shadow={}",
                        _config.id, enabled ? 1 : 0, rc, _torque_enabled_shadow ? 1 : 0);
@@ -329,8 +366,14 @@ public:
     {
         velocity = uitk::clamp(velocity, -1000, 1000);
 
+        const uint32_t now_ms = GetHAL().millis();
         if (_bus_dead) {
-            probe_bus_recovery(GetHAL().millis(), "pwm_skip");
+            probe_bus_recovery(now_ms, "pwm_skip");
+            return;
+        }
+        service_transient_probe(now_ms, "pwm_skip");
+        if (is_transient_cooldown_active(now_ms)) {
+            log_transient_write_skip(now_ms, "pwm_transient_cooldown");
             return;
         }
 
@@ -349,9 +392,40 @@ public:
         return _bus_dead;
     }
 
+    bool hasTransientIoError() const override
+    {
+        return _consecutive_bus_failures > 0 || _read_pos_fail_count > 0 || _read_move_fail_count > 0 ||
+               _write_ack_missing_count > 0 || _transient_probe_pending ||
+               GetHAL().millis() < _transient_hold_until_ms;
+    }
+
     bool hasHardwareFailure() const override
     {
-        return _bus_dead || _consecutive_bus_failures > 0 || _read_pos_fail_count > 0 || _read_move_fail_count > 0;
+        return isBusDead() || hasTransientIoError();
+    }
+
+    bool serviceBusRecoveryProbe(uint32_t nowMs, const char* reason) override
+    {
+        service_transient_probe(nowMs, reason ? reason : "external");
+        if (_bus_dead) {
+            probe_bus_recovery(nowMs, reason ? reason : "external");
+        }
+        return !_bus_dead;
+    }
+
+    void enterTransientPassiveCooldown(uint32_t durationMs, const char* reason) override
+    {
+        const uint32_t now_ms = GetHAL().millis();
+        const uint32_t until_ms = now_ms + durationMs;
+        if (until_ms - _transient_passive_until_ms < 0x80000000UL) {
+            _transient_passive_until_ms = until_ms;
+        }
+        _transient_passive_reason = reason ? reason : "unspecified";
+        mclog::tagWarn(
+            "SERVO-BUS",
+            "axis_id={} event=transient_passive_cooldown reason={} passive_until={} duration_ms={} no_powercycle=1 transient_probe_pending={} hold_until={} probe_fail_count={}",
+            _config.id, _transient_passive_reason, _transient_passive_until_ms, durationMs,
+            _transient_probe_pending ? 1 : 0, _transient_hold_until_ms, _transient_probe_fail_count);
     }
 
 private:
@@ -365,9 +439,15 @@ private:
     int _last_written_raw     = 0;
     int _last_written_angle   = 0;
     uint32_t _last_written_ms = 0;
+    bool _has_last_attempted  = false;
+    int _last_attempted_raw   = 0;
+    int _last_attempted_angle = 0;
+    uint32_t _last_attempted_ms = 0;
     uint32_t _diag_seq        = 0;
     uint32_t _last_write_skip_diag_ms = 0;
+    uint32_t _last_write_backoff_diag_ms = 0;
     uint32_t _last_write_skip_suppressed_ms = 0;
+    uint32_t _last_axis_stagger_diag_ms = 0;
     const char* _last_write_skip_suppressed_reason = nullptr;
     bool _set_angle_in_progress = false;
 
@@ -384,14 +464,25 @@ private:
     static constexpr bool kReadMoveEnabled                    = false;
     static constexpr bool kSingleWriteFinalTargetMode         = true;
     static constexpr uint32_t kWriteIntervalMs                = 200;
+    static constexpr uint32_t kWriteAttemptCooldownMs         = 200;
     static constexpr uint16_t kDefaultWriteTime               = 250;
     static constexpr uint16_t kWriteSpeed                     = 0;  // Library keeps speed=0 semantics; time controls duration.
     static constexpr uint32_t kWriteSkipLogIntervalMs         = 1000;
     static constexpr uint32_t kWriteSkipSuppressedLogIntervalMs = 2000;
+    static constexpr uint32_t kAxisWriteStaggerWindowMs       = 100;
+    static constexpr uint32_t kAxisStaggerLogIntervalMs       = 250;
     static constexpr uint32_t kReadPosFailLogIntervalMs       = 1000;
     static constexpr uint32_t kReadMoveFailLogIntervalMs      = 1000;
     static constexpr uint32_t kReadMoveFailFallbackThreshold  = 3;
     static constexpr uint32_t kReadMoveFailFallbackCooldownMs = 2000;
+    static constexpr uint32_t kTransientQuietMs             = 100;
+    static constexpr uint32_t kTransientProbeDelayMs         = 250;
+    static constexpr uint32_t kTransientProbeSlotMs          = 200;
+    static constexpr uint32_t kTransientHoldMs               = 600;
+    static constexpr uint32_t kTransientFailHoldMs           = 750;
+    static constexpr uint32_t kTransientTimeoutMs            = 2500;
+    static constexpr uint32_t kTransientMaxProbeFailures     = 5;
+    static constexpr uint32_t kTransientDeferLogIntervalMs   = 500;
     bool _has_last_move_diag                                = false;
     int _last_read_move                                     = 0;
     bool _last_moving_result                                = false;
@@ -399,17 +490,36 @@ private:
     uint32_t _read_move_fail_count                          = 0;
     uint32_t _read_move_fallback_until_ms                   = 0;
 
-    enum class RecoveryStage { Flush = 0, Quiet = 1, Ping = 2, ReadPos = 3 };
+    static inline int _axis_write_slot_owner                = -1;
+    static inline uint32_t _axis_write_slot_ms              = 0;
+    static inline int _verify_probe_slot_owner              = -1;
+    static inline uint32_t _verify_probe_slot_ms            = 0;
+
+    enum class RecoveryStage { Flush = 0, Quiet = 1, Ping = 2, ReadPos = 3, UartReinit = 4, PowerCycle = 5, PowerRestore = 6 };
 
     static constexpr uint32_t kBusDeadFailureThreshold      = 3;
     static constexpr uint32_t kBusDeadProbeIntervalMs       = 750;
     static constexpr uint32_t kBusRecoveryQuietMs           = 80;
     static constexpr uint32_t kBusRecoveryReadAfterPingMs   = 30;
+    static constexpr uint32_t kBusRecoveryPowerOffMs        = 120;
+    static constexpr uint32_t kBusRecoveryPowerRestoreMs    = 300;
     bool _bus_dead                                          = false;
     uint32_t _consecutive_bus_failures                      = 0;
+    uint32_t _write_ack_missing_count                       = 0;
+    bool _transient_probe_pending                           = false;
+    uint32_t _transient_quiet_until_ms                      = 0;
+    uint32_t _transient_probe_due_ms                        = 0;
+    uint32_t _transient_hold_until_ms                       = 0;
+    uint32_t _transient_first_ms                            = 0;
+    uint32_t _transient_probe_fail_count                    = 0;
+    uint32_t _transient_passive_until_ms                    = 0;
+    const char* _transient_passive_reason                   = "none";
+    uint32_t _last_transient_defer_log_ms                   = 0;
+    uint32_t _last_transient_write_skip_log_ms              = 0;
     uint32_t _last_bus_dead_diag_ms                         = 0;
     uint32_t _next_bus_recovery_probe_ms                    = 0;
     RecoveryStage _recovery_stage                           = RecoveryStage::Flush;
+    uint8_t _recovery_escalation                            = 0;
 
     bool is_valid_raw(int raw) const
     {
@@ -474,6 +584,47 @@ private:
         return static_cast<uint16_t>((static_cast<int>(kBaseWriteTimeMs) * (80 + 2 * ratio_num) + 40) / 80);
     }
 
+    bool try_acquire_axis_write_slot(uint32_t now_ms, int requested_angle, int command_angle, int mapped_angle,
+                                     const char* present_state, int present_raw, int present_angle,
+                                     const char* fallback_src, int last_raw, int last_angle, int delta_angle,
+                                     int delta_raw, uint32_t dt_ms, float deg_per_sec, const char* sync_state)
+    {
+        if (_axis_write_slot_owner < 0 || _axis_write_slot_owner == _config.id) {
+            return true;
+        }
+
+        const uint32_t elapsed_ms = now_ms - _axis_write_slot_ms;
+        if (elapsed_ms >= kAxisWriteStaggerWindowMs) {
+            return true;
+        }
+
+        const uint32_t cooldown_left_ms = kAxisWriteStaggerWindowMs - elapsed_ms;
+        if (_last_axis_stagger_diag_ms == 0 || now_ms - _last_axis_stagger_diag_ms >= kAxisStaggerLogIntervalMs) {
+            _last_axis_stagger_diag_ms = now_ms;
+            const int source_speed      = _last_motion_speed;
+            const int clamped_speed     = clamp_write_time_speed(source_speed);
+            const uint16_t write_time   = speed_to_write_time(source_speed);
+            ++_diag_seq;
+            mclog::tagInfo(
+                "SERVO-DIAG",
+                "source=hw_write_skip event=axis_stagger_wait axis_id={} seq={} t_ms={} reason=axis_write_slot_busy action=no_write slot_owner={} slot_age_ms={} cooldown_left_ms={} stagger_window_ms={} write_mode={} read_before_write={} read_move_enabled={} write_interval_ms={} write_attempt_cooldown_ms={} present={} present_raw={} present_ang={} fallback={} last_raw={} last_ang={} anim_req_ang={} command_ang={} write_raw={} delta_ang={} delta_raw={} dt_ms={} deg_s={:.1f} autoSync={} source_speed={} clamped_speed={} computed_write_time={} write_time={} base_write_time={} write_speed={} torque_enable_rc={}",
+                _config.id, _diag_seq, now_ms, _axis_write_slot_owner, elapsed_ms, cooldown_left_ms,
+                kAxisWriteStaggerWindowMs, write_mode(), kReadBeforeWriteDuringMotion ? 1 : 0,
+                kReadMoveEnabled ? 1 : 0, kWriteIntervalMs, kWriteAttemptCooldownMs, present_state, present_raw,
+                present_angle, fallback_src, last_raw, last_angle, requested_angle, command_angle, mapped_angle,
+                delta_angle, delta_raw, dt_ms, deg_per_sec, sync_state, source_speed, clamped_speed, write_time,
+                write_time, kDefaultWriteTime, kWriteSpeed, _last_torque_enable_rc);
+        }
+
+        return false;
+    }
+
+    void record_axis_write_slot(uint32_t now_ms)
+    {
+        _axis_write_slot_owner = _config.id;
+        _axis_write_slot_ms    = now_ms;
+    }
+
     void log_write_skip(uint32_t now_ms, const char* reason, int requested_angle, int command_angle,
                         int mapped_angle, const char* present_state, int present_raw, int present_angle,
                         const char* fallback_src, int last_raw, int last_angle, int delta_angle, int delta_raw,
@@ -515,6 +666,224 @@ private:
                        write_time, write_time, kDefaultWriteTime, _last_torque_enable_rc);
     }
 
+    void log_write_backoff(uint32_t now_ms, int requested_angle, int command_angle, int mapped_angle,
+                           const char* present_state, int present_raw, int present_angle, const char* fallback_src,
+                           int last_raw, int last_angle, int delta_angle, int delta_raw, uint32_t dt_ms,
+                           float deg_per_sec, const char* sync_state)
+    {
+        if (now_ms - _last_write_backoff_diag_ms < kWriteSkipLogIntervalMs) {
+            return;
+        }
+
+        _last_write_backoff_diag_ms = now_ms;
+        const int source_speed    = _last_motion_speed;
+        const int clamped_speed   = clamp_write_time_speed(source_speed);
+        const uint16_t write_time = speed_to_write_time(source_speed);
+        ++_diag_seq;
+        mclog::tagWarn("SERVO-DIAG",
+                       "source=hw_write_skip axis_id={} seq={} t_ms={} reason=write_backoff action=write_backoff write_mode={} write_interval_ms={} write_attempt_cooldown_ms={} cooldown_left_ms={} present={} present_raw={} present_ang={} fallback={} last_raw={} last_ang={} last_attempt_raw={} last_attempt_ang={} anim_req_ang={} command_ang={} write_raw={} delta_ang={} delta_raw={} dt_ms={} deg_s={:.1f} autoSync={} source_speed={} clamped_speed={} computed_write_time={} write_time={} base_write_time={} write_speed={} torque_enable_rc={} ack_missing_count={}",
+                       _config.id, _diag_seq, now_ms, write_mode(), kWriteIntervalMs, kWriteAttemptCooldownMs,
+                       kWriteAttemptCooldownMs - (now_ms - _last_attempted_ms), present_state, present_raw,
+                       present_angle, fallback_src, last_raw, last_angle, _last_attempted_raw, _last_attempted_angle,
+                       requested_angle, command_angle, mapped_angle, delta_angle, delta_raw, dt_ms, deg_per_sec,
+                       sync_state, source_speed, clamped_speed, write_time, write_time, kDefaultWriteTime,
+                       kWriteSpeed, _last_torque_enable_rc, _write_ack_missing_count);
+    }
+
+    void record_write_attempt(int raw, int angle, uint32_t now_ms)
+    {
+        _last_attempted_raw   = raw;
+        _last_attempted_angle = angle;
+        _last_attempted_ms    = now_ms;
+        _has_last_attempted   = true;
+    }
+
+    void handle_write_pos_failure(int rc, int err, int attempted_raw, int attempted_angle, uint32_t now_ms)
+    {
+        if (err == static_cast<int>(ERR_NO_REPLY)) {
+            enter_ack_missing_cooldown(rc, err, attempted_raw, attempted_angle, now_ms);
+            return;
+        }
+
+        record_bus_failure("write_pos", rc, now_ms);
+    }
+
+    bool is_transient_cooldown_active(uint32_t now_ms) const
+    {
+        return _transient_probe_pending || now_ms < _transient_hold_until_ms;
+    }
+
+    bool is_transient_passive_cooldown_active(uint32_t now_ms) const
+    {
+        return now_ms < _transient_passive_until_ms;
+    }
+
+    bool reason_is_active_io_demand(const char* reason)
+    {
+        if (reason == nullptr) {
+            return false;
+        }
+        return std::strcmp(reason, "write_skip") == 0 ||
+               std::strcmp(reason, "torque_enable_skip") == 0 ||
+               std::strcmp(reason, "pwm_skip") == 0;
+    }
+
+    bool has_active_motion_io_demand(const char* reason)
+    {
+        return !_angle_anim.done() || reason_is_active_io_demand(reason);
+    }
+
+    void enter_ack_missing_cooldown(int rc, int err, int attempted_raw, int attempted_angle, uint32_t now_ms)
+    {
+        ++_write_ack_missing_count;
+        if (!_transient_probe_pending && now_ms >= _transient_hold_until_ms) {
+            _transient_first_ms = now_ms;
+            _transient_probe_fail_count = 0;
+        } else if (_transient_first_ms == 0) {
+            _transient_first_ms = now_ms;
+        }
+
+        _scs_bus.waitTxDone();
+        _scs_bus.flushInput();
+        _transient_probe_pending = true;
+        _transient_quiet_until_ms = now_ms + kTransientQuietMs;
+        _transient_probe_due_ms = now_ms + kTransientProbeDelayMs;
+        _transient_hold_until_ms = now_ms + kTransientHoldMs;
+
+        mclog::tagWarn(
+            "SERVO-BUS",
+            "axis_id={} event=write_ack_missing action=ack_missing_cooldown op=write_pos rc={} err={} attempted_raw={} attempted_ang={} ack_missing_count={} transient_probe_pending=1 quiet_until={} probe_due={} hold_until={} probe_fail_count={} cooldown_ms={}",
+            _config.id, rc, err, attempted_raw, attempted_angle, _write_ack_missing_count,
+            _transient_quiet_until_ms, _transient_probe_due_ms, _transient_hold_until_ms,
+            _transient_probe_fail_count, kTransientHoldMs);
+    }
+
+    void service_transient_probe(uint32_t now_ms, const char* reason)
+    {
+        if (!_transient_probe_pending || _bus_dead) {
+            return;
+        }
+
+        if (now_ms < _transient_quiet_until_ms || now_ms < _transient_probe_due_ms) {
+            log_transient_probe_deferred(now_ms, reason, "quiet_or_not_due");
+            return;
+        }
+
+        const uint32_t slot_age_ms = now_ms - _verify_probe_slot_ms;
+        if (_verify_probe_slot_owner >= 0 && _verify_probe_slot_owner != _config.id &&
+            slot_age_ms < kTransientProbeSlotMs) {
+            log_transient_probe_deferred(now_ms, reason, "verify_slot_busy");
+            return;
+        }
+
+        _verify_probe_slot_owner = _config.id;
+        _verify_probe_slot_ms = now_ms;
+
+        const bool passive_cooldown = is_transient_passive_cooldown_active(now_ms);
+        const bool active_io_demand = has_active_motion_io_demand(reason);
+        const int ping_rc = _scs_bus.Ping(_config.id);
+        if (ping_rc == _config.id) {
+            _consecutive_bus_failures = 0;
+            _write_ack_missing_count = 0;
+            _transient_probe_pending = false;
+            _transient_quiet_until_ms = 0;
+            _transient_probe_due_ms = 0;
+            _transient_hold_until_ms = 0;
+            _transient_first_ms = 0;
+            _transient_probe_fail_count = 0;
+            _transient_passive_until_ms = 0;
+            _transient_passive_reason = "cleared";
+            mclog::tagInfo(
+                "SERVO-BUS",
+                "axis_id={} event=transient_probe_ok reason={} op=ping rc={} result=bus_alive quiet_until={} probe_due={} hold_until={} probe_fail_count={} transient_passive_cooldown={} no_powercycle={} passive_until={} passive_reason={}",
+                _config.id, reason, ping_rc, _transient_quiet_until_ms, _transient_probe_due_ms,
+                _transient_hold_until_ms, _transient_probe_fail_count, passive_cooldown ? 1 : 0,
+                passive_cooldown ? 1 : 0, _transient_passive_until_ms, _transient_passive_reason);
+            return;
+        }
+
+        ++_transient_probe_fail_count;
+        _transient_probe_due_ms = now_ms + kTransientProbeDelayMs;
+        _transient_hold_until_ms = now_ms + kTransientFailHoldMs;
+
+        const uint32_t elapsed_ms = _transient_first_ms == 0 ? 0 : now_ms - _transient_first_ms;
+        const bool transient_timeout = elapsed_ms >= kTransientTimeoutMs &&
+                                       _transient_probe_fail_count >= kTransientMaxProbeFailures;
+        const bool suppress_timeout = passive_cooldown || !active_io_demand;
+        if (transient_timeout && !suppress_timeout) {
+            _bus_dead = true;
+            _consecutive_bus_failures = kBusDeadFailureThreshold;
+            _next_bus_recovery_probe_ms = now_ms;
+            _recovery_stage = RecoveryStage::Flush;
+            _recovery_escalation = 0;
+            _angle_anim.teleport(static_cast<int>(_angle_anim.directValue()));
+            _snap_to_target_on_rest = false;
+            mclog::tagWarn(
+                "SERVO-BUS",
+                "axis_id={} event=bus_dead_escalated_after_transient_timeout reason={} op=ping rc={} elapsed_ms={} timeout_ms={} quiet_until={} probe_due={} hold_until={} probe_fail_count={} active_io_demand=1 transient_passive_cooldown=0 no_powercycle=0 action=stop_animation_no_write",
+                _config.id, reason, ping_rc, elapsed_ms, kTransientTimeoutMs, _transient_quiet_until_ms,
+                _transient_probe_due_ms, _transient_hold_until_ms, _transient_probe_fail_count);
+            _last_bus_dead_diag_ms = now_ms;
+            return;
+        }
+
+        if (transient_timeout && suppress_timeout) {
+            mclog::tagWarn(
+                "SERVO-BUS",
+                "axis_id={} event=transient_timeout_suppressed reason={} op=ping rc={} elapsed_ms={} timeout_ms={} quiet_until={} probe_due={} hold_until={} probe_fail_count={} action=hold_no_write no_powercycle=1 transient_passive_cooldown={} passive_until={} passive_reason={} active_io_demand={}",
+                _config.id, reason, ping_rc, elapsed_ms, kTransientTimeoutMs, _transient_quiet_until_ms,
+                _transient_probe_due_ms, _transient_hold_until_ms, _transient_probe_fail_count,
+                passive_cooldown ? 1 : 0, _transient_passive_until_ms, _transient_passive_reason,
+                active_io_demand ? 1 : 0);
+            return;
+        }
+
+        mclog::tagWarn(
+            "SERVO-BUS",
+            "axis_id={} event={} reason={} op=ping rc={} elapsed_ms={} quiet_until={} probe_due={} hold_until={} probe_fail_count={} action=hold_no_write no_powercycle={} transient_passive_cooldown={} passive_until={} passive_reason={} active_io_demand={}",
+            _config.id, passive_cooldown ? "transient_probe_failed_passive" : "transient_probe_failed_hold",
+            reason, ping_rc, elapsed_ms, _transient_quiet_until_ms, _transient_probe_due_ms,
+            _transient_hold_until_ms, _transient_probe_fail_count, passive_cooldown ? 1 : 0,
+            passive_cooldown ? 1 : 0, _transient_passive_until_ms, _transient_passive_reason,
+            active_io_demand ? 1 : 0);
+    }
+
+    void log_transient_probe_deferred(uint32_t now_ms, const char* reason, const char* defer_reason)
+    {
+        if (now_ms - _last_transient_defer_log_ms < kTransientDeferLogIntervalMs) {
+            return;
+        }
+        _last_transient_defer_log_ms = now_ms;
+        const uint32_t slot_age_ms = now_ms - _verify_probe_slot_ms;
+        mclog::tagInfo(
+            "SERVO-BUS",
+            "axis_id={} event=transient_probe_deferred reason={} defer_reason={} verify_slot_busy={} slot_owner={} slot_age_ms={} quiet_until={} probe_due={} hold_until={} probe_fail_count={} transient_passive_cooldown={} no_powercycle={} passive_until={} passive_reason={}",
+            _config.id, reason, defer_reason,
+            (_verify_probe_slot_owner >= 0 && _verify_probe_slot_owner != _config.id &&
+             slot_age_ms < kTransientProbeSlotMs) ? 1 : 0,
+            _verify_probe_slot_owner, slot_age_ms, _transient_quiet_until_ms, _transient_probe_due_ms,
+            _transient_hold_until_ms, _transient_probe_fail_count,
+            is_transient_passive_cooldown_active(now_ms) ? 1 : 0,
+            is_transient_passive_cooldown_active(now_ms) ? 1 : 0,
+            _transient_passive_until_ms, _transient_passive_reason);
+    }
+
+    void log_transient_write_skip(uint32_t now_ms, const char* reason)
+    {
+        if (now_ms - _last_transient_write_skip_log_ms < kTransientDeferLogIntervalMs) {
+            return;
+        }
+        _last_transient_write_skip_log_ms = now_ms;
+        mclog::tagWarn(
+            "SERVO-BUS",
+            "axis_id={} event=transient_probe_pending reason={} action=no_write quiet_until={} probe_due={} hold_until={} probe_fail_count={} transient_passive_cooldown={} no_powercycle={} passive_until={} passive_reason={}",
+            _config.id, reason, _transient_quiet_until_ms, _transient_probe_due_ms,
+            _transient_hold_until_ms, _transient_probe_fail_count,
+            is_transient_passive_cooldown_active(now_ms) ? 1 : 0,
+            is_transient_passive_cooldown_active(now_ms) ? 1 : 0,
+            _transient_passive_until_ms, _transient_passive_reason);
+    }
+
     void record_bus_success()
     {
         if (_bus_dead) {
@@ -522,8 +891,18 @@ private:
         }
         _bus_dead                   = false;
         _consecutive_bus_failures   = 0;
+        _write_ack_missing_count    = 0;
+        _transient_probe_pending    = false;
+        _transient_quiet_until_ms   = 0;
+        _transient_probe_due_ms     = 0;
+        _transient_hold_until_ms    = 0;
+        _transient_first_ms         = 0;
+        _transient_probe_fail_count = 0;
+        _transient_passive_until_ms = 0;
+        _transient_passive_reason   = "cleared";
         _next_bus_recovery_probe_ms = 0;
         _recovery_stage             = RecoveryStage::Flush;
+        _recovery_escalation        = 0;
     }
 
     void record_bus_failure(const char* op, int rc, uint32_t now_ms)
@@ -536,10 +915,11 @@ private:
             _bus_dead                   = true;
             _next_bus_recovery_probe_ms = now_ms;
             _recovery_stage             = RecoveryStage::Flush;
+            _recovery_escalation        = 0;
             _angle_anim.teleport(static_cast<int>(_angle_anim.directValue()));
             _snap_to_target_on_rest = false;
             mclog::tagWarn("SERVO-BUS",
-                           "axis_id={} event=bus_dead op={} rc={} fail_count={} action=stop_animation_no_write probe_interval_ms={}",
+                           "axis_id={} event=bus_dead_escalated op={} rc={} fail_count={} action=stop_animation_no_write probe_interval_ms={}",
                            _config.id, op, rc, _consecutive_bus_failures, kBusDeadProbeIntervalMs);
             _last_bus_dead_diag_ms = now_ms;
         } else if (_bus_dead && now_ms - _last_bus_dead_diag_ms >= kReadPosFailLogIntervalMs) {
@@ -582,11 +962,26 @@ private:
                     mclog::tagInfo("SERVO-BUS",
                                    "axis_id={} event=recovery_probe stage=ping reason={} rc={} next_stage=read_pos next_ms={}",
                                    _config.id, reason, ping_rc, _next_bus_recovery_probe_ms);
+                } else if (_recovery_escalation == 0) {
+                    _recovery_escalation = 1;
+                    _recovery_stage = RecoveryStage::UartReinit;
+                    _next_bus_recovery_probe_ms = now_ms;
+                    mclog::tagWarn("SERVO-BUS",
+                                   "axis_id={} event=recovery_probe_failed stage=ping reason={} rc={} next_stage=uart_reinit next_ms={}",
+                                   _config.id, reason, ping_rc, _next_bus_recovery_probe_ms);
+                } else if (_recovery_escalation == 1) {
+                    _recovery_escalation = 2;
+                    _recovery_stage = RecoveryStage::PowerCycle;
+                    _next_bus_recovery_probe_ms = now_ms;
+                    mclog::tagWarn("SERVO-BUS",
+                                   "axis_id={} event=recovery_probe_failed stage=ping reason={} rc={} next_stage=power_cycle next_ms={}",
+                                   _config.id, reason, ping_rc, _next_bus_recovery_probe_ms);
                 } else {
+                    _recovery_escalation = 0;
                     _recovery_stage = RecoveryStage::Flush;
                     _next_bus_recovery_probe_ms = now_ms + kBusDeadProbeIntervalMs;
                     mclog::tagWarn("SERVO-BUS",
-                                   "axis_id={} event=recovery_probe_failed stage=ping reason={} rc={} next_stage=flush next_ms={}",
+                                   "axis_id={} event=recovery_probe_failed stage=failed reason={} rc={} next_stage=flush next_ms={} result=failed",
                                    _config.id, reason, ping_rc, _next_bus_recovery_probe_ms);
                 }
                 return;
@@ -614,6 +1009,37 @@ private:
                 }
                 return;
             }
+
+            case RecoveryStage::UartReinit: {
+                _scs_bus.end();
+                const bool begin_ok = _scs_bus.begin(UART_NUM_1, 1000000, 6, 7);
+                _recovery_stage = RecoveryStage::Quiet;
+                _next_bus_recovery_probe_ms = now_ms + kBusRecoveryQuietMs;
+                mclog::tagInfo("SERVO-BUS",
+                               "axis_id={} event=recovery_probe stage=uart_reinit reason={} rc={} quiet_ms={} next_stage=quiet next_ms={}",
+                               _config.id, reason, begin_ok ? 1 : 0, kBusRecoveryQuietMs,
+                               _next_bus_recovery_probe_ms);
+                return;
+            }
+
+            case RecoveryStage::PowerCycle:
+                _scs_bus.waitTxDone();
+                GetHAL().setServoPowerEnabled(false);
+                _recovery_stage = RecoveryStage::PowerRestore;
+                _next_bus_recovery_probe_ms = now_ms + kBusRecoveryPowerOffMs;
+                mclog::tagWarn("SERVO-BUS",
+                               "axis_id={} event=recovery_probe stage=power_cycle reason={} action=vm_off off_ms={} next_stage=power_restore next_ms={}",
+                               _config.id, reason, kBusRecoveryPowerOffMs, _next_bus_recovery_probe_ms);
+                return;
+
+            case RecoveryStage::PowerRestore:
+                GetHAL().setServoPowerEnabled(true);
+                _recovery_stage = RecoveryStage::UartReinit;
+                _next_bus_recovery_probe_ms = now_ms + kBusRecoveryPowerRestoreMs;
+                mclog::tagWarn("SERVO-BUS",
+                               "axis_id={} event=recovery_probe stage=power_restore reason={} action=vm_on restore_ms={} next_stage=uart_reinit next_ms={}",
+                               _config.id, reason, kBusRecoveryPowerRestoreMs, _next_bus_recovery_probe_ms);
+                return;
         }
     }
 

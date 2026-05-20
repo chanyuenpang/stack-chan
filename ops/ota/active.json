@@ -1,8 +1,8 @@
 {
-  "version": "2.0.36",
+  "version": "2.0.44",
   "force": 0,
-  "size": 3973872,
-  "sha256": "cdab776980206dd8d0ea93ccd017db137fc5ad247d0f08cde2c6cbbdafe552cd",
+  "size": 3986352,
+  "sha256": "97c7e2930c4a785d3207319169dd32a8481ae899ed18680103260e35c41ae809",
   "firmware": "exp-pkg/active-release/stack-chan.bin",
   "lan_ip": "192.168.0.12",
   "port": 8080
