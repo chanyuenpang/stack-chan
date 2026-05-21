@@ -10,12 +10,11 @@
 #include <mooncake_log.h>
 #include <mcp_server.h>
 #include <stackchan/stackchan.h>
+#include <stackchan/modifiers/dance.h>
 #include <apps/common/common.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <algorithm>
-#include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
@@ -29,7 +28,9 @@ static const std::string_view _tag = "HAL-MCP";
 
 namespace {
 
-std::atomic_bool g_celebrate_active{false};
+int g_celebrate_dance_modifier_id = -1;
+Modifier* g_celebrate_dance_modifier_ptr = nullptr;
+std::mutex g_celebrate_mutex;
 
 static int clampHeadTarget(int value, int minValue, int maxValue)
 {
@@ -272,36 +273,6 @@ void submitHeadMotion(bool hasYaw, int yawTarget, bool hasPitch, int pitchTarget
     g_head_motion_scheduler->submit(stackchan, hasYaw, yawTarget, hasPitch, pitchTarget, speed);
 }
 
-enum class CelebrateStyle { Cheer, Sparkle, Nod, Calm };
-
-enum class CelebrateState { Idle, Pending, Running };
-
-struct CelebrateExecutor {
-    CelebrateState state = CelebrateState::Idle;
-    CelebrateStyle style = CelebrateStyle::Cheer;
-    int duration_ms = 4000;
-    int intensity = 2;
-    bool started = false;
-    uint32_t start_ms = 0;
-    uint32_t next_frame_ms = 0;
-    uint32_t next_led_ms = 0;
-    uint32_t step_index = 0;
-    uint32_t led_step_index = 0;
-    uint32_t last_motion_frame_due_ms = 0;
-    uint32_t expected_end_ms = 0;
-    uint32_t min_finish_ms = 0;
-    uint32_t frame_submitted_ms = 0;
-    bool waiting_for_frame_done = false;
-    const char* last_finish_reason = "none";
-    bool last_finish_was_normal = false;
-    uint32_t last_finish_elapsed_ms = 0;
-    uint32_t last_finish_step_index = 0;
-    bool preflight_started = false;
-    uint32_t preflight_start_ms = 0;
-};
-
-CelebrateExecutor g_celebrate_executor;
-std::mutex g_celebrate_mutex;
 
 static int clampInt(int value, int minValue, int maxValue)
 {
@@ -312,20 +283,6 @@ static int clampInt(int value, int minValue, int maxValue)
         return maxValue;
     }
     return value;
-}
-
-static CelebrateStyle parseCelebrateStyle(const std::string& style)
-{
-    if (style == "sparkle") {
-        return CelebrateStyle::Sparkle;
-    }
-    if (style == "nod") {
-        return CelebrateStyle::Nod;
-    }
-    if (style == "calm") {
-        return CelebrateStyle::Calm;
-    }
-    return CelebrateStyle::Cheer;
 }
 
 struct SystemRebootContext {
@@ -401,200 +358,20 @@ static bool scheduleSystemReboot(int delayMs, const std::string& reason, int* sc
     return true;
 }
 
-struct CelebrateRgb {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-};
-
-static void setCelebrateLightHard(Modifiable& stackchan, CelebrateRgb left, CelebrateRgb right)
-{
-    // 2.0.22: celebrate LED is a hard flash, not a soft/fading transition.
-    // snapColor teleports the animator and writes LEDs immediately, so every
-    // on step is max-brightness color and every off step is a true black frame.
-    stackchan.leftNeonLight().snapColor(left.r, left.g, left.b);
-    stackchan.rightNeonLight().snapColor(right.r, right.g, right.b);
-}
-
-static bool isCelebrateBusErrorReason(const char* reason)
-{
-    if (!reason) {
-        return false;
-    }
-    const std::string_view r(reason);
-    return r == "bus_dead" || r == "preflight_bus_dead";
-}
-
-static bool isCelebrateNormalFinishReason(const char* reason)
-{
-    if (!reason) {
-        return false;
-    }
-    return std::string_view(reason) == "duration_complete";
-}
-
-static void applyCelebrateErrorLight(Modifiable& stackchan, const char* reason)
-{
-    setCelebrateLightHard(stackchan, {255, 0, 0}, {255, 0, 0});
-    mclog::tagWarn(_tag, "celebrate_led_mode_error reason={} color=red action=no_servo_write", reason ? reason : "unknown");
-}
-
-static void applyCelebrateStartLight(Modifiable& stackchan, CelebrateStyle style, int intensity)
-{
-    (void)style;
-    (void)intensity;
-    setCelebrateLightHard(stackchan, {0, 0, 0}, {0, 0, 0});
-    mclog::tagInfo(_tag,
-                   "celebrate_led_mode_start mode=hard_flash step_ms=150 pattern=max_color_off_max_color_off brightness=255");
-}
-
-static void applyCelebrateLightStep(Modifiable& stackchan, uint32_t step, CelebrateStyle style, int intensity)
-{
-    (void)style;
-    (void)intensity;
-    static constexpr CelebrateRgb kOff{0, 0, 0};
-    static constexpr CelebrateRgb kHighContrastColors[] = {
-        {255, 176, 32},   // gold
-        {0, 255, 255},    // cyan
-        {255, 0, 255},    // magenta
-        {0, 255, 0},      // green
-        {0, 64, 255},     // blue
-        {255, 255, 255},  // white
-    };
-    static constexpr uint32_t kColorCount = sizeof(kHighContrastColors) / sizeof(kHighContrastColors[0]);
-
-    const bool is_off_step = (step % 2U) == 1U;
-    const uint32_t color_index = (step / 2U) % kColorCount;
-    const CelebrateRgb color = is_off_step ? kOff : kHighContrastColors[color_index];
-
-    setCelebrateLightHard(stackchan, color, color);
-    if (step < 4 || (step % 8U) == 0U) {
-        mclog::tagInfo(_tag,
-                       "celebrate_led_mode_step step_index={} is_on={} color_index={} left=({},{},{}) right=({},{},{}) brightness={}",
-                       step, is_off_step ? 0 : 1, color_index, color.r, color.g, color.b,
-                       color.r, color.g, color.b, is_off_step ? "off" : "max");
-    }
-}
-
-struct MotionFrame {
-    int yaw;
-    int pitch;
-};
-
-// Internal motion units are tenths of a degree. Keep the requested big V
-// celebration shape (left-up -> center -> right-up -> center), while reducing
-// the pitch peak from the bus-dead 45° case to a tested-safer 30°.
-static constexpr MotionFrame kCelebrateMotionFrames[] = {
-    {0, 0},
-    {-450, 300},
-    {0, 0},
-    {450, 300},
-    {0, 0},
-};
-static constexpr uint32_t kCelebrateMotionFrameCount =
-    sizeof(kCelebrateMotionFrames) / sizeof(kCelebrateMotionFrames[0]);
-static constexpr uint32_t kCelebrateFrameBeatMs = 750;
-static constexpr uint32_t kCelebrateSettleAfterLastFrameMs = 500;
-static constexpr uint32_t kCelebrateMinFinishMs = 3000;
-static constexpr uint32_t kCelebrateFrameMaxWaitMs = 2500;
-
-static void applyCelebrateMotion(Modifiable& stackchan, uint32_t step)
-{
-    (void)stackchan;
-    static constexpr int kMoveSpeed = 120;
-
-    if (step >= kCelebrateMotionFrameCount) {
-        return;
-    }
-
-    const MotionFrame& frame = kCelebrateMotionFrames[step];
-    mclog::tagInfo("SERVO-REQ",
-                   "source=celebrate_frame step={} yaw_mcp_deg={} pitch_mcp_deg={} yaw_internal={} pitch_internal={} speed={}",
-                   step, frame.yaw / 10, frame.pitch / 10, frame.yaw, frame.pitch, kMoveSpeed);
-    submitHeadMotion(true, frame.yaw, true, frame.pitch, kMoveSpeed);
-}
-
-static void finishCelebrateLocked(Modifiable& stackchan, const char* reason, uint32_t nowMs)
-{
-    static constexpr int kReturnSpeed = 120;
-    static constexpr uint32_t kCelebrateTransientPassiveCooldownMs = 8000;
-
-    const bool normalFinish = isCelebrateNormalFinishReason(reason);
-    const uint32_t elapsedMs = g_celebrate_executor.started ? (nowMs - g_celebrate_executor.start_ms) : 0;
-    const uint32_t expectedEndMs = g_celebrate_executor.expected_end_ms;
-    const uint32_t minFinishMs = g_celebrate_executor.min_finish_ms;
-    const uint32_t stepIndex = g_celebrate_executor.step_index;
-    const bool waitingForFrameDone = g_celebrate_executor.waiting_for_frame_done;
-    const uint32_t frameElapsedMs = waitingForFrameDone ?
-        (nowMs - g_celebrate_executor.frame_submitted_ms) : 0;
-
-    if (isCelebrateBusErrorReason(reason)) {
-        applyCelebrateErrorLight(stackchan, reason);
-    } else {
-        stackchan.leftNeonLight().snapColor(0, 0, 0);
-        stackchan.rightNeonLight().snapColor(0, 0, 0);
-    }
-
-    // Release the active latch. Keep bus_dead distinct from transient I/O:
-    // bus_dead means the backend explicitly declared the bus dead; transient I/O
-    // is a conservative no-write condition but must not be logged as bus_failed.
-    const bool busDead          = stackchan.motion().hasBusDead();
-    const bool transientIoError = stackchan.motion().hasTransientIoError();
-    const bool hardwareFailure  = stackchan.motion().hasHardwareFailure();
-    if (busDead) {
-        mclog::tagWarn("SERVO-REQ",
-                       "source=celebrate_finish reason={} finish_type={} elapsed_ms={} expected_end_ms={} min_finish_ms={} step_index={} waiting_for_frame_done={} frame_elapsed_ms={} action=no_write bus_dead=1 transient_io_error={} hardware_failure={}",
-                       reason ? reason : "done", normalFinish ? "normal" : "aborted", elapsedMs, expectedEndMs,
-                       minFinishMs, stepIndex, waitingForFrameDone ? 1 : 0,
-                       frameElapsedMs, transientIoError ? 1 : 0, hardwareFailure ? 1 : 0);
-        stackchan.motion().stop();
-    } else if (transientIoError) {
-        mclog::tagWarn("SERVO-REQ",
-                       "source=celebrate_finish reason={} finish_type={} elapsed_ms={} expected_end_ms={} min_finish_ms={} step_index={} waiting_for_frame_done={} frame_elapsed_ms={} action=no_write_transient bus_dead=0 transient_io_error=1 hardware_failure={} transient_passive_cooldown=1 no_powercycle=1 cooldown_ms={} passive_reason=celebrate_finish_{}",
-                       reason ? reason : "done", normalFinish ? "normal" : "aborted", elapsedMs, expectedEndMs,
-                       minFinishMs, stepIndex, waitingForFrameDone ? 1 : 0,
-                       frameElapsedMs, hardwareFailure ? 1 : 0, kCelebrateTransientPassiveCooldownMs,
-                       reason ? reason : "done");
-        stackchan.motion().stop();
-        stackchan.motion().enterTransientPassiveCooldown(kCelebrateTransientPassiveCooldownMs,
-                                                         reason ? reason : "celebrate_finish");
-    } else {
-        mclog::tagInfo("SERVO-REQ",
-                       "source=celebrate_finish reason={} finish_type={} elapsed_ms={} expected_end_ms={} min_finish_ms={} step_index={} waiting_for_frame_done={} frame_elapsed_ms={} yaw=0 pitch=0 speed={} action=scheduler_queue bus_dead=0 transient_io_error=0 hardware_failure={}",
-                       reason ? reason : "done", normalFinish ? "normal" : "aborted", elapsedMs, expectedEndMs,
-                       minFinishMs, stepIndex, waitingForFrameDone ? 1 : 0,
-                       frameElapsedMs, kReturnSpeed, hardwareFailure ? 1 : 0);
-        submitHeadMotion(true, 0, true, 0, kReturnSpeed);
-    }
-
-    CelebrateExecutor finishedState{};
-    finishedState.last_finish_reason = reason ? reason : "done";
-    finishedState.last_finish_was_normal = normalFinish;
-    finishedState.last_finish_elapsed_ms = elapsedMs;
-    finishedState.last_finish_step_index = stepIndex;
-    g_celebrate_executor = finishedState;
-    g_celebrate_active.store(false);
-    mclog::tagInfo(_tag,
-                   "celebrate_led_mode_finish reason={} finish_type={} elapsed_ms={} expected_end_ms={} min_finish_ms={} step_index={} waiting_for_frame_done={} frame_elapsed_ms={}",
-                   reason ? reason : "done", normalFinish ? "normal" : "aborted", elapsedMs, expectedEndMs,
-                   minFinishMs, stepIndex, waitingForFrameDone ? 1 : 0, frameElapsedMs);
-    mclog::tagInfo(_tag,
-                   "celebrate executor finished: reason={} finish_type={} elapsed_ms={} expected_end_ms={} min_finish_ms={} step_index={} waiting_for_frame_done={} frame_elapsed_ms={}",
-                   reason ? reason : "done", normalFinish ? "normal" : "aborted", elapsedMs, expectedEndMs,
-                   minFinishMs, stepIndex, waitingForFrameDone ? 1 : 0, frameElapsedMs);
-}
 
 }  // namespace
 
 bool stackchan_celebrate_active()
 {
-    return g_celebrate_active.load();
+    LvglLockGuard lvgl_lock;
+    std::lock_guard<std::mutex> guard(g_celebrate_mutex);
+    return g_celebrate_dance_modifier_id >= 0 &&
+           GetStackChan().getModifier(g_celebrate_dance_modifier_id) == g_celebrate_dance_modifier_ptr;
 }
 
 bool stackchan_motion_high_refresh_active()
 {
-    return g_celebrate_active.load() ||
-           (g_head_motion_scheduler != nullptr && g_head_motion_scheduler->isHighRefreshActive());
+    return (g_head_motion_scheduler != nullptr && g_head_motion_scheduler->isHighRefreshActive());
 }
 
 bool start_celebrate_modifier(std::string style, int durationMs, int intensity, bool sound, std::string* error)
@@ -604,190 +381,71 @@ bool start_celebrate_modifier(std::string style, int durationMs, int intensity, 
     durationMs = clampInt(durationMs, 3000, 5000);
     intensity  = clampInt(intensity, 1, 3);
 
-    {
-        std::lock_guard<std::mutex> guard(g_celebrate_mutex);
-        g_celebrate_executor.state       = CelebrateState::Pending;
-        g_celebrate_executor.style       = parseCelebrateStyle(style);
-        g_celebrate_executor.duration_ms = durationMs;
-        g_celebrate_executor.intensity   = intensity;
-        g_celebrate_executor.started     = false;
-        g_celebrate_executor.start_ms    = 0;
-        g_celebrate_executor.next_frame_ms = 0;
-        g_celebrate_executor.next_led_ms   = 0;
-        g_celebrate_executor.step_index    = 0;
-        g_celebrate_executor.led_step_index = 0;
-        g_celebrate_executor.last_motion_frame_due_ms = 0;
-        g_celebrate_executor.expected_end_ms = 0;
-        g_celebrate_executor.min_finish_ms = 0;
-        g_celebrate_executor.frame_submitted_ms = 0;
-        g_celebrate_executor.waiting_for_frame_done = false;
-        g_celebrate_executor.preflight_started = false;
-        g_celebrate_executor.preflight_start_ms = 0;
-        g_celebrate_active.store(true);
-    }
-
     if (error) {
         error->clear();
     }
 
+    LvglLockGuard lvgl_lock;
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar()) {
+        if (error) {
+            *error = "avatar_unavailable";
+        }
+        mclog::tagWarn(_tag,
+                       "celebrate rejected: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} reason=avatar_unavailable action=dance_modifier_happy",
+                       style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0);
+        return false;
+    }
+
+    int removedModifierId = -1;
+    bool removedPrevious = false;
+    int newModifierId = -1;
+    {
+        std::lock_guard<std::mutex> guard(g_celebrate_mutex);
+        if (g_celebrate_dance_modifier_id >= 0 &&
+            stackchan.getModifier(g_celebrate_dance_modifier_id) == g_celebrate_dance_modifier_ptr) {
+            removedModifierId = g_celebrate_dance_modifier_id;
+            removedPrevious = stackchan.removeModifier(g_celebrate_dance_modifier_id);
+        }
+        g_celebrate_dance_modifier_id = -1;
+        g_celebrate_dance_modifier_ptr = nullptr;
+
+        auto modifier = std::make_unique<DanceModifier>(DanceModifier::Happy);
+        g_celebrate_dance_modifier_ptr = modifier.get();
+        newModifierId = stackchan.addModifier(std::move(modifier));
+        g_celebrate_dance_modifier_id = newModifierId;
+        if (newModifierId < 0) {
+            g_celebrate_dance_modifier_ptr = nullptr;
+        }
+    }
+
+    if (newModifierId < 0) {
+        if (error) {
+            *error = "dance_modifier_add_failed";
+        }
+        mclog::tagWarn(_tag,
+                       "celebrate failed: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} action=dance_modifier_happy reason=add_failed",
+                       style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0);
+        return false;
+    }
+
     mclog::tagInfo(_tag,
-                   "celebrate queued: style={} requested_duration_ms={} clamped_duration_ms={} requested_intensity={} clamped_intensity={} sound={} action=led_and_servo",
-                   style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0);
+                   "celebrate started: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} action=dance_modifier_happy modifier_id={} removed_previous_id={} removed_previous={}",
+                   style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0,
+                   newModifierId, removedModifierId, removedPrevious ? 1 : 0);
     mclog::tagInfo("SERVO-REQ",
-                   "source=celebrate_start style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} active=1 action=scheduler_led_servo",
-                   style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0);
+                   "source=celebrate_start style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} active=1 action=dance_modifier_happy modifier_id={}",
+                   style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0, newModifierId);
     return true;
 }
 
 void stackchan_celebrate_tick(stackchan::Modifiable& stackchan, uint32_t nowMs)
 {
-    static constexpr uint32_t kInitialMotionAvoidMs = 200;
-    static constexpr uint32_t kLedBeatMs            = 150;
-    static constexpr uint32_t kHardTimeoutMs        = 10500;
-    static constexpr uint32_t kMotionFrameCount     = kCelebrateMotionFrameCount;
-    static constexpr uint32_t kBusPreflightTimeoutMs = 1800;
-
-    if (!g_celebrate_active.load()) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> guard(g_celebrate_mutex);
-
-    if (g_celebrate_executor.state == CelebrateState::Idle) {
-        // Defensive cleanup: active must never stay latched if state was reset unexpectedly.
-        finishCelebrateLocked(stackchan, "idle_fallback", nowMs);
-        return;
-    }
-
-    if (g_celebrate_executor.state == CelebrateState::Pending) {
-        if (stackchan.motion().hasBusDead()) {
-            if (!g_celebrate_executor.preflight_started) {
-                g_celebrate_executor.preflight_started = true;
-                g_celebrate_executor.preflight_start_ms = nowMs;
-                mclog::tagWarn("SERVO-REQ",
-                               "source=celebrate_preflight event=bus_dead_detected action=recovery_probe_no_write timeout_ms={}",
-                               kBusPreflightTimeoutMs);
-            }
-
-            const bool recovered = stackchan.motion().serviceBusRecoveryProbe(nowMs, "celebrate_preflight");
-            if (!recovered) {
-                const uint32_t preflightElapsed = nowMs - g_celebrate_executor.preflight_start_ms;
-                if (preflightElapsed >= kBusPreflightTimeoutMs) {
-                    mclog::tagWarn("SERVO-REQ",
-                                   "source=celebrate_preflight event=failed elapsed_ms={} action=error_led_no_motion",
-                                   preflightElapsed);
-                    finishCelebrateLocked(stackchan, "preflight_bus_dead", nowMs);
-                }
-                return;
-            }
-
-            mclog::tagInfo("SERVO-REQ",
-                           "source=celebrate_preflight event=recovered elapsed_ms={} action=start_executor",
-                           nowMs - g_celebrate_executor.preflight_start_ms);
-        }
-
-        g_celebrate_executor.state         = CelebrateState::Running;
-        g_celebrate_executor.started       = true;
-        g_celebrate_executor.start_ms      = nowMs;
-        g_celebrate_executor.next_frame_ms = nowMs;
-        g_celebrate_executor.next_led_ms   = nowMs;
-        g_celebrate_executor.step_index    = 0;
-        g_celebrate_executor.led_step_index = 0;
-        g_celebrate_executor.last_motion_frame_due_ms =
-            nowMs + ((kMotionFrameCount - 1U) * kCelebrateFrameBeatMs);
-        g_celebrate_executor.expected_end_ms = std::max<uint32_t>(
-            nowMs + static_cast<uint32_t>(g_celebrate_executor.duration_ms),
-            g_celebrate_executor.last_motion_frame_due_ms + kCelebrateSettleAfterLastFrameMs);
-        g_celebrate_executor.min_finish_ms = std::max<uint32_t>(
-            nowMs + kCelebrateMinFinishMs,
-            g_celebrate_executor.last_motion_frame_due_ms + kCelebrateSettleAfterLastFrameMs);
-        g_celebrate_executor.frame_submitted_ms = 0;
-        g_celebrate_executor.waiting_for_frame_done = false;
-
-        applyCelebrateStartLight(stackchan, g_celebrate_executor.style, g_celebrate_executor.intensity);
-        mclog::tagInfo(_tag,
-                       "celebrate executor started: big_v low-torque motion via scheduler, independent_led_mode, frame_done_gated min_frame_gap_ms={} frame_timeout_ms={} start_ms={} expected_end_ms={} min_finish_ms={} last_motion_frame_due_ms={}",
-                       kCelebrateFrameBeatMs, kCelebrateFrameMaxWaitMs, g_celebrate_executor.start_ms,
-                       g_celebrate_executor.expected_end_ms, g_celebrate_executor.min_finish_ms,
-                       g_celebrate_executor.last_motion_frame_due_ms);
-    }
-
-    const uint32_t elapsedMs = nowMs - g_celebrate_executor.start_ms;
-
-    if (stackchan.motion().hasBusDead()) {
-        finishCelebrateLocked(stackchan, "bus_dead", nowMs);
-        return;
-    }
-
-    if (elapsedMs >= kHardTimeoutMs) {
-        finishCelebrateLocked(stackchan, "timeout", nowMs);
-        return;
-    }
-
-    if (nowMs >= g_celebrate_executor.next_led_ms) {
-        applyCelebrateLightStep(stackchan, g_celebrate_executor.led_step_index, g_celebrate_executor.style,
-                                g_celebrate_executor.intensity);
-        ++g_celebrate_executor.led_step_index;
-        g_celebrate_executor.next_led_ms = nowMs + kLedBeatMs;
-    }
-
-    if (g_celebrate_executor.waiting_for_frame_done) {
-        const bool schedulerActive = g_head_motion_scheduler != nullptr &&
-                                     g_head_motion_scheduler->isHighRefreshActive();
-        const bool moving = stackchan.motion().isMoving();
-        const uint32_t frameElapsedMs = nowMs - g_celebrate_executor.frame_submitted_ms;
-        if (!schedulerActive && !moving) {
-            g_celebrate_executor.waiting_for_frame_done = false;
-            mclog::tagInfo(_tag,
-                           "celebrate_frame_done step_index={} elapsed_ms={} frame_elapsed_ms={} next_earliest_ms={} scheduler_active=0 is_moving=0",
-                           g_celebrate_executor.step_index, elapsedMs, frameElapsedMs,
-                           g_celebrate_executor.next_frame_ms);
-        } else if (frameElapsedMs >= kCelebrateFrameMaxWaitMs) {
-            mclog::tagWarn(_tag,
-                           "celebrate_frame_timeout step_index={} elapsed_ms={} frame_elapsed_ms={} scheduler_active={} is_moving={} action=abort_no_next_frame",
-                           g_celebrate_executor.step_index, elapsedMs, frameElapsedMs,
-                           schedulerActive ? 1 : 0, moving ? 1 : 0);
-            finishCelebrateLocked(stackchan, "timeout", nowMs);
-            return;
-        }
-    }
-
-    if (!g_celebrate_executor.waiting_for_frame_done &&
-        g_celebrate_executor.step_index < kMotionFrameCount &&
-        nowMs >= g_celebrate_executor.next_frame_ms) {
-        const uint32_t step          = g_celebrate_executor.step_index;
-        const bool isMovingSnapshot = stackchan.motion().isMoving();
-
-        // Keep the initial avoid window for pre-existing motion. After each
-        // celebrate frame is submitted, subsequent frames are gated by the
-        // scheduler/Servo moving state above instead of a fixed timeline only.
-        if (step == 0 && isMovingSnapshot && elapsedMs < kInitialMotionAvoidMs) {
-            g_celebrate_executor.next_frame_ms = g_celebrate_executor.start_ms + kInitialMotionAvoidMs;
-        } else {
-            mclog::tagInfo(_tag,
-                           "celebrate_frame_schedule step={} frame_schedule=frame_done_gated is_moving_snapshot={} elapsed_ms={} scheduled_ms={} min_gap_ms={}",
-                           step, isMovingSnapshot ? 1 : 0, elapsedMs, nowMs, kCelebrateFrameBeatMs);
-            applyCelebrateMotion(stackchan, step);
-            g_celebrate_executor.frame_submitted_ms = nowMs;
-            g_celebrate_executor.waiting_for_frame_done = true;
-            ++g_celebrate_executor.step_index;
-            g_celebrate_executor.next_frame_ms = nowMs + kCelebrateFrameBeatMs;
-            if (step + 1U == kMotionFrameCount) {
-                g_celebrate_executor.last_motion_frame_due_ms = nowMs;
-                g_celebrate_executor.expected_end_ms = std::max<uint32_t>(
-                    g_celebrate_executor.expected_end_ms, nowMs + kCelebrateSettleAfterLastFrameMs);
-                g_celebrate_executor.min_finish_ms = std::max<uint32_t>(
-                    g_celebrate_executor.min_finish_ms, nowMs + kCelebrateSettleAfterLastFrameMs);
-            }
-        }
-    }
-
-    if (nowMs >= g_celebrate_executor.expected_end_ms &&
-        nowMs >= g_celebrate_executor.min_finish_ms &&
-        g_celebrate_executor.step_index >= kMotionFrameCount &&
-        !g_celebrate_executor.waiting_for_frame_done) {
-        finishCelebrateLocked(stackchan, "duration_complete", nowMs);
-    }
+    (void)stackchan;
+    (void)nowMs;
+    // Official DanceModifier/Timeline now drives self.robot.celebrate.
+    // Keep this compatibility stub for older callers.
+    return;
 }
 
 void Hal::xiaozhi_mcp_init()

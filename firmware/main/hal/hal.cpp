@@ -208,7 +208,6 @@ static void _stackchan_update_task(void* param)
             }
 
             motion.update();
-            stackchan_celebrate_tick(GetStackChan(), now_ms);
         }
 
         if (should_run_full_update) {
