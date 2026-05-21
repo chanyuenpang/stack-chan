@@ -179,6 +179,7 @@ function buildMultiReport(reports, { generatedAt }) {
       id: report.fixture?.id ?? null,
       version: report.fixture?.version ?? null,
       entry: report.fixture?.entry ?? null,
+      profile: report.fixture?.profile ?? null,
       status: report.status ?? (report.summary?.passed ? "passed" : "failed"),
       summary: report.summary ?? {},
       findings: report.findings ?? [],

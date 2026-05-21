@@ -1,6 +1,6 @@
 # Phase 2 Schema 与多 Fixture 前置设计
 
-> Phase 2A 状态：schema/profile 最小文档契约已固化，`fixtures/study-card-assistant` 已作为第二个 simple 正例 fixture 创建并通过静态验证，`validate:fixtures` 已实现为最小多正例静态验证入口。Phase 2B 状态：`validate:all` 已实现为本地总入口，顺序运行 `validate:fixtures` 与独立 `validate:fixture:matrix`。仍不创建 JSON Schema 文件，不实现 schema engine，不新增 blocking profile rule，不迁移现有 fixture 路径，不宣称 CI 已完成。
+> Phase 2A 状态：schema/profile 最小文档契约已固化，`fixtures/study-card-assistant` 已作为第二个 simple 正例 fixture 创建并通过静态验证，`validate:fixtures` 已实现为最小多正例静态验证入口。Phase 2B 状态：`validate:all` 已实现为本地总入口，顺序运行 `validate:fixtures` 与独立 `validate:fixture:matrix`。Phase 2C 状态：`fixture.profile` 已从 manifest/frontmatter 透传到 single report 与 multi report；仍不创建 JSON Schema 文件，不实现 schema engine，不新增 blocking profile rule，不迁移现有 fixture 路径，不宣称 CI 已完成。
 
 ## 1. Purpose
 
@@ -68,7 +68,7 @@ Required files：
 
 ## 4. Fixture Profiles
 
-Phase 2A 最小 profile 契约固定为三档：`simple`、`standard`、`advanced-reserved`。当前契约只定义名称、适用范围和推荐声明位置；不要求现有代码读取、输出或校验 profile，也不新增 blocking profile rule。
+Phase 2A 最小 profile 契约固定为三档：`simple`、`standard`、`advanced-reserved`。Phase 2C 已实现 profile 透传：validator 读取 `skill-manifest.yaml` 顶层 `profile`，缺失时读取 `skill/SKILL.md` frontmatter `metadata.profile`，并在 single report 与 multi report 中输出 `fixture.profile`。当前仍不校验 profile enum，不新增 warning/error/rule ID，也不新增 blocking profile rule。
 
 Phase 2 需要区分 fixture 复杂度，避免所有规则只围绕一个会议类样本生长。
 
@@ -104,7 +104,7 @@ Phase 2 需要区分 fixture 复杂度，避免所有规则只围绕一个会议
 
 `fixtures/meeting-summary-assistant` 归类为 `simple` profile：它只使用 required files，无附属目录，无外部依赖，replay cases 为静态设计，`observed` / `passed` 保持 pending/null，适合作为 simple 正例基线。
 
-当前代码和 fixture 尚未强制声明或校验 profile，因此该归类是 Phase 2A 文档契约，不是已实现的 validator 行为。后续可通过 manifest / frontmatter metadata 声明 profile。
+当前代码不会强制声明或校验 profile；`meeting-summary-assistant` 尚未声明 profile，因此 report 中为 `null`。后续可通过 manifest / frontmatter metadata 声明 profile。
 
 ### Phase 2A 推荐声明位置
 
@@ -393,7 +393,7 @@ Phase 2 应继续保持 Phase 1 语义：七维 checklist 是多来源聚合，�
   - `id`
   - `version`
   - `entry`
-  - `profile`（可新增）
+  - `profile`（Phase 2C 已新增；未声明时为 `null`，例如 meeting；`study-card-assistant` 当前为 `simple`）
 - `status`
 - `summary`
   - `passed`
@@ -460,6 +460,7 @@ Phase 2A 已实现 `validate:fixtures` 作为最小多正例静态验证入口�
       "id": "meeting-summary-assistant",
       "version": "0.1.0",
       "entry": "skill/SKILL.md",
+      "profile": null,
       "status": "passed",
       "summary": {},
       "findings": []
@@ -517,7 +518,7 @@ Phase 2 必须保护 Phase 1 的 report contract，不因扩展 schema 或多 fi
 - `checks[].id` 作为稳定 rule ID，不随意重命名；新增规则必须新增 ID，不复用旧 ID 表达新语义。
 - `summary.passed`、`summary.blockingFailures` 等字段语义不变：P0/P1 fail/error 阻断；P2 warning 不单独阻断。
 - `metadata.generatedAt` 和顶层兼容别名 `generatedAt` 是运行时字段，不做 snapshot；contract test 应忽略或模式匹配。
-- 允许新增字段，例如 `fixture.profile`、`schemaVersion`、`pendingCapabilities`、`runner`、`matrix`，但新增字段不得改变旧字段含义。
+- 允许新增字段，例如已在 Phase 2C 输出的 `fixture.profile`，以及后续可能新增的 `schemaVersion`、`pendingCapabilities`、`runner`、`matrix`，但新增字段不得改变旧字段含义。`fixture.profile` 只是 manifest/frontmatter 透传字段；不校验 enum，不阻断。
 - `fixture.path` 初期继续支持 `fixtures/meeting-summary-assistant`，不强制迁移到 `fixtures/simple/meeting-summary-assistant`。
 - pending 能力不得写成完成：真实模型回放、跨平台、跨模型、完整生成器、UI、发布流都必须保持 pending 表述，除非已有独立证据。
 - schema 校验失败应作为结构性失败呈现，不应吞掉原始 validator 的隐私、replay、边界等安全失败。

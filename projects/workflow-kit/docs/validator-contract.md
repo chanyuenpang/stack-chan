@@ -56,7 +56,7 @@ Top-level multi-fixture fields:
 | `kind` | string | Yes | Always `multi-fixture-validation-report`. |
 | `status` | string | Yes | `passed` only when every included fixture passes. |
 | `summary` | object | Yes | Aggregated counts across included fixture reports. |
-| `fixtures` | array | Yes | One compact entry per validated fixture. Each entry includes `path`, `id`, `version`, `entry`, `status`, `summary`, and `findings`. |
+| `fixtures` | array | Yes | One compact entry per validated fixture. Each entry includes `path`, `id`, `version`, `entry`, `profile`, `status`, `summary`, and `findings`. `profile` is emitted as a compatibility field and may be `null`. |
 | `failures` | array | Yes | Compact failure/warning records derived from failed or warning findings; evidence is reused from the already-sanitized single fixture report. |
 | `metadata` | object | Yes | Includes `generatedAt`, `validator`, `format`, and `runner`. |
 
@@ -111,6 +111,7 @@ Exit codes:
 | `id` | string or null | Yes | Normalized fixture id when available. |
 | `version` | string or null | Yes | Normalized fixture version when available. |
 | `entry` | string or null | Yes | Expected static MVP entry is `skill/SKILL.md`. |
+| `profile` | string or null | Yes | Phase 2C compatibility passthrough field. Read from `skill-manifest.yaml` top-level `profile` first, then `skill/SKILL.md` frontmatter `metadata.profile`; no enum validation or blocking rule is applied. Current fixtures emit `null` for `meeting-summary-assistant` and `simple` for `study-card-assistant`. |
 
 ### `summary`
 
@@ -166,11 +167,11 @@ Each check is a rule result enriched with the rule registry metadata.
 | `contract.findingFields` | string[] | Yes | Stable compatibility subset | Current subset: `id`, `severity`, `dimension`, `message`, `evidence`, `closeCondition`. |
 
 
-## Phase 2A compatible candidates (not currently emitted)
+## Phase 2 profile compatibility field
 
-Phase 2A treats `profile` as a compatible schema/profile candidate field, not as current validator output. The minimal enum is `simple | standard | advanced-reserved`. Recommended future declaration locations are `skill-manifest.yaml` top-level `profile` as the primary declaration and `skill/SKILL.md` frontmatter `metadata.profile` as a redundant/compatibility declaration.
+Phase 2C emits `fixture.profile` as a compatible passthrough field in single-fixture reports and in `validate:fixtures` compact fixture entries. The minimal documented enum remains `simple | standard | advanced-reserved`, but the validator currently does not enforce that enum, does not emit profile warnings/errors, and does not add any blocking profile rule.
 
-The current report contract remains unchanged: `fixture.profile` may be added later as a compatible field, but current `validate` reports are not required or documented to emit it. Existing top-level fields and `fixture` fields keep their current semantics.
+Recommended declaration locations remain `skill-manifest.yaml` top-level `profile` as the primary declaration and `skill/SKILL.md` frontmatter `metadata.profile` as a redundant/compatibility declaration. If both exist and differ, manifest wins by normalization precedence; this is not a validation failure. Existing top-level fields and existing `fixture` field semantics remain unchanged.
 
 ## Rule registry fields
 

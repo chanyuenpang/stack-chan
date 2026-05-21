@@ -57,6 +57,7 @@ export function buildReport({ fixtureDir, normalized = null, checks = [], errors
     id: normalized?.fixtureId ?? null,
     version: normalized?.fixtureVersion ?? null,
     entry: normalized?.entryPath ?? null,
+    profile: normalized?.profile ?? null,
   };
 
   const generatedAt = options.generatedAt ?? new Date().toISOString();

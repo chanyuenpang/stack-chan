@@ -222,6 +222,7 @@ export function normalizeFixture(loadedFixture) {
       loadedFixture.workflowSource?.fixtureVersion,
       loadedFixture.skill?.frontmatter?.metadata?.fixtureVersion,
     ),
+    profile: pickFirst(loadedFixture.skillManifest?.profile, loadedFixture.skill?.frontmatter?.metadata?.profile),
     entryPath: getManifestEntry(loadedFixture),
     skillFrontmatter: loadedFixture.skill.frontmatter,
     skillBody: loadedFixture.skill.body,
