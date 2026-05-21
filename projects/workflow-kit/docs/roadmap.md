@@ -466,7 +466,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 2. **Phase 1 防回归复核**：持续运行 `validate` / `validate:all`，确保 evidence 去重、七维 checklist 多来源聚合语义和本地矩阵不回退。
 3. **新增更多 simple/advanced fixture**：选择非会议场景，验证规则通用性，防止单 fixture 过拟合。
 4. **引入 schema 与 CI 门禁**：先让所有正例 fixture 和关键反例矩阵在 CI 中稳定运行。
-5. **设计 runtime replay 最小协议**：先不追求全自动平台，先定义 transcript、observed、passed、评分 rubric 和人工复核格式。（Milestone D 轻量协议草案见 `docs/runtime-replay-protocol-lightweight-design.md`；当前仍仅为文档设计，不代表 runner、sandbox、模型接入或 transcript engine 已实现。）
+5. **沿着 contract-forward 路线推进 runtime 前置协议**：先冻结 preflight result artifact、runtime replay report artifact、`replay-cases.yaml` 的 runtime-ready 边界，以及 `normalizeFixture -> preflight` 输入接缝；再决定是否进入 runner 接口/实现。（Milestone D 轻量协议草案见 `docs/runtime-replay-protocol-lightweight-design.md`，Milestone E 设计草案见 `docs/preflight-contract-and-artifacts-design.md`；当前仍仅为文档设计，不代表 runner、sandbox、模型接入或 transcript engine 已实现。）
 
 ## 8. 里程碑判定摘要
 
