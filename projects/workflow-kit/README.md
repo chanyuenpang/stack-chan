@@ -38,8 +38,10 @@ The static MVP checks whether the fixture is internally consistent and safe enou
 
 ```bash
 cd /home/yankeeting/.openclaw/projects/workflow-kit
-pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
+pnpm --silent validate
 ```
+
+`validate` runs the current positive fixture validation and writes a JSON report to stdout, which makes it suitable for saved artifacts. The equivalent explicit command is `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json`.
 
 Expected summary from the latest rerun:
 
@@ -57,17 +59,19 @@ The command writes a JSON validation report to stdout. A passing result means th
 ### Run the fixture matrix
 
 ```bash
-pnpm --silent validate:fixture:matrix
+pnpm --silent validate:all
 ```
+
+`validate:all` runs the current full local static matrix and writes a human-readable summary to stdout, which makes it suitable for CI/PR gates. The equivalent explicit command is `pnpm --silent validate:fixture:matrix`.
 
 The matrix command copies the positive fixture into temporary directories, mutates those copies into representative counterexamples, and cleans them up before exit. It currently covers the positive baseline, missing description/trigger, secret/token leakage, private paths, forged replay pass claims, and all-source missing `compatibility` checklist coverage.
 
 ### CLI contract
 
-- `validate:fixture <fixture-path> --format json` writes a JSON report to stdout.
+- `validate` / `validate:fixture <fixture-path> --format json` writes a JSON report to stdout; use it when a machine-readable validation artifact is needed.
 - Exit `0` means `summary.passed=true`; exit `1` means validation completed but blocking rules failed; exit `2` is reserved for CLI usage errors.
 - Diagnostics use stable `checks[].id` rule IDs and sanitized `evidence`; `metadata.generatedAt` is runtime metadata and should not be snapshot-tested.
-- `validate:fixture:matrix` writes a human-readable summary to stdout and exits `0` only when every matrix case meets its expected exit code, JSON parseability, and target rule assertions.
+- `validate:all` / `validate:fixture:matrix` writes a human-readable summary to stdout and exits `0` only when every matrix case meets its expected exit code, JSON parseability, and target rule assertions; use it as the local CI/PR gate entry.
 
 ### Checklist aggregation semantics
 

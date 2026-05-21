@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "validate": "node scripts/validate-fixture.mjs fixtures/meeting-summary-assistant --format json",
+    "validate:all": "node scripts/validate-fixture-matrix.mjs",
     "validate:fixture": "node scripts/validate-fixture.mjs",
     "validate:fixture:matrix": "node scripts/validate-fixture-matrix.mjs"
   }
