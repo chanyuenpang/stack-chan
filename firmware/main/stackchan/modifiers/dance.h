@@ -33,6 +33,38 @@ public:
     };
 
     /**
+     * @brief Celebrate sequence
+     * - Controlled V-shaped left/right celebration
+     * - Medium servo speed
+     * - Explicit LED accents, ending safely off at center
+     */
+    inline static const animation::KeyframeSequence Celebrate = [] {
+        auto withRgb = [](animation::Keyframe keyframe, const char* leftRgbColor, const char* rightRgbColor) {
+            keyframe.leftRgbColor  = leftRgbColor;
+            keyframe.rightRgbColor = rightRgbColor;
+            return keyframe;
+        };
+
+        return animation::KeyframeSequence{
+            // Center, prepare with LEDs off
+            withRgb(animation::Keyframe{{0, 0, 0, 100}, {0, 0, 0, 100}, {0, 0, 0, 0}, {0, 260}, {0, 260}, 500},
+                    "#000000", "#000000"),
+            // Left/up celebration point
+            withRgb(animation::Keyframe{{-12, -4, -6, 70}, {-12, -4, 6, 70}, {0, 0, 0, 55}, {-350, 260}, {-180, 260}, 850},
+                    "#FFB000", "#FFD000"),
+            // Center beat
+            withRgb(animation::Keyframe{{0, 0, 0, 100}, {0, 0, 0, 100}, {0, 0, 0, 25}, {0, 260}, {0, 260}, 600},
+                    "#00D5FF", "#00D5FF"),
+            // Right/up celebration point
+            withRgb(animation::Keyframe{{12, -4, 6, 70}, {12, -4, -6, 70}, {0, 0, 0, 55}, {350, 260}, {-180, 260}, 850},
+                    "#FFD000", "#FFB000"),
+            // Center, back to normal and LEDs off
+            withRgb(animation::Keyframe{{0, 0, 0, 100}, {0, 0, 0, 100}, {0, 0, 0, 0}, {0, 260}, {0, 260}, 700},
+                    "#000000", "#000000"),
+        };
+    }();
+
+    /**
      * @brief Robot dance
      * - Stiff, jerky movements
      * - Sharp angles

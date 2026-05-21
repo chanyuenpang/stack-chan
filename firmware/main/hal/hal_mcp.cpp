@@ -392,7 +392,7 @@ bool start_celebrate_modifier(std::string style, int durationMs, int intensity, 
             *error = "avatar_unavailable";
         }
         mclog::tagWarn(_tag,
-                       "celebrate rejected: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} reason=avatar_unavailable action=dance_modifier_happy",
+                       "celebrate rejected: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} reason=avatar_unavailable action=dance_modifier_celebrate",
                        style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0);
         return false;
     }
@@ -410,7 +410,7 @@ bool start_celebrate_modifier(std::string style, int durationMs, int intensity, 
         g_celebrate_dance_modifier_id = -1;
         g_celebrate_dance_modifier_ptr = nullptr;
 
-        auto modifier = std::make_unique<DanceModifier>(DanceModifier::Happy);
+        auto modifier = std::make_unique<DanceModifier>(DanceModifier::Celebrate);
         g_celebrate_dance_modifier_ptr = modifier.get();
         newModifierId = stackchan.addModifier(std::move(modifier));
         g_celebrate_dance_modifier_id = newModifierId;
@@ -424,17 +424,17 @@ bool start_celebrate_modifier(std::string style, int durationMs, int intensity, 
             *error = "dance_modifier_add_failed";
         }
         mclog::tagWarn(_tag,
-                       "celebrate failed: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} action=dance_modifier_happy reason=add_failed",
+                       "celebrate failed: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} action=dance_modifier_celebrate reason=add_failed",
                        style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0);
         return false;
     }
 
     mclog::tagInfo(_tag,
-                   "celebrate started: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} action=dance_modifier_happy modifier_id={} removed_previous_id={} removed_previous={}",
+                   "celebrate started: style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} action=dance_modifier_celebrate modifier_id={} removed_previous_id={} removed_previous={}",
                    style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0,
                    newModifierId, removedModifierId, removedPrevious ? 1 : 0);
     mclog::tagInfo("SERVO-REQ",
-                   "source=celebrate_start style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} active=1 action=dance_modifier_happy modifier_id={}",
+                   "source=celebrate_start style={} requested_duration_ms={} duration_ms={} requested_intensity={} intensity={} sound={} active=1 action=dance_modifier_celebrate modifier_id={}",
                    style, requestedDurationMs, durationMs, requestedIntensity, intensity, sound ? 1 : 0, newModifierId);
     return true;
 }
