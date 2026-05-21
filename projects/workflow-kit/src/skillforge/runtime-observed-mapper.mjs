@@ -38,6 +38,8 @@ function normalizeProviderSelection(providerSelection = {}) {
   }
 
   return {
+    kind: providerSelection?.kind ?? "runtime-provider-selection",
+    version: providerSelection?.version ?? null,
     adapterKey,
     providerKey: providerSelection?.providerKey ?? adapterKey,
     providerSlot: providerSelection?.providerSlot ?? null,
@@ -122,19 +124,19 @@ function buildObserved({ adapterResult, providerSelection, caseContext }) {
 }
 
 function buildProviderExecution({ adapterResult, providerSelection }) {
-  const selection = adapterResult.selection;
   const execution = adapterResult.execution;
   const evidence = adapterResult.evidence;
   const rawResponse = adapterResult.rawResponse;
   const transcriptRef = adapterResult.transcriptRef;
 
   return {
-    adapterKey: selection?.adapterKey ?? providerSelection.adapterKey,
-    providerKey: selection?.providerKey ?? providerSelection.providerKey,
-    providerSlot: selection?.providerSlot ?? providerSelection.providerSlot,
-    builtin: selection?.builtin === true || providerSelection.builtin === true,
-    implemented: selection?.implemented === true || providerSelection.implemented === true,
-    providerBacked: selection?.providerBacked === true || providerSelection.providerBacked === true,
+    selection: { ...providerSelection },
+    adapterKey: providerSelection.adapterKey,
+    providerKey: providerSelection.providerKey,
+    providerSlot: providerSelection.providerSlot,
+    builtin: providerSelection.builtin === true,
+    implemented: providerSelection.implemented === true,
+    providerBacked: providerSelection.providerBacked === true,
     status: adapterResult.status,
     executionId: execution?.executionId ?? adapterResult.providerMetadata?.executionId ?? null,
     providerRunId: execution?.providerRunId ?? adapterResult.providerMetadata?.providerRunId ?? null,

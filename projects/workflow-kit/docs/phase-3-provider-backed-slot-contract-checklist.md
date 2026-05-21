@@ -40,12 +40,16 @@
 
 ### 3.1 Provider selection
 
-- [ ] 明确 `providerMetadata.providerKey`
-- [ ] 明确 `providerMetadata.providerSlot`
-- [ ] 明确 runner/input 到 provider adapter 的 provider selection 传递路径
+> 当前 Phase 3 已完成的只是 **selection wiring tightening**：provider-backed selection lineage 现在被收紧为内部单一路径 `adapter -> runner -> observed mapper -> report`。这表示 selection truth source 已统一，**不表示** provider-backed execution 已开放。
+>
+> 当前 CLI 仍只开放 `dry-run | null-runner`；provider-backed mode 仍是 internal reserved seam，默认 validate 链路也仍不接 runtime/provider 路线。
+
+- [x] 明确 `providerMetadata.providerKey`
+- [x] 明确 `providerMetadata.providerSlot`
+- [x] 明确 runner/input 到 provider adapter 的 provider selection 传递路径
 - [ ] 明确 builtin / external provider 的识别规则
 - [ ] 保持 `providerBacked=true` 只在真实 provider call 接通后出现
-- [ ] 在 provider 未实际接通前，禁止把 selection placeholder 写成 executed/provider-backed success
+- [x] 在 provider 未实际接通前，禁止把 selection placeholder 写成 executed/provider-backed success
 
 **最低落地要求**
 
@@ -162,10 +166,12 @@
 
 ### 3.8 Runtime pass path / runner propagation
 
-- [ ] 明确 provider adapter result 到 runner result 的字段透传规则
-- [ ] 明确 runner metadata 中哪些字段与 provider metadata 一一对应
-- [ ] 明确 runtime replay report metadata 是否保留 execution lineage
-- [ ] 明确 report 顶层 status 与 case status 的映射规则
+> 本轮已完成的真实范围：selection lineage 已被收紧为 `adapter -> runner -> observed mapper -> report` 的内部单一路径；adapter result 作为同源 truth payload 透传到 draft artifact 的 observed/providerExecution/transcriptAvailability/rawResponse 视图。这里的“同源透传”只是在收紧 contract，**不是**真实 provider execution、provider transcript、transcript persistence、scoring 或 passed path 已完成。
+
+- [x] 明确 provider adapter result 到 runner result 的字段透传规则
+- [x] 明确 runner metadata 中哪些字段与 provider metadata 一一对应
+- [x] 明确 runtime replay report metadata 是否保留 execution lineage
+- [x] 明确 report 顶层 status 与 case status 的映射规则
 - [ ] 明确 blocked/error/dry-run/not-executed 到 provider-backed 实装后的兼容迁移规则
 
 **最低落地要求**
@@ -253,12 +259,16 @@
 以下内容本次故意不做，留给后续子计划：
 
 - 真实 provider integration
+- 真实 provider execution / request dispatch
+- provider transcript capture / persistence
+- rawResponse persistence / evidence retrieval
+- scoring / rubric
+- passed path 解锁
+- failure taxonomy 统一扩展
 - 状态机小修
 - tests / contract tests 扩展
 - validate* 默认链路接入
 - fixtures 变更
-- transcript persistence 实装
-- scoring / rubric
 - 文档全量同步
 - git 提交 / 推送
 - 运行验证

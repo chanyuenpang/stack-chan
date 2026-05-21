@@ -2,8 +2,6 @@ import { buildRuntimeReplayReport } from "./runtime-replay-reporter.mjs";
 import {
   buildRuntimeProviderAdapterContractContext,
   buildRuntimeProviderSelection,
-  RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
-  RUNTIME_PROVIDER_ADAPTER_KEYS,
 } from "./runtime-provider-adapter-contract.mjs";
 import {
   buildRuntimeRunnerContractContext,
@@ -174,18 +172,10 @@ function normalizeMode(mode) {
   return normalizedMode;
 }
 
-function buildProviderSelection(mode) {
-  const adapterKey = normalizeMode(mode);
-  if (!RUNTIME_PROVIDER_ADAPTER_KEYS.includes(adapterKey)) {
-    throw new RangeError(`Unsupported runtime provider adapter key: ${adapterKey}`);
-  }
-
-  return {
-    adapterKey,
-    providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
-    providerBacked: adapterKey === "provider-backed",
-    implemented: adapterKey !== "provider-backed",
-  };
+function resolveRunnerProviderSelection(mode) {
+  return buildRuntimeProviderSelection({
+    mode: normalizeMode(mode),
+  });
 }
 
 function buildFailureReason({ mode, preflightReport }) {
@@ -303,7 +293,7 @@ export function runRuntimeCaseSkeleton({
     });
 
   const caseRecord = selectRuntimeCase({ normalizedFixture, caseId, caseIndex });
-  const providerSelection = buildProviderSelection(mode);
+  const providerSelection = resolveRunnerProviderSelection(mode);
 
   const effectiveRunnerContract =
     runnerContract ??
@@ -325,6 +315,7 @@ export function runRuntimeCaseSkeleton({
           slot: providerSelection.providerSlot,
           implemented: providerSelection.implemented,
           providerBacked: providerSelection.providerBacked,
+          selection: providerSelection,
         },
       },
     });
@@ -347,6 +338,7 @@ export function runRuntimeCaseSkeleton({
         slot: providerSelection.providerSlot,
         implemented: providerSelection.implemented,
         providerBacked: providerSelection.providerBacked,
+        selection: providerSelection,
       },
     },
   });
@@ -365,8 +357,9 @@ export function runRuntimeCaseSkeleton({
     options: {
       ...options,
       mode,
-      providerKey: providerSelection.adapterKey,
+      providerKey: providerSelection.providerKey,
       providerSlot: providerSelection.providerSlot,
+      providerSelection,
     },
   });
 
@@ -383,14 +376,7 @@ export function runRuntimeCaseSkeleton({
 
   const mappedRuntime = mapProviderResultToObservedRuntime({
     adapterResult,
-    providerSelection: buildRuntimeProviderSelection({
-      mode,
-      providerKey: providerAdapterContract.input.provider.providerKey,
-      providerSlot: providerAdapterContract.input.provider.providerSlot,
-      builtin: providerAdapterContract.input.provider.builtin,
-      implemented: providerSelection.implemented,
-      providerBacked: providerSelection.providerBacked,
-    }),
+    providerSelection,
     caseContext: caseRecord,
   });
 

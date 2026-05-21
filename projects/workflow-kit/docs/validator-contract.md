@@ -66,6 +66,7 @@ Current coverage is intentionally narrow:
 - the standalone CLI already exists;
 - orchestration only covers `static validation -> preflight -> single-case selection -> provider adapter seam -> dry-run/null-runner runtime skeleton -> runtime draft artifact`;
 - the provider adapter seam is contract-first only: it freezes adapter-facing input/output boundaries without enabling provider-backed execution;
+- provider-backed selection wiring has been tightened only as an internal lineage: selection now flows on the single path `adapter -> runner -> observed mapper -> report`, which unifies truth propagation but does not open provider-backed execution;
 - transcript evidence is currently provider-less and draft-only;
 - `dry-run`, `null-runner`, and a future provider-backed mode are currently treated as separate mode slots, but only the first two are reachable today;
 - the provider-backed slot is reserved/unimplemented and is not exposed as a user-selectable CLI mode;
@@ -86,6 +87,7 @@ Notes:
 - CLI success does **not** mean runtime passed. In the current draft phase, the emitted artifact must remain honest about `blocked`, `dry-run`, and `not-executed` outcomes.
 - The current draft runtime artifact contract is intentionally non-executional: top-level `status` is constrained to `draft` or `blocked`, `summary.passed` must remain `false`, `cases[].status` is constrained to `blocked | error | dry-run | not-executed`, and `observed` stays a stub-shaped truth mapping output rather than execution proof.
 - The current provider adapter result is only a more realistic intermediate truth payload. It normalizes one adapter result into the current `cases[].observed`, `rawResponse`, `providerExecution`, and `transcriptAvailability` slots so those four views stay same-source and same-claim.
+- That same-source propagation is intentionally restricted to the internal lineage `adapter -> runner -> observed mapper -> report`; this tightening prevents downstream layers from inventing alternate provider-backed selection sources, but it still does not mean provider-backed execution is available.
 - In the currently reachable draft flows, case outcomes should remain within `blocked | dry-run | not-executed`; the reserved `error` slot exists only for orchestration/runtime skeleton error reporting and must not be interpreted as provider execution.
 - Phase 3 transcript evidence is currently limited to provider-less draft evidence for a single selected case. When emitted, `transcriptRef` is only an in-report draft transcript artifact ref and must not be interpreted as transcript persistence, provider transcript support, or a reusable transcript registry.
 - Any emitted transcript evidence must continue to declare `providerTranscript=false` and must not claim provider execution.
@@ -94,6 +96,7 @@ Notes:
 - Provider execution, provider transcript capture, transcript capture/persistence, sandbox enforcement, scoring, and multi-case aggregate orchestration remain unimplemented.
 - The implementation-prep checklist for future provider-backed work is documented separately in `docs/phase-3-provider-backed-slot-contract-checklist.md`; that checklist is preparation only and must not be read as provider integration already being complete.
 - This entrypoint is intentionally not wired into `pnpm validate`, `pnpm validate:all`, `pnpm validate:contracts`, `pnpm validate:preflight`, or `pnpm validate:preflight:contracts`.
+- The default validate family therefore remains static/preflight-only and does not expose runtime/provider-backed execution paths.
 
 ## Standalone runtime contract test entry
 

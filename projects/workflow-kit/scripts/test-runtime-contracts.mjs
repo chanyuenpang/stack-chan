@@ -14,6 +14,7 @@ import {
 } from "../src/skillforge/runtime-observed-mapper.mjs";
 import {
   buildRuntimeProviderAdapterContractContext,
+  buildRuntimeProviderSelection,
   RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
   RUNTIME_PROVIDER_ADAPTER_KEYS,
 } from "../src/skillforge/runtime-provider-adapter-contract.mjs";
@@ -236,6 +237,10 @@ function testProviderAdapterContractBuiltinSemantics() {
         mode: providerKey,
         providerKey,
         providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        providerSelection: buildRuntimeProviderSelection({
+          mode: providerKey,
+          providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        }),
       },
     });
 
@@ -245,7 +250,8 @@ function testProviderAdapterContractBuiltinSemantics() {
     assert.equal(contract.input.provider.providerSlot, RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT);
     assert.equal(contract.input.provider.builtin, true);
     assert.equal(contract.input.provider.contractFirst, true);
-    assert.equal(contract.input.provider.implemented, false);
+    assert.equal(contract.input.provider.implemented, providerKey !== "provider-backed");
+    assert.equal(contract.input.provider.providerBacked, providerKey === "provider-backed");
     assert.match(contract.input.provider.note, /reserves future provider-backed runtime execution/i);
   }
 }
@@ -485,6 +491,10 @@ function testProviderAdapterOutputSkeletonStaysConservative() {
       mode: "provider-backed",
       providerKey: "provider-backed",
       providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+      providerSelection: buildRuntimeProviderSelection({
+        mode: "provider-backed",
+        providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+      }),
     },
   });
 
@@ -502,11 +512,13 @@ function testProviderAdapterOutputSkeletonStaysConservative() {
   assert.equal(adapterResult.contract.kind, "runtime-provider-adapter-output");
   assert.ok(adapterResult.contract.version);
   assert.deepEqual(adapterResult.selection, {
-    adapterKey: null,
-    providerKey: null,
-    providerSlot: null,
-    builtin: false,
-    implemented: false,
+    kind: "runtime-provider-selection",
+    version: adapterResult.selection.version,
+    adapterKey: "dry-run",
+    providerKey: "dry-run",
+    providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+    builtin: true,
+    implemented: true,
     providerBacked: false,
   });
   assert.deepEqual(adapterResult.execution, {
@@ -539,8 +551,8 @@ function testProviderAdapterOutputSkeletonStaysConservative() {
   assert.equal(adapterResult.providerMetadata.executionId, null);
   assert.equal(adapterResult.providerMetadata.providerRunId, null);
   assert.equal(adapterResult.providerMetadata.providerStatus, null);
-  assert.equal(adapterResult.providerMetadata.providerKey, null);
-  assert.equal(adapterResult.providerMetadata.providerSlot, null);
+  assert.equal(adapterResult.providerMetadata.providerKey, "dry-run");
+  assert.equal(adapterResult.providerMetadata.providerSlot, RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT);
   assert.equal(adapterResult.transcriptRef, null);
 
   const providerBackedRun = runRuntimeCaseSkeleton({
@@ -760,6 +772,7 @@ function testObservedMappingSeamContractAcrossReservedModes() {
       "rawResponseHandle",
       "rawResponseSummary",
       "reservedStatusSet",
+      "selection",
       "status",
       "transcriptAvailable",
       "transcriptCaptured",
@@ -767,6 +780,23 @@ function testObservedMappingSeamContractAcrossReservedModes() {
       "transcriptPersistence",
       "transcriptProviderManaged",
     ].sort());
+    assert.deepEqual(Object.keys(mapped.providerExecution.selection).sort(), [
+      "adapterKey",
+      "builtin",
+      "implemented",
+      "kind",
+      "providerBacked",
+      "providerKey",
+      "providerSlot",
+      "version",
+    ].sort());
+    assert.equal(mapped.providerExecution.selection.kind, "runtime-provider-selection");
+    assert.equal(mapped.providerExecution.selection.adapterKey, seamCase.providerSelection.adapterKey);
+    assert.equal(mapped.providerExecution.selection.providerKey, seamCase.providerSelection.providerKey);
+    assert.equal(mapped.providerExecution.selection.providerSlot, seamCase.providerSelection.providerSlot);
+    assert.equal(mapped.providerExecution.selection.builtin, seamCase.providerSelection.builtin);
+    assert.equal(mapped.providerExecution.selection.implemented, seamCase.providerSelection.implemented);
+    assert.equal(mapped.providerExecution.selection.providerBacked, seamCase.providerSelection.providerBacked);
     assert.equal(mapped.providerExecution.adapterKey, seamCase.providerSelection.adapterKey);
     assert.equal(mapped.providerExecution.providerKey, seamCase.providerSelection.providerKey);
     assert.equal(mapped.providerExecution.providerSlot, RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT);
@@ -879,6 +909,152 @@ function testObservedMappingMetadataStaysConsistentWithCaseArtifacts() {
   assert.equal(blockedCase.transcriptAvailability.providerManaged, false);
   assert.equal(blockedCase.transcriptAvailability.providerBacked, false);
   assert.equal(blockedCase.transcriptRef.providerTranscript, false);
+}
+
+function testProviderSelectionShapeAndLineageStayStableAcrossRunnerMapperAndReport() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+
+  for (const mode of ["dry-run", "null-runner", "provider-backed"]) {
+    const providerSelection = buildRuntimeProviderAdapterContractContext({
+      fixtureDir: "/tmp/runtime-contract-fixture",
+      loadedFixture,
+      normalizedFixture,
+      caseRecord: selectRuntimeCase({ normalizedFixture }),
+      boundary: {
+        permissions: normalizedFixture.permissions,
+        toolBoundary: normalizedFixture.toolBoundary,
+      },
+      options: {
+        mode,
+        providerKey: mode,
+        providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        providerSelection: buildRuntimeProviderSelection({
+          mode,
+          providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        }),
+      },
+    }).input.provider.selection;
+
+    assert.deepEqual(Object.keys(providerSelection).sort(), [
+      "adapterKey",
+      "builtin",
+      "implemented",
+      "kind",
+      "providerBacked",
+      "providerKey",
+      "providerSlot",
+      "version",
+    ].sort());
+    assert.equal(providerSelection.kind, "runtime-provider-selection");
+    assert.equal(providerSelection.adapterKey, mode);
+    assert.equal(providerSelection.providerKey, mode);
+    assert.equal(providerSelection.providerSlot, RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT);
+    assert.equal(providerSelection.builtin, true);
+    assert.equal(providerSelection.providerBacked, mode === "provider-backed");
+    assert.equal(providerSelection.implemented, mode !== "provider-backed");
+
+    const run = runRuntimeCaseSkeleton({
+      fixtureDir: "/tmp/runtime-contract-fixture",
+      loadedFixture,
+      normalizedFixture,
+      preflightReport,
+      options: { mode },
+    });
+
+    const runtimeCase = run.runtimeReport.cases[0];
+    const providerExecution = runtimeCase.providerExecution;
+    const reportSelection = providerExecution.selection;
+
+    assert.deepEqual(reportSelection, providerSelection);
+    assert.equal(providerExecution.adapterKey, providerSelection.adapterKey);
+    assert.equal(providerExecution.providerKey, providerSelection.providerKey);
+    assert.equal(providerExecution.providerSlot, providerSelection.providerSlot);
+    assert.equal(providerExecution.providerBacked, providerSelection.providerBacked);
+    assert.equal(providerExecution.builtin, providerSelection.builtin);
+    assert.equal(providerExecution.implemented, providerSelection.implemented);
+    assert.equal(run.result.runnerMetadata.providerAdapter.key, providerSelection.providerKey);
+    assert.equal(run.result.runnerMetadata.providerAdapter.slot, providerSelection.providerSlot);
+    assert.equal(run.result.runnerMetadata.providerAdapter.providerBacked, providerSelection.providerBacked);
+    assert.equal(run.result.runnerMetadata.providerAdapter.builtin, providerSelection.builtin);
+    assert.equal(run.result.runnerMetadata.providerAdapter.implemented, providerSelection.implemented);
+    assert.equal(runtimeCase.transcriptAvailability.providerBacked, providerSelection.providerBacked);
+    assert.equal(run.runtimeReport.metadata.providerExecution.selection.providerKey, providerSelection.providerKey);
+    assert.equal(run.runtimeReport.metadata.providerExecution.selection.providerSlot, providerSelection.providerSlot);
+    assert.equal(run.runtimeReport.metadata.providerExecution.selection.providerBacked, providerSelection.providerBacked);
+  }
+}
+
+function testProviderBackedSelectionNeverLeaksExecutionEvidenceOrTranscriptCapabilities() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+
+  const run = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport,
+    options: { mode: "provider-backed" },
+  });
+
+  const runtimeCase = run.runtimeReport.cases[0];
+  const providerExecution = runtimeCase.providerExecution;
+  const runnerAdapter = run.result.runnerMetadata.providerAdapter;
+
+  assert.equal(providerExecution.providerBacked, true);
+  assert.equal(providerExecution.executed, false);
+  assert.equal(providerExecution.providerCall, false);
+  assert.equal(providerExecution.providerEvidenceAvailable, false);
+  assert.equal(providerExecution.transcriptAvailable, false);
+  assert.equal(providerExecution.transcriptCaptured, false);
+  assert.equal(providerExecution.transcriptPersistence, false);
+  assert.equal(providerExecution.persistence, "none");
+  assert.equal(providerExecution.executionId, null);
+  assert.equal(providerExecution.providerRunId, null);
+  assert.equal(providerExecution.providerStatus, null);
+  assert.equal(providerExecution.rawResponseAvailable, false);
+  assert.equal(providerExecution.rawResponseSummary, null);
+  assert.equal(providerExecution.rawResponseHandle, null);
+  assert.equal(providerExecution.transcriptHandle, null);
+  assert.equal(providerExecution.transcriptProviderManaged, false);
+
+  assert.equal(runnerAdapter.providerBacked, true);
+  assert.equal(run.result.runnerMetadata.executed, false);
+  assert.equal(run.result.runnerMetadata.providerCall, false);
+  assert.equal(run.result.runnerMetadata.transcriptCaptured, false);
+  assert.equal(run.result.runnerMetadata.evidenceProduced, false);
+  assert.equal(run.result.transcriptRef.providerTranscript, false);
+  assert.equal(runtimeCase.transcriptRef.providerTranscript, false);
+  assert.equal(runtimeCase.transcriptAvailability.available, false);
+  assert.equal(runtimeCase.transcriptAvailability.providerManaged, false);
+  assert.equal(runtimeCase.transcriptAvailability.handle, null);
+  assert.equal(runtimeCase.transcript.outcome.providerResponseCaptured, false);
+  assert.equal(runtimeCase.transcript.outcome.transcriptCaptured, false);
+  assert.equal(runtimeCase.transcript.runnerMetadata.providerCall, false);
+}
+
+function testCliRejectsProviderBackedWhileInternalRunnerSupportsReservedMode() {
+  const cliResult = runRuntimeDraftCli([baselineFixture, "--mode", "provider-backed"]);
+  assert.equal(cliResult.status, 2, `runtime draft provider-backed should be rejected by CLI for now, got ${cliResult.status}`);
+  assert.match(cliResult.stderr, /Unsupported mode: provider-backed/i);
+  assert.match(cliResult.stderr, /Supported modes: dry-run, null-runner/i);
+  assert.equal(cliResult.stdout, "", "provider-backed CLI rejection should not emit runtime report JSON");
+
+  const internalRun = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture: createLoadedFixture(),
+    normalizedFixture: createNormalizedFixture(),
+    preflightReport: createPreflightReport("passed"),
+    options: { mode: "provider-backed" },
+  });
+
+  assert.equal(internalRun.mode, "provider-backed");
+  assert.equal(internalRun.result.runnerMetadata.providerAdapter.key, "provider-backed");
+  assert.equal(internalRun.result.runnerMetadata.providerAdapter.providerBacked, true);
+  assert.equal(internalRun.result.status, "error");
+  assert.equal(internalRun.result.runnerMetadata.providerCall, false);
 }
 
 function testProviderBackedRuntimeStaysHonestAndUnimplemented() {
@@ -1167,12 +1343,15 @@ const tests = [
   ["observed mapping seam contract stays stable across dry/null/provider-reserved/preflight-blocked paths", testObservedMappingSeamContractAcrossReservedModes],
   ["raw response summary/handle stay reserved across runtime modes", testRawResponseSummaryAndHandleStayReservedAcrossRuntimeModes],
   ["observed mapping metadata stays consistent with per-case artifacts", testObservedMappingMetadataStaysConsistentWithCaseArtifacts],
+  ["provider selection shape and lineage stay stable across runner/mapper/report", testProviderSelectionShapeAndLineageStayStableAcrossRunnerMapperAndReport],
+  ["provider-backed selection never leaks execution/evidence/transcript capabilities", testProviderBackedSelectionNeverLeaksExecutionEvidenceOrTranscriptCapabilities],
   ["provider-backed runtime stays honest and intentionally unimplemented", testProviderBackedRuntimeStaysHonestAndUnimplemented],
   ["non-provider-backed modes cannot forge provider transcript or provider execution metadata", testNonProviderBackedModesCannotForgeProviderTranscriptOrProviderExecution],
   ["pending capabilities and draft metadata stay explicit", testPendingCapabilitiesAndDraftMetadata],
   ["runtime draft CLI emits runtime-replay-report and defaults to dry-run", testRuntimeDraftCliDefaultModeAndKind],
   ["runtime draft CLI keeps case-id and case-index selection stable", testRuntimeDraftCliStableCaseSelection],
   ["runtime CLI and orchestrator keep provider-backed seam out of static/preflight semantics", testRuntimeCliAndOrchestratorKeepProviderBackedSeamOutOfStaticPreflightSemantics],
+  ["CLI rejects provider-backed while internal runner keeps reserved mode wired", testCliRejectsProviderBackedWhileInternalRunnerSupportsReservedMode],
   ["runtime draft CLI keeps passed preflight cases non-passed in draft mode", testRuntimeDraftCliPreflightPassedStillNotPassedCase],
   ["runtime draft CLI usage errors and unsupported mode stay stable", testRuntimeDraftCliUsageErrorsAndUnsupportedMode],
   ["runtime preflight failure still stays non-passing", testRuntimePreflightFailureStillStaysNonPassing],

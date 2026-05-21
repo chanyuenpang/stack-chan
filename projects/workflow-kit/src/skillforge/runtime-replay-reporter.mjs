@@ -22,6 +22,7 @@ const DEFAULT_METADATA_NOTE =
   "runtime draft artifact only: no provider execution, no transcript evidence, no scoring result, no runtime pass evidence";
 
 const DEFAULT_PROVIDER_EXECUTION_FRAGMENT = Object.freeze({
+  selection: null,
   adapterKey: null,
   providerKey: null,
   providerSlot: null,
@@ -125,14 +126,41 @@ function normalizeProviderExecution(providerExecution) {
     return { ...DEFAULT_PROVIDER_EXECUTION_FRAGMENT };
   }
 
+  const selection =
+    providerExecution?.selection && typeof providerExecution.selection === "object" && !Array.isArray(providerExecution.selection)
+      ? { ...providerExecution.selection }
+      : null;
+
+  const normalizedSelection = selection
+    ? {
+        ...selection,
+        kind: selection?.kind ?? "runtime-provider-selection",
+        version: selection?.version ?? null,
+        adapterKey: selection?.adapterKey ?? providerExecution?.adapterKey ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.adapterKey,
+        providerKey: selection?.providerKey ?? providerExecution?.providerKey ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.providerKey,
+        providerSlot: selection?.providerSlot ?? providerExecution?.providerSlot ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.providerSlot,
+        builtin: selection?.builtin === true || providerExecution?.builtin === true,
+        implemented: selection?.implemented === true || providerExecution?.implemented === true,
+        providerBacked: selection?.providerBacked === true || providerExecution?.providerBacked === true,
+      }
+    : null;
+
+  const adapterKey = normalizedSelection?.adapterKey ?? providerExecution?.adapterKey ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.adapterKey;
+  const providerKey = normalizedSelection?.providerKey ?? providerExecution?.providerKey ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.providerKey;
+  const providerSlot = normalizedSelection?.providerSlot ?? providerExecution?.providerSlot ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.providerSlot;
+  const builtin = normalizedSelection?.builtin === true || providerExecution?.builtin === true;
+  const implemented = normalizedSelection?.implemented === true || providerExecution?.implemented === true;
+  const providerBacked = normalizedSelection?.providerBacked === true || providerExecution?.providerBacked === true;
+
   return {
     ...providerExecution,
-    adapterKey: providerExecution?.adapterKey ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.adapterKey,
-    providerKey: providerExecution?.providerKey ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.providerKey,
-    providerSlot: providerExecution?.providerSlot ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.providerSlot,
-    builtin: providerExecution?.builtin === true,
-    implemented: providerExecution?.implemented === true,
-    providerBacked: providerExecution?.providerBacked === true,
+    selection: normalizedSelection,
+    adapterKey,
+    providerKey,
+    providerSlot,
+    builtin,
+    implemented,
+    providerBacked,
     status: providerExecution?.status ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.status,
     executionId: providerExecution?.executionId ?? null,
     providerRunId: providerExecution?.providerRunId ?? null,
@@ -259,7 +287,7 @@ export function buildRuntimeReplayReport({
   const summary = buildSummary(normalizedCases, normalizedChecks, normalizedErrors);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const reportProviderExecution = normalizeProviderExecution(
-    normalizedCases[0]?.providerExecution ?? runtime?.providerExecution,
+    runtime?.providerExecution ?? normalizedCases[0]?.providerExecution,
   );
   const reportTranscriptAvailability = normalizeTranscriptAvailability(
     normalizedCases[0]?.transcriptAvailability ?? runtime?.transcriptAvailability,

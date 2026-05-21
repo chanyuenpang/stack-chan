@@ -21,6 +21,8 @@
 
 当前仓库内已经存在一个**独立 runtime draft CLI** 及其最小 orchestration 承载面，用于诚实地串起 `static validation -> preflight -> single-case selection -> provider adapter seam -> dry/null runtime skeleton -> draft artifact`。这一步只代表 Phase 3 draft execution surface 与 provider adapter seam 的 contract-first 边界已接通，不代表真实 runtime replay 已交付。
 
+补充同步本轮真实进度：provider-backed selection wiring 已经完成一轮 tightening，selection lineage 现在被明确收紧为内部单一路径：`adapter -> runner -> observed mapper -> report`。这只是把内部 truth channel 统一，避免多处二次发明 selection 来源；**不是** provider-backed mode 对外开放，也不是 validate 默认链路开始消费 runtime/provider 路线。
+
 当前 transcript 相关能力也只到 very thin evidence layer：允许在单 case draft artifact 内表达 provider-less transcript evidence 的占位引用，但不能把它解释成 provider transcript、transcript engine 或 persistence 层已经存在。
 
 同时，当前 provider seam 也只是 adapter-facing contract-first seam：它冻结了未来 provider adapter 的输入/输出边界，但并没有把 provider-backed mode 变成可执行能力。CLI 仍不暴露 provider-backed mode；provider-backed slot 目前只是 reserved/unimplemented。
@@ -104,9 +106,10 @@ preflight 不负责执行模型，不负责生成 transcript，不做最终评�
 2. **Preflight pass 只表示“可尝试执行”，不表示“执行通过”。**
 3. **当前 provider seam 只是 contract-first adapter seam，不等于 provider-backed runtime replay 已实现。**
 4. **Preflight 未通过时，runtime draft 结果应更诚实地收敛为 `blocked`，而不是继续暴露带执行幻觉的 `preflight-failed` 运行态标签。**
-5. **Runtime replay report 只能建立在实际执行证据之上。**
-6. **任何 runtime 结果都不回写为伪造的 static pass。**
-7. **`validate:all` / `validate:contracts` 继续只代表 static validation，不混入 runtime。**
+5. **当前 provider-backed selection 只允许在内部 `adapter -> runner -> observed mapper -> report` 单一路径上传播，不应在 CLI、validate 默认链路或其他外层入口重新开放第二条来源。**
+6. **Runtime replay report 只能建立在实际执行证据之上。**
+7. **任何 runtime 结果都不回写为伪造的 static pass。**
+8. **`validate:all` / `validate:contracts` 继续只代表 static validation，不混入 runtime。**
 
 ---
 
@@ -415,7 +418,8 @@ pendingCapabilities: []
 4. `observed` 必须保持 stub-shaped truth mapping output，不是 provider transcript，也不是 scoring evidence；当前 adapter result 只是更真实的中间 truth payload，`cases[].observed`、`providerExecution`、`transcriptAvailability` 与 `rawResponse` 只是共用同一来源的草案视图，四者同源，但都不能被解读成 provider integration、真实 provider call、transcript persistence 或正式 runtime pass 证据；
 5. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
 6. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；与 provider-backed slot 对应的 execution metadata、provider transcript、persistence、provider evidence flags 也都必须继续保持 `false` / `null` / reserved；
-7. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
+7. 当前可达的 selection lineage 只是在内部沿 `adapter -> runner -> observed mapper -> report` 单一路径透传，不能被解读成 provider mode 已开放，也不能替代未来真实 provider integration 所需的 request/response/transcript/persistence contract；
+8. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
 
 ## 6.3 为什么不直接复用 validator report
 
@@ -540,7 +544,7 @@ output = {
 - 只允许单 selected case 的 in-report draft transcript artifact ref；
 - `transcriptRef` 语义是“runtime draft report 内的草案级 transcript artifact ref”，不是持久化存储句柄；
 - 必须显式保持 `providerTranscript=false`；
-- `cases[].observed`、`providerExecution`、`transcriptAvailability` 现在由同一个 observed mapping seam 同源产出：这是为了统一 truth channel，不是为了宣称 provider-backed execution / provider transcript / persistence 已经接通；
+- `cases[].observed`、`providerExecution`、`transcriptAvailability` 现在由同一个 observed mapping seam 同源产出，并且 selection 只允许沿 `adapter -> runner -> observed mapper -> report` 这一内部单一路径传播：这是为了统一 truth channel，不是为了宣称 provider-backed execution / provider transcript / persistence 已经接通；
 - 不支持 provider transcript、transcript persistence、multi-case aggregate transcript artifact。
 
 ## 7.1.1 Sandbox boundary contract（已冻结的最小声明面）

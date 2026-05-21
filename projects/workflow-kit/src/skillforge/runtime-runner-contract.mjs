@@ -20,6 +20,7 @@ const DEFAULT_PROVIDER_ADAPTER_SEAM = Object.freeze({
   providerBacked: false,
   key: "dry-run",
   slot: "future-provider-backed-single-case-runtime",
+  selection: null,
   reservedStatusSet: ["blocked", "error", "dry-run", "not-executed"],
   futureRequiredFields: [
     "providerMetadata.providerKey",

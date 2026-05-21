@@ -24,6 +24,33 @@ const DEFAULT_PENDING_CAPABILITIES = Object.freeze([
 
 const PROVIDER_SELECTION_VERSION = "runtime-provider-selection-draft-1";
 
+const BUILTIN_PROVIDER_SELECTION_PRESETS = Object.freeze({
+  "dry-run": Object.freeze({
+    adapterKey: "dry-run",
+    providerKey: "dry-run",
+    providerSlot: DEFAULT_PROVIDER_ADAPTER_SLOT,
+    builtin: true,
+    implemented: true,
+    providerBacked: false,
+  }),
+  "null-runner": Object.freeze({
+    adapterKey: "null-runner",
+    providerKey: "null-runner",
+    providerSlot: DEFAULT_PROVIDER_ADAPTER_SLOT,
+    builtin: true,
+    implemented: true,
+    providerBacked: false,
+  }),
+  "provider-backed": Object.freeze({
+    adapterKey: "provider-backed",
+    providerKey: "provider-backed",
+    providerSlot: DEFAULT_PROVIDER_ADAPTER_SLOT,
+    builtin: true,
+    implemented: false,
+    providerBacked: true,
+  }),
+});
+
 const RESERVED_PROVIDER_BACKED_STATUS_SET = Object.freeze([
   "blocked",
   "error",
@@ -135,8 +162,9 @@ export function buildRuntimeProviderAdapterInput({
   boundary = {},
   options = {},
 } = {}) {
-  const providerKey = options.providerKey ?? options.mode ?? null;
-  const providerSlot = options.providerSlot ?? DEFAULT_PROVIDER_ADAPTER_SLOT;
+  const selection = resolveRuntimeProviderSelection(options.providerSelection);
+  const providerKey = options.providerKey ?? selection.providerKey ?? options.mode ?? null;
+  const providerSlot = options.providerSlot ?? selection.providerSlot ?? DEFAULT_PROVIDER_ADAPTER_SLOT;
 
   const normalizedFixtureContext = fixtureContext
     ? {
@@ -155,12 +183,14 @@ export function buildRuntimeProviderAdapterInput({
     fixture: normalizedFixtureContext,
     options: cloneObject(options),
     provider: {
-      mode: options.mode ?? null,
+      mode: options.mode ?? selection.adapterKey ?? null,
       providerKey,
       providerSlot,
-      builtin: BUILTIN_PROVIDER_ADAPTER_KEYS.includes(providerKey),
+      builtin: selection.builtin === true,
       contractFirst: true,
-      implemented: false,
+      implemented: selection.implemented === true,
+      providerBacked: selection.providerBacked === true,
+      selection,
       note:
         "single-case provider adapter seam only; this contract reserves future provider-backed runtime execution without implying provider integration is implemented",
     },
@@ -189,6 +219,17 @@ export function buildRuntimeProviderTranscriptRef({
   };
 }
 
+function resolveRuntimeProviderSelection(selection = {}) {
+  if (selection == null || typeof selection !== "object" || Array.isArray(selection)) {
+    return buildRuntimeProviderSelection();
+  }
+
+  return buildRuntimeProviderSelection({
+    mode: selection.mode ?? selection.providerKey ?? selection.adapterKey ?? null,
+    providerSlot: selection.providerSlot ?? DEFAULT_PROVIDER_ADAPTER_SLOT,
+  });
+}
+
 export function buildRuntimeProviderAdapterResult({
   caseId = null,
   status = "not-executed",
@@ -208,15 +249,7 @@ export function buildRuntimeProviderAdapterResult({
     throw new RangeError(`Unsupported runtime provider adapter result status: ${normalizedStatus}`);
   }
 
-  const normalizedSelection = {
-    adapterKey: null,
-    providerKey: null,
-    providerSlot: null,
-    builtin: null,
-    implemented: false,
-    providerBacked: false,
-    ...cloneObject(selection),
-  };
+  const normalizedSelection = resolveRuntimeProviderSelection(selection);
 
   const normalizedExecution = {
     executionId: null,
@@ -244,10 +277,7 @@ export function buildRuntimeProviderAdapterResult({
   };
 
   const normalizedMetadata = {
-    implementationState: "contract-first-unimplemented",
-    providerBacked: false,
-    providerKey: null,
-    providerSlot: null,
+    implementationState: normalizedSelection.implemented === true ? "implemented" : "contract-first-unimplemented",
     executed: false,
     providerCall: false,
     providerEvidenceAvailable: false,
@@ -268,15 +298,6 @@ export function buildRuntimeProviderAdapterResult({
       : [...DEFAULT_PENDING_CAPABILITIES],
     ...cloneObject(providerMetadata),
   };
-
-  if (normalizedSelection.providerBacked !== true) {
-    normalizedSelection.adapterKey = normalizedSelection.adapterKey ?? null;
-    normalizedSelection.providerKey = normalizedSelection.providerKey ?? null;
-    normalizedSelection.providerSlot = normalizedSelection.providerSlot ?? null;
-    normalizedSelection.builtin = normalizedSelection.builtin === true;
-    normalizedSelection.implemented = false;
-    normalizedSelection.providerBacked = false;
-  }
 
   if (normalizedExecution.executed !== true || normalizedSelection.providerBacked !== true) {
     normalizedExecution.executionId = null;
@@ -300,9 +321,12 @@ export function buildRuntimeProviderAdapterResult({
     normalizedRawResponse.handle = null;
   }
 
-  normalizedMetadata.providerBacked = normalizedSelection.providerBacked === true;
-  normalizedMetadata.providerKey = normalizedSelection.providerKey ?? null;
-  normalizedMetadata.providerSlot = normalizedSelection.providerSlot ?? null;
+  normalizedMetadata.providerBacked = normalizedSelection.providerBacked;
+  normalizedMetadata.providerKey = normalizedSelection.providerKey;
+  normalizedMetadata.providerSlot = normalizedSelection.providerSlot;
+  normalizedMetadata.adapterKey = normalizedSelection.adapterKey;
+  normalizedMetadata.builtin = normalizedSelection.builtin;
+  normalizedMetadata.implemented = normalizedSelection.implemented;
   normalizedMetadata.executed = normalizedExecution.executed === true;
   normalizedMetadata.providerCall = normalizedExecution.providerCall === true;
   normalizedMetadata.providerEvidenceAvailable = normalizedEvidence.providerEvidenceAvailable === true;
@@ -371,24 +395,18 @@ export function buildRuntimeProviderSelection({
   mode = null,
   providerKey = null,
   providerSlot = DEFAULT_PROVIDER_ADAPTER_SLOT,
-  builtin = null,
-  implemented = null,
-  providerBacked = null,
 } = {}) {
-  const adapterKey = providerKey ?? mode ?? null;
-  if (!BUILTIN_PROVIDER_ADAPTER_KEYS.includes(adapterKey)) {
+  const adapterKey = providerKey ?? mode ?? "dry-run";
+  const preset = BUILTIN_PROVIDER_SELECTION_PRESETS[adapterKey];
+  if (!preset) {
     throw new RangeError(`Unsupported runtime provider adapter key: ${adapterKey}`);
   }
 
   return {
     kind: "runtime-provider-selection",
     version: PROVIDER_SELECTION_VERSION,
-    adapterKey,
-    providerKey: adapterKey,
+    ...preset,
     providerSlot,
-    builtin: builtin == null ? BUILTIN_PROVIDER_ADAPTER_KEYS.includes(adapterKey) : builtin === true,
-    implemented: implemented == null ? adapterKey !== "provider-backed" : implemented === true,
-    providerBacked: providerBacked == null ? adapterKey === "provider-backed" : providerBacked === true,
   };
 }
 
@@ -432,6 +450,11 @@ export const RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT = DEFAULT_PROVIDER_ADAPTER_SL
 export const RUNTIME_PROVIDER_ADAPTER_RESERVED_STATUS_SET = [...RESERVED_PROVIDER_BACKED_STATUS_SET];
 export const RUNTIME_PROVIDER_ADAPTER_FUTURE_REQUIRED_FIELDS = [...FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS];
 export const RUNTIME_PROVIDER_SELECTION_VERSION = PROVIDER_SELECTION_VERSION;
+export const RUNTIME_PROVIDER_SELECTION_PRESETS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(BUILTIN_PROVIDER_SELECTION_PRESETS).map(([key, value]) => [key, { ...value }]),
+  ),
+);
 
 export default {
   buildRuntimeProviderAdapterInput,
@@ -449,4 +472,9 @@ export default {
   RUNTIME_PROVIDER_ADAPTER_RESERVED_STATUS_SET: [...RESERVED_PROVIDER_BACKED_STATUS_SET],
   RUNTIME_PROVIDER_ADAPTER_FUTURE_REQUIRED_FIELDS: [...FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS],
   RUNTIME_PROVIDER_SELECTION_VERSION: PROVIDER_SELECTION_VERSION,
+  RUNTIME_PROVIDER_SELECTION_PRESETS: Object.freeze(
+    Object.fromEntries(
+      Object.entries(BUILTIN_PROVIDER_SELECTION_PRESETS).map(([key, value]) => [key, { ...value }]),
+    ),
+  ),
 };
