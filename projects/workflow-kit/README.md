@@ -12,7 +12,7 @@ Current static validation result: `passed=true`, `15/15` checks passed (`P0=5`, 
 
 AI skills are useful only when their trigger, boundaries, dependencies, privacy assumptions, and replay claims can be reviewed. SkillForge is an attempt to make that review explicit and reproducible.
 
-The current MVP is deliberately small: it validates public/fictional fixtures using a static rule set and emits JSON reports. `fixtures/meeting-summary-assistant` remains the baseline `validate` fixture, and Phase 2A adds `fixtures/study-card-assistant` plus a minimal multi-fixture entry. This helps separate documented evidence from unsupported claims.
+The current MVP is deliberately small: it validates public/fictional fixtures using a static rule set and emits JSON reports. `fixtures/meeting-summary-assistant` remains the baseline `validate` fixture, and Phase 2A adds `fixtures/study-card-assistant` plus a minimal multi-fixture entry. This helps separate documented evidence from unsupported claims. The repository now also includes a minimal GitHub Actions CI gate for static validation only.
 
 ## What it does today
 
@@ -62,13 +62,24 @@ The command writes a JSON validation report to stdout. A passing result means th
 pnpm --silent validate:fixtures
 ```
 
-`validate:fixtures` writes a multi-fixture JSON report to stdout. With no explicit paths it scans complete direct child fixture directories under `fixtures/*`; in the current tree it reports `totalFixtures=2`, `passedFixtures=2`, and `failedFixtures=0`. You can also pass explicit paths, for example:
+`validate:fixtures` writes a multi-fixture JSON report to stdout. With no explicit paths it scans complete direct child fixture directories under `fixtures/*`; in the current tree it reports `totalFixtures=3`, `passedFixtures=3`, and `failedFixtures=0`. You can also pass explicit paths, for example:
 
 ```bash
 pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant --format json
 ```
 
 This is still static validation only; it does not run model replay and does not replace the local aggregate validation gate.
+
+### Minimal GitHub Actions gate
+
+The repository now includes `.github/workflows/ci-minimal-gate.yml` as a minimal Linux GitHub Actions gate. It runs on `pull_request` and `push` to `main`, installs dependencies with `pnpm install`, then runs:
+
+```bash
+pnpm --silent validate:all
+pnpm --silent validate:contracts
+```
+
+This CI gate is intentionally narrow: it only enforces the current static validation baseline and contract checks. It does **not** claim runtime replay, cross-platform, cross-model, or schema-engine completion.
 
 ### Run the local aggregate gate
 
@@ -142,10 +153,11 @@ workflow-kit/
 ## Current capabilities
 
 - Validates the baseline fixture: `fixtures/meeting-summary-assistant`.
-- Provides a minimal multi-positive fixture entry for the current two simple fixtures: `fixtures/meeting-summary-assistant` and `fixtures/study-card-assistant`.
+- Provides a minimal multi-positive fixture entry for the current three fixtures: `fixtures/meeting-summary-assistant`, `fixtures/study-card-assistant`, and `fixtures/release-notes-assistant`.
 - Runs a static rule set: `skillforge-static-mvp-0.1.0`.
 - Emits a stable JSON report for the fixture validation command.
 - Provides a local aggregate validation entry (`validate:all`) that runs positive fixtures and the independent 6/6 fixture matrix gate.
+- Provides a minimal Linux GitHub Actions CI gate that runs `validate:all` and `validate:contracts` on pull requests and pushes to `main`.
 - Covers 15 static checks across structure, trigger, boundary, dependency, replay, privacy, and compatibility.
 - Fails high-priority static risks such as missing core metadata, high-confidence secret/path leaks, and forged replay pass claims.
 - Redacts sensitive evidence in validation findings.

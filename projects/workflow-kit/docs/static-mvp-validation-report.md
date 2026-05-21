@@ -8,10 +8,11 @@
 - 单 fixture 静态校验命令：`pnpm --silent validate:fixture <fixture-path> --format json`
 - 多正例静态校验命令：`pnpm --silent validate:fixtures`
 - 本地总入口命令：`pnpm --silent validate:all`（顺序运行多正例入口与独立反例矩阵）
+- 最小 CI gate：`.github/workflows/ci-minimal-gate.yml`（GitHub Actions on `pull_request` + `push to main`，运行 `pnpm install`、`pnpm --silent validate:all`、`pnpm --silent validate:contracts`）
 - 静态规则集：`skillforge-static-mvp-0.1.0`
 - 验证维度：structure、trigger、boundary、dependency、replay、privacy、compatibility
 
-边界说明：本报告只证明**静态 fixture 与静态校验器**当前通过；不证明模型运行时回放通过，不证明跨平台/跨模型兼容已完成，也不证明完整产品验收 PASS。
+边界说明：本报告只证明**静态 fixture 与静态校验器**当前通过，并补充说明最小 Linux GitHub Actions static validation gate 已添加；不证明模型运行时回放通过，不证明跨平台/跨模型兼容已完成，也不证明 schema engine 或完整产品验收 PASS。
 
 ## 2. Baseline 正例证据（最新重新运行）
 
@@ -67,6 +68,7 @@ pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 | `pnpm --silent validate:fixture:matrix` | `0` | 独立本地正反例矩阵 gate，输出 `Fixture matrix passed: 6/6 cases.` |
 | `pnpm --silent validate:all` | `0` | Phase 2B+2D 本地总入口通过；先打印 `validate:fixtures` compact summary（`fixtures passed 3/3`、`totalChecks=45`、`blockingFailures=0`、`warnings=0`、`errors=0`），再运行 matrix 并输出 `Fixture matrix passed: 6/6 cases.` |
 | `pnpm --silent validate:contracts` | `0` | Phase 2E 最小 contract tests 通过；断言 3 个 single-fixture JSON report、1 个 multi-fixture JSON report、`validate:all` 关键 stdout markers，以及独立 matrix 的 6 个 case 行与 `Fixture matrix passed: 6/6 cases.` |
+| `.github/workflows/ci-minimal-gate.yml` | N/A（workflow file） | Phase 2F 最小 Linux GitHub Actions gate 已添加：`pull_request` + `push to main`，单 job `ubuntu-latest`，执行 `pnpm install`、`pnpm --silent validate:all` 与 `pnpm --silent validate:contracts`；该 gate 仅代表 static validation，不代表 runtime replay / cross-platform / cross-model / schema engine 完成 |
 
 最新复核环境：CWD `/home/yankeeting/.openclaw/projects/workflow-kit`，Node `v24.15.0`，pnpm `10.33.2`。本次 multi-fixture report 的 `generatedAt` 为运行时字段，不应 snapshot。
 
@@ -101,7 +103,7 @@ Phase 2B+2D 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本�
 |---|---:|---|
 | `pnpm --silent validate:all` | `0` | 输出 `== validate:fixtures ==`、`fixtures passed 3/3`、`totalChecks=45`、`blockingFailures=0`、`warnings=0`、`errors=0`；随后输出 `== validate:fixture:matrix ==` 与 `Fixture matrix passed: 6/6 cases.` |
 
-该证据仍是本地 static validation 证据，不代表 CI、runtime replay、跨平台或跨模型完成。
+该证据仍是本地 static validation 证据；新增的 `.github/workflows/ci-minimal-gate.yml` 只把这些静态检查接入最小 Linux GitHub Actions gate，不代表 runtime replay、跨平台、跨模型或 schema engine 完成。
 
 ## 4. 已关闭风险 / 未关闭风险
 
@@ -117,6 +119,7 @@ Phase 2B+2D 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本�
 - **Phase 2A 多正例入口：静态 MVP 已关闭最小范围。** `validate:fixtures` 当前默认扫描两个完整正例 fixture，`totalFixtures=2`、`passedFixtures=2`、`failedFixtures=0`；它不替代 runtime replay 或 CI。
 - **Phase 2B 本地总入口：已完成轻量编排。** `validate:all` 当前顺序运行 `validate:fixtures` 与 `validate:fixture:matrix`，聚合 exit code，并保持 JSON artifact 由底层 `validate:fixtures` 提供。
 - **Phase 2E 最小 contract tests：已完成。** `validate:contracts` 用纯 Node 内建断言当前 static MVP 的关键 JSON/stdout contract，避免 top-level 字段、profile 映射、aggregate summary markers 与 matrix case markers 无意漂移；不 snapshot `generatedAt`，不绑定对象键顺序或全文排版。
+- **Phase 2F 最小 CI gate：已完成。** `.github/workflows/ci-minimal-gate.yml` 已接入 GitHub Actions `pull_request` 与 `push to main`，以单个 `ubuntu-latest` job 运行 `pnpm install`、`validate:all` 与 `validate:contracts`；其能力边界仍是 static validation minimal gate。
 
 ### 未关闭 / 仍需后续跟踪
 
@@ -143,6 +146,6 @@ Phase 2B+2D 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本�
 
 ## 7. 结论
 
-当前静态 MVP、Phase 2A 最小多 fixture 证据、Phase 2B 本地总入口证据与 Phase 2E 最小 contract test 证据可复现：两个 simple 正例 fixture 与一个 standard 正例 fixture 在当前环境下均 exit 0、各 15 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`；`validate:fixture:matrix` 证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力；`validate:all` 已把两者编排为本地总入口并通过；`validate:contracts` 则把这些 JSON/stdout 关键 contract 固定为可重复执行的最小脚本化检查。
+当前静态 MVP、Phase 2A 最小多 fixture 证据、Phase 2B 本地总入口证据、Phase 2E 最小 contract test 证据与 Phase 2F 最小 CI gate 说明可复现：两个 simple 正例 fixture 与一个 standard 正例 fixture 在当前环境下均 exit 0、各 15 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`；`validate:fixture:matrix` 证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力；`validate:all` 已把两者编排为本地总入口并通过；`validate:contracts` 则把这些 JSON/stdout 关键 contract 固定为可重复执行的最小脚本化检查；`.github/workflows/ci-minimal-gate.yml` 已把这些静态检查接入最小 Linux GitHub Actions gate。
 
-结论限定为：**SkillForge 静态 MVP、Phase 2A/2D 多正例静态入口、Phase 2B 本地总入口与 Phase 2E 最小 contract tests 验证通过（3 fixture、3 profile 值），可作为后续 schema engine、runtime replay、CI、跨平台/跨模型兼容和完整产品验收的基础证据。**
+结论限定为：**SkillForge 静态 MVP、Phase 2A/2D 多正例静态入口、Phase 2B 本地总入口、Phase 2E 最小 contract tests 与 Phase 2F 最小 CI gate 已落地（3 fixture、3 profile 值），可作为后续 schema engine、runtime replay、跨平台/跨模型兼容和完整产品验收的基础证据。**
