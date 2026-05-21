@@ -27,7 +27,7 @@
 | [`adr/xiaozhi-mcp-delayed-confirmed-reboot.md`](adr/xiaozhi-mcp-delayed-confirmed-reboot.md) | XiaoZhi MCP reboot 必须延迟且显式确认 | `self.system.reboot`、`confirm=true`、`delayed reboot`、MCP 工具返回后重启。 |
 | [`adr/avoid-64-bit-printf-in-scs-logs.md`](adr/avoid-64-bit-printf-in-scs-logs.md) | SCS 诊断日志避免 64-bit printf | `%lld`、`nano-vfprintf`、`SCS.cpp`、`LoadProhibited`、日志格式安全。 |
 | [`adr/servo-command-chain-diagnosis-and-root-cause-boundary.md`](adr/servo-command-chain-diagnosis-and-root-cause-boundary.md) | 舵机命令链诊断与根因修复边界 | `servo command chain`、`ReadPos`、`WritePos`、`LVGL lock`、`SCS UART`。 |
-| [`adr/stackchan-tool-preservation-golden-entrypoint-and-channel-boundaries.md`](adr/stackchan-tool-preservation-golden-entrypoint-and-channel-boundaries.md) | StackChan 工具链保留黄金入口与通道边界 | `ops/bin`、`golden entrypoint`、`dev HTTP`、`messaging API`、工具链边界。 |
+| [`adr/stackchan-tool-preservation-golden-entrypoint-and-channel-boundaries.md`](adr/stackchan-tool-preservation-golden-entrypoint-and-channel-boundaries.md) | StackChan 工具链保留黄金入口与通道边界 | `ops/bin`、`golden entrypoint`、`dev HTTP`、`messaging API`、`remote_control.py inject-prompt`、`/dev/inject_prompt`、语音注入验收、工具链边界。 |
 | [`adr/truth-doc-migration-canonical-precedence.md`](adr/truth-doc-migration-canonical-precedence.md) | Truth doc 迁移以当前 `.claw/truth` 为 canonical 优先 | `.claw/truth`、`.projects/stack-chan/truth`、`legacy/background`、`MIGRATION-INDEX-2026-05-21.md`、`source -> target`。 |
 
 ## 2026-05-21 迁移补充 canonical features
