@@ -28,6 +28,7 @@
 | 首个 standard fixture | Phase 2D 已完成静态正例 | `fixtures/release-notes-assistant/**` 发布说明整理样本，包含 `templates/` 与 `examples/`，单 fixture 静态验证通过，profile=`standard` |
 | 多正例静态入口 | 已完成最小入口 | `pnpm --silent validate:fixtures` 默认扫描当前三个完整正例 fixture；显式路径模式也通过；继续作为 multi-fixture JSON artifact 入口 |
 | 本地总入口编排 | Phase 2B 已完成 | `pnpm --silent validate:all` 顺序运行 `validate:fixtures` 与 `validate:fixture:matrix`；即使正例阶段失败也继续运行矩阵，最终聚合 exit code；不输出 suite JSON |
+| Phase 2E 最小 contract tests | 已完成最小脚本化覆盖 | `pnpm --silent validate:contracts` 以纯 Node 脚本断言 single-fixture JSON、multi-fixture JSON、`validate:all` 关键 stdout 与 matrix 关键 stdout；不引入测试框架，不修改 validator 语义 |
 | 关键反例静态验证 | 已有证据 | 缺 description、secret/private path、伪 replay、缺 7 维 checklist 等反例均能失败并输出合法 JSON |
 
 ### 1.2 仍未完成 / PENDING
@@ -227,6 +228,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 - `validate:fixtures` 已实现为 Phase 2A 最小多正例静态入口：默认扫描当前三个完整 fixture，显式路径模式通过，multi report 当前 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`。
 - `validate:all` 已实现为 Phase 2B 本地总入口：解析 `validate:fixtures` JSON 并打印 compact summary，再运行独立 matrix；任一阶段失败则总入口失败。
 - Phase 2D 已新增 `release-notes-assistant` standard fixture：发布说明整理主题，profile 透传为 `standard`，包含 `templates/release-notes-template.md` 与 `examples/synthetic-changelog.md`，仍保持 static-only、权限全关闭、无外部依赖。
+- Phase 2E 已补上最小 contract test 入口：`validate:contracts` 固定当前 static MVP JSON/stdout 关键 contract，避免 report shape 与 aggregate markers 无意漂移；仍不引入 schema engine、runtime replay 或 CI。
 - 仍未完成 schema engine、profile blocking rule、CI、runtime replay；不得宣称 Phase 2 完成。
 - 进入 Phase 2 后续小计划必须明确：新增 fixture 范围、schema 草案边界、CI 入口是否只是规划还是已落地。
 

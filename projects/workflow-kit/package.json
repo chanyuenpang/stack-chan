@@ -6,6 +6,7 @@
   "scripts": {
     "validate": "node scripts/validate-fixture.mjs fixtures/meeting-summary-assistant --format json",
     "validate:all": "node scripts/validate-all.mjs",
+    "validate:contracts": "node scripts/test-validator-contracts.mjs",
     "validate:fixture": "node scripts/validate-fixture.mjs",
     "validate:fixtures": "node scripts/validate-fixtures.mjs",
     "validate:fixture:matrix": "node scripts/validate-fixture-matrix.mjs"

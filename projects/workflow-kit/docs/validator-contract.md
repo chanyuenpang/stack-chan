@@ -83,6 +83,28 @@ Exit codes:
 
 `validate:all` is the Phase 2B local aggregate entry. It consumes `validate:fixtures` as the multi-positive JSON artifact producer, prints only a human-readable suite summary, then runs the independent positive/negative matrix gate. Downstream tools that need the multi-fixture JSON report should keep calling `validate:fixtures` directly.
 
+## Minimal contract test entry
+
+Phase 2E adds a lightweight contract-test script without introducing a test framework or changing validator semantics:
+
+```bash
+pnpm --silent validate:contracts
+```
+
+Current scope:
+
+- reruns the three documented positive single-fixture JSON commands;
+- reruns `validate:fixtures` and asserts the current multi-fixture JSON contract;
+- reruns `validate:all` and asserts only stable aggregate stdout markers;
+- reruns `validate:fixture:matrix` and asserts only stable case-summary markers.
+
+Intentional limits:
+
+- no full JSON snapshotting;
+- no assertion on `generatedAt` values;
+- no assertion on object key order, whitespace, or full stdout layout;
+- current `15` checks per positive fixture and `45` total checks are treated as static MVP baselines, so if the validator contract intentionally evolves those constants should be updated together with the docs.
+
 ### Positive fixture profiles
 
 The current default positive fixture scan covers three complete fixture roots and therefore exercises the profile passthrough field across the minimal documented range now in use:

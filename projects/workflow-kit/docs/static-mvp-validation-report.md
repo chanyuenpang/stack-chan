@@ -66,6 +66,7 @@ pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 | `pnpm --silent validate` | `0` | 仍只验证 baseline fixture `fixtures/meeting-summary-assistant`，输出单 fixture JSON artifact |
 | `pnpm --silent validate:fixture:matrix` | `0` | 独立本地正反例矩阵 gate，输出 `Fixture matrix passed: 6/6 cases.` |
 | `pnpm --silent validate:all` | `0` | Phase 2B+2D 本地总入口通过；先打印 `validate:fixtures` compact summary（`fixtures passed 3/3`、`totalChecks=45`、`blockingFailures=0`、`warnings=0`、`errors=0`），再运行 matrix 并输出 `Fixture matrix passed: 6/6 cases.` |
+| `pnpm --silent validate:contracts` | `0` | Phase 2E 最小 contract tests 通过；断言 3 个 single-fixture JSON report、1 个 multi-fixture JSON report、`validate:all` 关键 stdout markers，以及独立 matrix 的 6 个 case 行与 `Fixture matrix passed: 6/6 cases.` |
 
 最新复核环境：CWD `/home/yankeeting/.openclaw/projects/workflow-kit`，Node `v24.15.0`，pnpm `10.33.2`。本次 multi-fixture report 的 `generatedAt` 为运行时字段，不应 snapshot。
 
@@ -115,6 +116,7 @@ Phase 2B+2D 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本�
 - **checklist 聚合语义：Phase 1 已文档化。** 规则说明与 README 均明确七维 checklist 是多来源聚合覆盖，不是单文件 exactly once。
 - **Phase 2A 多正例入口：静态 MVP 已关闭最小范围。** `validate:fixtures` 当前默认扫描两个完整正例 fixture，`totalFixtures=2`、`passedFixtures=2`、`failedFixtures=0`；它不替代 runtime replay 或 CI。
 - **Phase 2B 本地总入口：已完成轻量编排。** `validate:all` 当前顺序运行 `validate:fixtures` 与 `validate:fixture:matrix`，聚合 exit code，并保持 JSON artifact 由底层 `validate:fixtures` 提供。
+- **Phase 2E 最小 contract tests：已完成。** `validate:contracts` 用纯 Node 内建断言当前 static MVP 的关键 JSON/stdout contract，避免 top-level 字段、profile 映射、aggregate summary markers 与 matrix case markers 无意漂移；不 snapshot `generatedAt`，不绑定对象键顺序或全文排版。
 
 ### 未关闭 / 仍需后续跟踪
 
@@ -141,6 +143,6 @@ Phase 2B+2D 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本�
 
 ## 7. 结论
 
-当前静态 MVP、Phase 2A 最小多 fixture 证据与 Phase 2B 本地总入口证据可复现：两个 simple 正例 fixture 与一个 standard 正例 fixture 在当前环境下均 exit 0、各 15 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`；`validate:fixture:matrix` 证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力；`validate:all` 已把两者编排为本地总入口并通过。
+当前静态 MVP、Phase 2A 最小多 fixture 证据、Phase 2B 本地总入口证据与 Phase 2E 最小 contract test 证据可复现：两个 simple 正例 fixture 与一个 standard 正例 fixture 在当前环境下均 exit 0、各 15 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`；`validate:fixture:matrix` 证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力；`validate:all` 已把两者编排为本地总入口并通过；`validate:contracts` 则把这些 JSON/stdout 关键 contract 固定为可重复执行的最小脚本化检查。
 
-结论限定为：**SkillForge 静态 MVP、Phase 2A/2D 多正例静态入口与 Phase 2B 本地总入口验证通过（3 fixture、3 profile 值），可作为后续 schema engine、runtime replay、CI、跨平台/跨模型兼容和完整产品验收的基础证据。**
+结论限定为：**SkillForge 静态 MVP、Phase 2A/2D 多正例静态入口、Phase 2B 本地总入口与 Phase 2E 最小 contract tests 验证通过（3 fixture、3 profile 值），可作为后续 schema engine、runtime replay、CI、跨平台/跨模型兼容和完整产品验收的基础证据。**
