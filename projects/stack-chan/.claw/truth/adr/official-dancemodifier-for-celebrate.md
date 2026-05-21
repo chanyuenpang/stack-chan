@@ -10,7 +10,7 @@ accepted
 
 完成计划确认：先用 `DanceModifier::Happy` 验证官方调用链路，再切换为专用 `DanceModifier::Celebrate`；`Happy` 只是阶段性验证，不是最终庆祝效果。最终版本保留 MCP/HTTP 对外接口，清理自研 `CelebrateExecutor`、`CelebrateStyle`、LED/motion/tick 与 `parseCelebrateStyle` 残留；`git diff --check` 和 `idf.py build` 均通过。
 
-后续 2.0.45 OTA 实机验收确认：`/dev/celebrate` 与 `/dev/mcp/call -> self.robot.celebrate` 均走官方 `DanceModifier::Celebrate`，日志锚点为 `action=dance_modifier_celebrate`、`speed=260`、yaw V 形路径、结束回中；设备保持 `idle`，无重启、失联、panic、abort、Guru 或 WDT。真实小智语音会话仍需要现场验收，但若语音路径出现问题，修复边界仍应限定在 `DanceModifier::Celebrate` sequence 或 MCP 调度，不回退自研 `CelebrateExecutor`。
+后续 2.0.45 OTA 实机验收确认：`/dev/celebrate` 与 `/dev/mcp/call -> self.robot.celebrate` 均走官方 `DanceModifier::Celebrate`，日志锚点为 `action=dance_modifier_celebrate`、`speed=260`、yaw V 形路径、结束回中；设备保持 `idle`，无重启、失联、panic、abort、Guru 或 WDT。随后语音注入 E2E 也确认可通过 `tools/remote_control/remote_control.py inject-prompt` / `POST /dev/inject_prompt` 触发 XiaoZhi 调用 `self.robot.celebrate` 并进入 `DanceModifier::Celebrate`，状态可回到 `speaking -> listening`；若后续语音路径再次异常，优先排查 `/dev/inject_prompt` / XiaoZhi listening 状态机或 MCP 语义链路，不回退自研 `CelebrateExecutor`。
 
 ## Decision
 
@@ -45,7 +45,7 @@ accepted
 - 正向效果：庆祝动画所有权从 HAL/MCP 自研状态机收敛到官方 modifier/timeline 体系，后续调整只需维护 `DanceModifier::Celebrate` sequence。
 - 兼容边界：`self.robot.celebrate` 的 MCP/HTTP 对外接口保持兼容，调用方不需要因内部动画迁移改变协议。
 - 取舍：官方体系内仍需要实机调参；如果动作、LED、结束回中或红灯表现不达标，应继续调整 `DanceModifier::Celebrate`，而不是回退自研状态机。
-- 验证锚点：`git diff --check` 通过；source ESP-IDF 后 `idf.py build` 通过；完成计划确认 `firmware/main/hal/hal_mcp.cpp` 已切到 `DanceModifier::Celebrate`，`dance.h` 中 `Celebrate` 为 `Medium servo speed` 且 `speed=260`；2.0.45 OTA 后 `/dev/celebrate` 与 `/dev/mcp/call -> self.robot.celebrate` 双路径验收通过，真实小智语音会话为唯一现场验收项。
+- 验证锚点：`git diff --check` 通过；source ESP-IDF 后 `idf.py build` 通过；完成计划确认 `firmware/main/hal/hal_mcp.cpp` 已切到 `DanceModifier::Celebrate`，`dance.h` 中 `Celebrate` 为 `Medium servo speed` 且 `speed=260`；2.0.45 OTA 后 `/dev/celebrate`、`/dev/mcp/call -> self.robot.celebrate` 与 `inject-prompt -> /dev/inject_prompt -> XiaoZhi -> self.robot.celebrate` 三类路径均已形成验收锚点。
 
 ## Search Terms
 
