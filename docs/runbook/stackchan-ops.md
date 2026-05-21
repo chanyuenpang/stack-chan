@@ -15,6 +15,7 @@
 | OTA 状态 | `StackChan/ops/bin/ota-status` | 只读 | 查看 user service、8080、manifest、bin HEAD、日志 |
 | OTA user service | `systemctl --user status|restart stackchan-ota.service` | restart 会影响本机 OTA server | 由 `StackChan/ops/systemd/stackchan-ota.service` 定义，启动 `remote/ota_server.py --metadata ops/ota/active.json` |
 | 本地 Dev HTTP CLI | `python3 StackChan/tools/remote_control/remote_control.py --ip <DEVICE_IP> <command>` | 设备动作入口 | LAN 设备控制；不依赖小智或云端凭据 |
+| 语音注入庆祝 E2E 验收 | `python3 StackChan/tools/remote_control/remote_control.py --ip <DEVICE_IP> inject-prompt` / HTTP `POST /dev/inject_prompt` | 设备动作入口 | 验证 XiaoZhi listening/speaking → `self.robot.celebrate` → `DanceModifier::Celebrate` 完整链路；详见 `docs/runbook/voice-injection-celebrate-e2e.md` |
 | Celebrate 开发补丁 | `StackChan/tools/celebrate-mcp-tool/README.md` | 开发资料 | 记录 `self.robot.celebrate` 补丁文件与接入点 |
 
 > 运行目录建议固定为：`cd /home/yankeeting/.openclaw/projects/stack-chan/StackChan`。
@@ -107,6 +108,10 @@ ops/bin/stackchan-celebrate-diagnose --tail-lines 5000 --json
 ```
 
 诊断用途：从已有日志中定位 `bus_dead`、LED、motion frame、庆祝流程异常等信号。安全口径：只读日志，不打开串口，不调用 `/dev/celebrate`，也不调用 reboot / wake / stop。
+
+## 0.2 语音注入庆祝 E2E Runbook
+
+语音注入完整链路验收使用 `tools/remote_control/remote_control.py inject-prompt` / HTTP `POST /dev/inject_prompt` 作为黄金入口；不要用 `/dev/celebrate`、`/dev/mcp/call` 或 `/dev/wake` 替代。标准命令、日志锚点、成功判定与失败处理见：[`docs/runbook/voice-injection-celebrate-e2e.md`](voice-injection-celebrate-e2e.md)。
 
 ## 1. `stackchan-doctor`：默认只读自检入口
 
