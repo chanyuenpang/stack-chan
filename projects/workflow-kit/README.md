@@ -68,15 +68,21 @@ pnpm --silent validate:fixtures
 pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant --format json
 ```
 
-This is still static validation only; it does not run model replay and does not replace the local positive/negative matrix gate.
+This is still static validation only; it does not run model replay and does not replace the local aggregate validation gate.
 
-### Run the fixture matrix
+### Run the local aggregate gate
 
 ```bash
 pnpm --silent validate:all
 ```
 
-`validate:all` runs the current full local static matrix and writes a human-readable summary to stdout, which makes it suitable for CI/PR gates. The equivalent explicit command is `pnpm --silent validate:fixture:matrix`.
+`validate:all` is the Phase 2B local aggregate entry. It runs `validate:fixtures` first, parses that JSON report, prints a compact human-readable suite summary, then runs the independent fixture matrix entry. Both stages run even if the first stage fails; the aggregate exits non-zero if either child stage exits non-zero or if the `validate:fixtures` JSON stdout cannot be parsed.
+
+The matrix remains available as its own sub-entry:
+
+```bash
+pnpm --silent validate:fixture:matrix
+```
 
 The matrix command copies the positive fixture into temporary directories, mutates those copies into representative counterexamples, and cleans them up before exit. It currently covers the positive baseline, missing description/trigger, secret/token leakage, private paths, forged replay pass claims, and all-source missing `compatibility` checklist coverage.
 
@@ -86,7 +92,8 @@ The matrix command copies the positive fixture into temporary directories, mutat
 - `validate:fixtures [fixture-path ...] [--format json]` writes a multi-fixture JSON report with `kind=multi-fixture-validation-report`; with no paths it scans complete `fixtures/*` direct child fixture directories.
 - Exit `0` means the requested validation passed; exit `1` means validation completed but blocking rules or fixture failures occurred; exit `2` is reserved for CLI usage errors.
 - Diagnostics use stable `checks[].id` rule IDs and sanitized `evidence`; `metadata.generatedAt` is runtime metadata and should not be snapshot-tested.
-- `validate:all` / `validate:fixture:matrix` writes a human-readable summary to stdout and exits `0` only when every matrix case meets its expected exit code, JSON parseability, and target rule assertions; use it as the local CI/PR gate entry.
+- `validate:fixture:matrix` writes a human-readable matrix summary to stdout and exits `0` only when every matrix case meets its expected exit code, JSON parseability, and target rule assertions.
+- `validate:all` writes a human-readable aggregate summary to stdout, does not emit suite JSON, and exits `0` only when both `validate:fixtures` and `validate:fixture:matrix` pass. It preserves `validate:fixtures` as the JSON artifact entry and keeps the matrix independently runnable.
 
 ### Checklist aggregation semantics
 
@@ -138,7 +145,7 @@ workflow-kit/
 - Provides a minimal multi-positive fixture entry for the current two simple fixtures: `fixtures/meeting-summary-assistant` and `fixtures/study-card-assistant`.
 - Runs a static rule set: `skillforge-static-mvp-0.1.0`.
 - Emits a stable JSON report for the fixture validation command.
-- Provides a local fixture matrix command for positive and representative negative validation paths (`validate:all` remains the 6/6 matrix gate).
+- Provides a local aggregate validation entry (`validate:all`) that runs positive fixtures and the independent 6/6 fixture matrix gate.
 - Covers 15 static checks across structure, trigger, boundary, dependency, replay, privacy, and compatibility.
 - Fails high-priority static risks such as missing core metadata, high-confidence secret/path leaks, and forged replay pass claims.
 - Redacts sensitive evidence in validation findings.
@@ -185,6 +192,7 @@ Main entry points:
 - `scripts/validate-fixture.mjs` — CLI entry for `pnpm --silent validate:fixture ...`.
 - `scripts/validate-fixtures.mjs` — CLI entry for `pnpm --silent validate:fixtures ...`.
 - `scripts/validate-fixture-matrix.mjs` — local positive/negative fixture matrix using temporary copies.
+- `scripts/validate-all.mjs` — local aggregate entry that runs `validate:fixtures` and then `validate:fixture:matrix`.
 - `src/skillforge/loader.mjs` — loads fixture files for validation.
 - `src/skillforge/normalize.mjs` — normalizes fixture data before rules inspect it.
 - `src/skillforge/rules.mjs` — static MVP rule definitions and checks.

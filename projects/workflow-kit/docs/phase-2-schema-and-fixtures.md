@@ -1,6 +1,6 @@
 # Phase 2 Schema 与多 Fixture 前置设计
 
-> Phase 2A 状态：schema/profile 最小文档契约已固化，`fixtures/study-card-assistant` 已作为第二个 simple 正例 fixture 创建并通过静态验证，`validate:fixtures` 已实现为最小多正例静态验证入口；仍不创建 JSON Schema 文件，不实现 schema engine，不新增 blocking profile rule，不迁移现有 fixture 路径。
+> Phase 2A 状态：schema/profile 最小文档契约已固化，`fixtures/study-card-assistant` 已作为第二个 simple 正例 fixture 创建并通过静态验证，`validate:fixtures` 已实现为最小多正例静态验证入口。Phase 2B 状态：`validate:all` 已实现为本地总入口，顺序运行 `validate:fixtures` 与独立 `validate:fixture:matrix`。仍不创建 JSON Schema 文件，不实现 schema engine，不新增 blocking profile rule，不迁移现有 fixture 路径，不宣称 CI 已完成。
 
 ## 1. Purpose
 
@@ -20,7 +20,7 @@ Phase 2 入口阶段关注设计与拆分；Phase 2A 已落地最小多正例入
 - Phase 2A 最小 profile 契约：`simple`、`standard`、`advanced-reserved`。
 - 多 fixture 的组织方式与 profile 分层。
 - fixture schema、report schema、SKILL.md frontmatter schema 的字段候选。
-- 多 fixture runner 的命令行为、汇总输出与失败策略；当前 `validate:fixtures` 已落地为 Phase 2A 最小多正例入口。
+- 多 fixture runner 的命令行为、汇总输出与失败策略；当前 `validate:fixtures` 已落地为 Phase 2A 最小多正例入口，`validate:all` 已在 Phase 2B 落地为本地总入口编排。
 - 与 Phase 1 JSON report、规则 ID、静态验证语义的兼容边界。
 - Phase 2 最小任务序列与验收标准。
 
@@ -477,28 +477,31 @@ Phase 2A 已实现 `validate:fixtures` 作为最小多正例静态验证入口�
 
 ### Current command：`validate:all`
 
-当前行为（本轮未改）：
+Phase 2B 当前行为已实现：
 
-- 运行本地反例矩阵（当前 `validate:fixture:matrix`）。
-- 输出 human-readable matrix summary，不输出 multi-fixture JSON artifact。
-- 当前 6/6 通过，可作为本地 matrix gate。
-- 尚未运行全部正例 fixture、schema contract test 或 snapshot-safe test；尚不是 CI 总入口。
+- 先运行 `validate:fixtures`，解析其 multi-fixture JSON stdout，并打印 compact human-readable suite summary，例如 `fixtures passed 2/2`、`totalChecks`、`blockingFailures`、`warnings`、`errors`。
+- 即使 `validate:fixtures` 失败或 JSON parse 失败，也继续运行独立 matrix 子入口 `validate:fixture:matrix`。
+- 再运行本地反例矩阵（当前 `validate:fixture:matrix`），保留 human-readable matrix summary。
+- 总入口不输出 suite JSON artifact；需要 multi-fixture JSON 时继续调用 `validate:fixtures`。
+- 当前正例 fixtures 与 6/6 matrix 均通过，可作为本地 aggregate gate。
+- 尚未接入 schema contract checks、snapshot-safe contract test 或 CI；因此不是 CI 已完成。
 
-后续可考虑的目标职责仍是：
+当前本地总入口职责是：
 
 ```text
 validate:all
   -> validate:fixtures
   -> validate:fixture:matrix
-  -> schema contract checks（后续任务新增）
+  -> schema contract checks（后续任务新增；当前 pending）
 ```
 
-但当前 `validate:all` 仍是 `validate:fixture:matrix` 的本地正反例矩阵 gate，最新结果为 6/6 通过；它尚未接入 schema contract checks，也未改成总入口。
+`validate:fixture:matrix` 保持独立入口，最新结果为 6/6 通过；schema contract checks 仍 pending。
 
 ### Failure strategy
 
 - 单 fixture validator 维持 Phase 1 退出码：通过 exit `0`，阻断规则失败 exit `1`，CLI usage error exit `2`。
 - 多 fixture runner：只要任一 fixture 出现 P0/P1 `fail` / `error` 或 validator error，整体 exit `1`。
+- 本地总入口：任一 child exit 非 `0`，或 `validate:fixtures` stdout 不能解析为 JSON，整体 exit `1`；当前不支持参数，usage error 预留 exit `2`。
 - CLI 参数错误、路径不存在、无法解析命令参数时 exit `2`。
 - P2 warning 不应单独阻断，但必须计入 `warnings` 和 `findings`。
 - 反例矩阵应验证“预期失败”；反例未失败、stdout 非合法 JSON、目标 rule ID 未命中都应使矩阵整体失败。
@@ -616,13 +619,14 @@ Phase 2 必须保护 Phase 1 的 report contract，不因扩展 schema 或多 fi
 
 产物：
 
-- 多 fixture 反例矩阵。
-- `validate:all` 候选总入口。
+- 多 fixture 反例矩阵（后续扩展）。
+- `validate:all` 本地总入口（Phase 2B 已完成轻量编排）。
 
 验收标准：
 
 - 正例全部通过。
 - 关键反例稳定失败且 stdout JSON 可解析。
+- `validate:all` 顺序运行 `validate:fixtures` 与独立 `validate:fixture:matrix`，两阶段均运行并聚合 exit code。
 - `generatedAt` 不参与 snapshot。
 - 输出明确区分 static checked 与 runtime/cross-platform/cross-model pending。
 
