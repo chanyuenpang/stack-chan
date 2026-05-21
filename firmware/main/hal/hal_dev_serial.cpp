@@ -180,7 +180,7 @@ DeviceControlResult handle_legacy_serial_command(char* line)
         return dispatch_device_control(command.c_str(), static_cast<const char*>(nullptr));
     }
 
-    if (command == "prompt_sample") {
+    if (command == "prompt_sample" || command == "inject_prompt") {
         std::string sample = next_token(cursor);
         if (sample.empty()) {
             sample = "short";
@@ -188,8 +188,12 @@ DeviceControlResult handle_legacy_serial_command(char* line)
         if (sample != "short" && sample != "tts") {
             return DeviceControlResult{false, "", "invalid_sample"};
         }
-        std::string json = std::string("{\"sample\":\"") + sample + "\",\"explicit_stop\":true}";
-        return dispatch_device_control("prompt_sample", json.c_str());
+        std::string json = std::string("{\"sample\":\"") + sample + "\"}";
+        if (command == "prompt_sample") {
+            json = std::string("{\"sample\":\"") + sample + "\",\"explicit_stop\":true}";
+            return dispatch_device_control("prompt_sample", json.c_str());
+        }
+        return dispatch_device_control("inject_prompt", json.c_str());
     }
 
     if (command == "reboot") {
@@ -295,7 +299,7 @@ void append_serial_byte(char byte, char* line, size_t& line_len)
 
 void serial_task(void*)
 {
-    serial_write_line("{\"ok\":true,\"message\":\"dev serial ready\",\"protocols\":[\"jsonl\",\"legacy\"],\"commands\":[\"status\",\"wake\",\"stop\",\"toggle\",\"reboot\",\"prompt_sample\",\"inject_prompt\",\"celebrate\",\"play_sound\",\"mcp_call\",\"capabilities\"],\"legacy_commands\":[\"status\",\"wake\",\"stop\",\"toggle\",\"reboot confirm [delay_ms=N] [reason=...]\",\"prompt_sample [short|tts]\"]}");
+    serial_write_line("{\"ok\":true,\"message\":\"dev serial ready\",\"protocols\":[\"jsonl\",\"legacy\"],\"commands\":[\"status\",\"wake\",\"stop\",\"toggle\",\"reboot\",\"prompt_sample\",\"inject_prompt\",\"celebrate\",\"play_sound\",\"mcp_call\",\"capabilities\"],\"legacy_commands\":[\"status\",\"wake\",\"stop\",\"toggle\",\"reboot confirm [delay_ms=N] [reason=...]\",\"prompt_sample [short|tts]\",\"inject_prompt [short|tts]\"]}");
 
     if (!install_usb_serial_jtag_driver_if_needed()) {
         serial_write_line("{\"ok\":false,\"error\":\"usb_serial_unavailable\"}");

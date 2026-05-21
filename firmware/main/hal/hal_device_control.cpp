@@ -64,6 +64,10 @@ struct InjectPromptRequest {
     bool explicit_stop = false;
 };
 
+struct InjectPromptTaskContext {
+    InjectPromptRequest request;
+};
+
 struct EmbeddedPromptWav {
     const char* name;
     const char* repo_path;
@@ -84,7 +88,6 @@ struct SystemRebootContext {
     char reason[65] = "remote_dev_control";
 };
 
-InjectPromptRequest g_inject_request;
 
 uint16_t read_le16(const uint8_t* p)
 {
@@ -354,8 +357,11 @@ bool schedule_system_reboot(int delay_ms, const std::string& reason, int* schedu
 
 namespace {
 
-void inject_prompt_task(void*)
+void inject_prompt_task(void* arg)
 {
+    std::unique_ptr<InjectPromptTaskContext> ctx(static_cast<InjectPromptTaskContext*>(arg));
+    const InjectPromptRequest request = ctx ? ctx->request : InjectPromptRequest{};
+
     if (!hal_bridge::is_xiaozhi_ready()) {
         ESP_LOGW(TAG, "inject_prompt: xiaozhi is not ready");
         g_inject_active.store(false);
@@ -365,7 +371,7 @@ void inject_prompt_task(void*)
 
     WavPcmView wav;
     const EmbeddedPromptWav* selected = nullptr;
-    if (!select_prompt_wav(g_inject_request.sample, wav, selected)) {
+    if (!select_prompt_wav(request.sample, wav, selected)) {
         ESP_LOGE(TAG, "inject_prompt: failed to select embedded WAV");
         g_inject_active.store(false);
         vTaskDelete(nullptr);
@@ -380,18 +386,23 @@ void inject_prompt_task(void*)
     auto& audio_service = app.GetAudioService();
     for (size_t pos = 0; pos < total_samples; pos += kPcmFrameSamples) {
         const size_t samples = std::min(kPcmFrameSamples, total_samples - pos);
-        inject_frame(audio_service, wav.data + pos * sizeof(int16_t), samples);
+        const bool accepted = inject_frame(audio_service, wav.data + pos * sizeof(int16_t), samples);
+        if (!accepted) {
+            ESP_LOGW(TAG, "inject_prompt: PCM frame rejected at pos=%u", static_cast<unsigned>(pos));
+        }
         vTaskDelay(kFrameDelayTicks);
     }
 
     for (int i = 0; i < kTrailingSilentFrames; ++i) {
         std::vector<int16_t> silence(kPcmFrameSamples, 0);
-        audio_service.InjectPcmFrameToSendQueue(std::move(silence));
+        if (!audio_service.InjectPcmFrameToSendQueue(std::move(silence))) {
+            ESP_LOGW(TAG, "inject_prompt: trailing silence frame rejected index=%d", i);
+        }
         vTaskDelay(kFrameDelayTicks);
     }
 
     vTaskDelay(pdMS_TO_TICKS(kPostInjectVadWaitMs));
-    if (g_inject_request.explicit_stop) {
+    if (request.explicit_stop) {
         app.StopListening();
     }
 
@@ -521,9 +532,16 @@ DeviceControlResult handle_inject_prompt(const cJSON* args)
         return make_error("inject_already_active");
     }
 
-    g_inject_request = request;
-    BaseType_t ret = xTaskCreatePinnedToCore(inject_prompt_task, "inject_prompt", 4096, nullptr, tskIDLE_PRIORITY + 3, nullptr, 1);
+    auto* ctx = new (std::nothrow) InjectPromptTaskContext{};
+    if (!ctx) {
+        g_inject_active.store(false);
+        return make_error("alloc_failed");
+    }
+    ctx->request = request;
+
+    BaseType_t ret = xTaskCreatePinnedToCore(inject_prompt_task, "inject_prompt", 4096, ctx, tskIDLE_PRIORITY + 3, nullptr, 1);
     if (ret != pdPASS) {
+        delete ctx;
         g_inject_active.store(false);
         return make_error("task_create_failed");
     }

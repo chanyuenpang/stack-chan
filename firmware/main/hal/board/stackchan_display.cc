@@ -515,9 +515,16 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
         GetHAL().refreshRgb();
 
     } else if (strcmp(status, Lang::Strings::SPEAKING) == 0) {
-        if (speaking_modifier_id_ < 0) {
-            speaking_modifier_id_ = stackchan.addModifier(std::make_unique<SpeakingModifier>(0, 180, false));
+        // Harden speaking transition: keep avatar/LED feedback simple and avoid
+        // runtime speaking modifier churn on the critical TTS path.
+        // `inject-prompt --sample tts` has field evidence of crashing right after
+        // entering speaking; until a decoded backtrace proves otherwise, prefer a
+        // static mouth pose here instead of a live modifier.
+        if (speaking_modifier_id_ >= 0) {
+            stackchan.removeModifier(speaking_modifier_id_);
+            speaking_modifier_id_ = -1;
         }
+        avatar.mouth().setWeight(55);
 
         GetHAL().setRgbColor(0, 0, 0, 50);
         GetHAL().refreshRgb();

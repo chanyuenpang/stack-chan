@@ -17,6 +17,7 @@
 import argparse
 import json
 import sys
+import time
 import uuid
 from typing import Optional
 
@@ -43,6 +44,10 @@ TIMEOUT = 5
 DEFAULT_DEVICE = "/dev/ttyACM0"
 USB_BAUDRATE = 115200
 USB_TIMEOUT = 5
+USB_WRITE_TIMEOUT = 0.5
+USB_DRAIN_WINDOW = 0.2
+USB_POST_OPEN_SETTLE = 0.05
+USB_INTER_WRITE_WAIT = 0.05
 USB_SUPPORTED_COMMANDS = {"status", "wake", "stop", "toggle", "reboot", "prompt-sample", "mcp", "head", "led", "celebrate", "reminder", "reminders", "stop-reminder", "play-sound", "inject-prompt", "capabilities"}
 LEGACY_USB_SUPPORTED_COMMANDS = {"status", "wake", "stop", "toggle", "reboot", "prompt-sample"}
 LAN_ONLY_COMMANDS = set()
@@ -135,6 +140,8 @@ class StackChanHttpClient:
         return self._post("/dev/toggle")
 
     def prompt_sample(self, sample):
+        if sample == "short":
+            return self._post("/dev/inject_prompt")
         return self._post("/dev/prompt_sample", {"sample": sample, "explicit_stop": True})
 
     def mcp_call(self, tool, arguments):
@@ -180,8 +187,9 @@ class StackChanHttpClient:
     def play_sound(self, name):
         return self._post("/dev/play_sound", {"sound": name})
 
-    def inject_prompt(self):
-        return self._post("/dev/inject_prompt")
+    def inject_prompt(self, sample="short"):
+        body = None if sample == "short" else {"sample": sample}
+        return self._post("/dev/inject_prompt", body)
 
     def reboot(self, delay_ms=1500, reason="remote_control"):
         return self._post(
@@ -204,7 +212,42 @@ class StackChanUsbClient:
             raise UsbTransportError("缺少 pyserial 库，请运行: pip install pyserial")
 
     def _open_serial(self):
-        return serial.Serial(self.device, self.baudrate, timeout=self.timeout, write_timeout=self.timeout)
+        kwargs = dict(
+            timeout=self.timeout,
+            write_timeout=USB_WRITE_TIMEOUT,
+            inter_byte_timeout=0.1,
+            rtscts=False,
+            dsrdtr=False,
+            xonxoff=False,
+        )
+        try:
+            ser = serial.Serial(self.device, self.baudrate, exclusive=True, **kwargs)
+        except TypeError:
+            ser = serial.Serial(self.device, self.baudrate, **kwargs)
+        except SerialException as e:
+            if "exclusive lock" not in str(e).lower():
+                raise
+            ser = serial.Serial(self.device, self.baudrate, **kwargs)
+        try:
+            ser.dtr = False
+            ser.rts = False
+        except Exception:
+            pass
+        time.sleep(USB_POST_OPEN_SETTLE)
+        return ser
+
+    def _drain_initial_noise(self, ser, window: float = USB_DRAIN_WINDOW):
+        deadline = time.monotonic() + max(window, 0)
+        last_data_at = None
+        while time.monotonic() < deadline:
+            waiting = getattr(ser, "in_waiting", 0)
+            if waiting:
+                ser.read(waiting)
+                last_data_at = time.monotonic()
+                deadline = max(deadline, last_data_at + 0.05)
+            else:
+                time.sleep(0.01)
+        return last_data_at is not None
 
     def _read_json_response(self, ser, request_id: str):
         while True:
@@ -240,8 +283,8 @@ class StackChanUsbClient:
         payload = {"v": 1, "id": request_id, "command": command, "args": args or {}}
         try:
             with self._open_serial() as ser:
-                ser.reset_input_buffer()
-                ser.reset_output_buffer()
+                self._drain_initial_noise(ser)
+                time.sleep(USB_INTER_WRITE_WAIT)
                 ser.write((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
                 ser.flush()
                 return self._read_json_response(ser, request_id)
@@ -251,8 +294,8 @@ class StackChanUsbClient:
     def _send_legacy_command(self, command_line: str):
         try:
             with self._open_serial() as ser:
-                ser.reset_input_buffer()
-                ser.reset_output_buffer()
+                self._drain_initial_noise(ser)
+                time.sleep(USB_INTER_WRITE_WAIT)
                 ser.write((command_line + "\n").encode("utf-8"))
                 ser.flush()
 
@@ -351,8 +394,10 @@ class StackChanUsbClient:
     def play_sound(self, name):
         return self._send_command("play_sound", {"sound": str(name)})
 
-    def inject_prompt(self):
-        return self._send_command("inject_prompt", {})
+    def inject_prompt(self, sample="short"):
+        args = {} if sample == "short" else {"sample": sample}
+        legacy_command = None if sample != "short" else "inject_prompt"
+        return self._send_command("inject_prompt", args, legacy_command)
 
 
 class UnifiedStackChanClient:
@@ -371,10 +416,9 @@ class UnifiedStackChanClient:
         except requests.exceptions.RequestException as e:
             raise LanTransportError(str(e)) from e
 
-    def _call_usb(self, method_name: str, *call_args, **call_kwargs):
-        command_name = method_name.replace("_", "-")
+    def _call_usb(self, command_name: str, method_name: str, *call_args, **call_kwargs):
         if not command_supports_usb(command_name):
-            raise UnsupportedCommandError(f"command '{method_name}' is unsupported for usb transport")
+            raise UnsupportedCommandError(f"command '{command_name}' is unsupported for usb transport")
         method = getattr(self.usb, method_name)
         return method(*call_args, **call_kwargs)
 
@@ -385,122 +429,122 @@ class UnifiedStackChanClient:
         except LanTransportError as lan_error:
             if not command_supports_usb(command):
                 raise lan_error
-            return self._call_usb(usb_method, *call_args, **call_kwargs)
+            return self._call_usb(command, usb_method, *call_args, **call_kwargs)
 
     def status(self):
         if self.transport == "lan":
             return self._call_lan("status")
         if self.transport == "usb":
-            return self._call_usb("status")
+            return self._call_usb("status", "status")
         return self._call_auto("status", "status")
 
     def wake(self):
         if self.transport == "lan":
             return self._call_lan("wake")
         if self.transport == "usb":
-            return self._call_usb("wake")
+            return self._call_usb("wake", "wake")
         return self._call_auto("wake", "wake")
 
     def stop(self):
         if self.transport == "lan":
             return self._call_lan("stop")
         if self.transport == "usb":
-            return self._call_usb("stop")
+            return self._call_usb("stop", "stop")
         return self._call_auto("stop", "stop")
 
     def toggle(self):
         if self.transport == "lan":
             return self._call_lan("toggle")
         if self.transport == "usb":
-            return self._call_usb("toggle")
+            return self._call_usb("toggle", "toggle")
         return self._call_auto("toggle", "toggle")
 
     def reboot(self, delay_ms=1500, reason="remote_control"):
         if self.transport == "lan":
             return self._call_lan("reboot", delay_ms=delay_ms, reason=reason)
         if self.transport == "usb":
-            return self._call_usb("reboot", delay_ms=delay_ms, reason=reason)
+            return self._call_usb("reboot", "reboot", delay_ms=delay_ms, reason=reason)
         return self._call_auto("reboot", "reboot", delay_ms=delay_ms, reason=reason)
 
     def prompt_sample(self, sample):
         if self.transport == "lan":
             return self._call_lan("prompt_sample", sample)
         if self.transport == "usb":
-            return self._call_usb("prompt_sample", sample)
+            return self._call_usb("prompt-sample", "prompt_sample", sample)
         return self._call_auto("prompt-sample", "prompt_sample", "prompt_sample", sample)
 
     def mcp_call(self, tool, arguments):
         if self.transport == "lan":
             return self._call_lan("mcp_call", tool, arguments)
         if self.transport == "usb":
-            return self._call_usb("mcp_call", tool, arguments)
+            return self._call_usb("mcp", "mcp_call", tool, arguments)
         return self._call_auto("mcp", "mcp_call", "mcp_call", tool, arguments)
 
     def set_head(self, yaw, pitch, speed=None):
         if self.transport == "lan":
             return self._call_lan("set_head", yaw, pitch, speed)
         if self.transport == "usb":
-            return self._call_usb("set_head", yaw, pitch, speed)
+            return self._call_usb("head", "set_head", yaw, pitch, speed)
         return self._call_auto("head", "set_head", "set_head", yaw, pitch, speed)
 
     def set_led(self, r, g, b):
         if self.transport == "lan":
             return self._call_lan("set_led", r, g, b)
         if self.transport == "usb":
-            return self._call_usb("set_led", r, g, b)
+            return self._call_usb("led", "set_led", r, g, b)
         return self._call_auto("led", "set_led", "set_led", r, g, b)
 
     def celebrate(self, style, duration_ms=None, intensity=None, sound=False):
         if self.transport == "lan":
             return self._call_lan("celebrate", style, duration_ms, intensity, sound)
         if self.transport == "usb":
-            return self._call_usb("celebrate", style, duration_ms, intensity, sound)
+            return self._call_usb("celebrate", "celebrate", style, duration_ms, intensity, sound)
         return self._call_auto("celebrate", "celebrate", "celebrate", style, duration_ms, intensity, sound)
 
     def create_reminder(self, duration, message, repeat=False):
         if self.transport == "lan":
             return self._call_lan("create_reminder", duration, message, repeat)
         if self.transport == "usb":
-            return self._call_usb("create_reminder", duration, message, repeat)
+            return self._call_usb("reminder", "create_reminder", duration, message, repeat)
         return self._call_auto("reminder", "create_reminder", "create_reminder", duration, message, repeat)
 
     def get_reminders(self):
         if self.transport == "lan":
             return self._call_lan("get_reminders")
         if self.transport == "usb":
-            return self._call_usb("get_reminders")
+            return self._call_usb("reminders", "get_reminders")
         return self._call_auto("reminders", "get_reminders", "get_reminders")
 
     def stop_reminder(self, reminder_id):
         if self.transport == "lan":
             return self._call_lan("stop_reminder", reminder_id)
         if self.transport == "usb":
-            return self._call_usb("stop_reminder", reminder_id)
+            return self._call_usb("stop-reminder", "stop_reminder", reminder_id)
         return self._call_auto("stop-reminder", "stop_reminder", "stop_reminder", reminder_id)
 
     def play_sound(self, name):
         if self.transport == "lan":
             return self._call_lan("play_sound", name)
         if self.transport == "usb":
-            return self._call_usb("play_sound", name)
+            return self._call_usb("play-sound", "play_sound", name)
         return self._call_auto("play-sound", "play_sound", "play_sound", name)
 
-    def inject_prompt(self):
+    def inject_prompt(self, sample="short"):
         if self.transport == "lan":
-            return self._call_lan("inject_prompt")
+            return self._call_lan("inject_prompt", sample)
         if self.transport == "usb":
-            return self._call_usb("inject_prompt")
-        return self._call_auto("inject-prompt", "inject_prompt", "inject_prompt")
+            return self._call_usb("inject-prompt", "inject_prompt", sample)
+        return self._call_auto("inject-prompt", "inject_prompt", "inject_prompt", sample)
 
     def capabilities(self):
         if self.transport == "lan":
             return {"ok": True, "transport": "lan", "commands": sorted(USB_SUPPORTED_COMMANDS | {"play-sound"})}
         if self.transport == "usb":
-            return self._call_usb("capabilities")
+            return self._call_usb("capabilities", "capabilities")
         try:
             return {"ok": True, "transport": "lan", "commands": sorted(USB_SUPPORTED_COMMANDS | {"play-sound"})}
         except LanTransportError:
-            return self._call_usb("capabilities")
+            return self._call_usb("capabilities", "capabilities")
 
 
 # ─── 命令处理 ────────────────────────────────────────────────────────────────
@@ -626,7 +670,7 @@ def cmd_play_sound(client, args):
 
 
 def cmd_inject_prompt(client, args):
-    resp = client.inject_prompt()
+    resp = client.inject_prompt(args.sample)
     if resp.get("ok"):
         msg = resp.get("message", "started")
         print(green(f"✓ Prompt 注入已启动: {msg}"))
@@ -760,6 +804,7 @@ def main():
     sub.set_defaults(func=cmd_play_sound)
 
     sub = subparsers.add_parser("inject-prompt", help="Wake XiaoZhi and inject embedded voice prompt (lan/usb/auto)")
+    sub.add_argument("--sample", default="short", choices=["short", "tts"], help="embedded prompt sample，默认 short")
     sub.set_defaults(func=cmd_inject_prompt)
 
     sub = subparsers.add_parser("capabilities", help="查询当前 transport 的能力面")
