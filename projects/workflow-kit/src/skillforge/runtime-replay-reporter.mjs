@@ -59,6 +59,19 @@ function normalizeObserved(observed, status) {
   };
 }
 
+function normalizeTranscriptRef(transcriptRef, runtimeCase) {
+  if (!transcriptRef || typeof transcriptRef !== "object" || Array.isArray(transcriptRef)) return null;
+
+  return {
+    ...transcriptRef,
+    available: transcriptRef?.available === true,
+    providerTranscript: transcriptRef?.providerTranscript === true,
+    note:
+      transcriptRef?.note ??
+      `draft transcript ref only for case ${runtimeCase?.id ?? "<unknown>"}; not a provider transcript reference`,
+  };
+}
+
 function normalizeRuntimeCase(runtimeCase) {
   const status = normalizeCaseStatus(runtimeCase?.status);
   return {
@@ -67,7 +80,8 @@ function normalizeRuntimeCase(runtimeCase) {
     status,
     expectedBehavior: runtimeCase?.expectedBehavior ?? null,
     observed: normalizeObserved(runtimeCase?.observed, status),
-    transcriptRef: null,
+    transcriptRef: normalizeTranscriptRef(runtimeCase?.transcriptRef, runtimeCase),
+    transcript: runtimeCase?.transcript ?? null,
     failureReason: runtimeCase?.failureReason ?? null,
   };
 }

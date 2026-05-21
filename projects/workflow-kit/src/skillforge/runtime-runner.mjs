@@ -1,6 +1,10 @@
 import { buildRuntimeReplayReport } from "./runtime-replay-reporter.mjs";
-import { buildRuntimeRunnerContractContext } from "./runtime-runner-contract.mjs";
+import {
+  buildRuntimeRunnerContractContext,
+  buildRuntimeTranscriptArtifactRef,
+} from "./runtime-runner-contract.mjs";
 import { buildRuntimeSandboxBoundaryFromSources } from "./runtime-sandbox-contract.mjs";
+import { buildRuntimeTranscriptArtifact } from "./runtime-transcript-contract.mjs";
 import { selectRuntimeCase } from "./runtime-case-selector.mjs";
 
 const DRY_RUNNER_VERSION = "runtime-runner-skeleton-dry-null-1";
@@ -37,6 +41,96 @@ function buildObservedStub({ mode, caseRecord }) {
     sideEffectsPerformed: false,
     note: `runtime runner skeleton did not execute provider for case ${caseRecord?.id ?? "<unknown>"}`,
   };
+}
+
+function buildTranscriptEvents({
+  loadedFixture,
+  normalizedFixture,
+  preflightReport,
+  caseRecord,
+  boundary,
+  mode,
+  blocked,
+}) {
+  const blockingChecks = Array.isArray(preflightReport?.checks)
+    ? preflightReport.checks.filter((check) => check?.status === "fail" || check?.status === "error")
+    : [];
+
+  return [
+    {
+      phase: "fixture",
+      kind: "fixture-loaded",
+      status: loadedFixture ? "ok" : "unknown",
+      detail: "fixture material loaded for single-case runtime draft orchestration",
+      evidence: {
+        fixtureId: normalizedFixture?.fixtureId ?? null,
+        fixtureVersion: normalizedFixture?.fixtureVersion ?? null,
+        entryPath: normalizedFixture?.entryPath ?? null,
+        profile: normalizedFixture?.profile ?? null,
+      },
+    },
+    {
+      phase: "static-validation",
+      kind: "static-validated",
+      status: preflightReport?.metadata?.sourceStaticStatus ?? null,
+      detail: "static validation evidence inherited into runtime draft transcript stub",
+      evidence: {
+        reportVersion: preflightReport?.metadata?.sourceStaticReportVersion ?? null,
+        ruleSetVersion: preflightReport?.metadata?.sourceStaticRuleSetVersion ?? null,
+      },
+    },
+    {
+      phase: "preflight",
+      kind: blocked ? "preflight-failed" : "preflight-passed",
+      status: preflightReport?.status ?? (blocked ? "blocked" : "passed"),
+      detail: blocked
+        ? "preflight did not pass, so runtime execution remained blocked in draft mode"
+        : "preflight passed, enabling dry/null runner reservation without provider execution",
+      evidence: {
+        reportVersion: preflightReport?.reportVersion ?? null,
+        protocolVersion: preflightReport?.protocolVersion ?? null,
+        ruleSetVersion: preflightReport?.ruleSetVersion ?? null,
+        blockingCheckIds: blockingChecks.map((check) => check?.id).filter(Boolean),
+      },
+    },
+    {
+      phase: "case-selection",
+      kind: "case-selected",
+      status: caseRecord?.id ? "ok" : "unknown",
+      detail: "single runtime replay case selected for draft orchestration",
+      evidence: {
+        caseId: caseRecord?.id ?? null,
+        caseType: caseRecord?.type ?? null,
+        intent: caseRecord?.intent ?? null,
+      },
+    },
+    {
+      phase: "boundary",
+      kind: "sandbox-boundary-built",
+      status: "ok",
+      detail: "runtime sandbox boundary contract prepared for provider-less draft execution",
+      evidence: {
+        permissions: boundary?.permissions ?? {},
+        toolBoundary: boundary?.toolBoundary ?? {},
+      },
+    },
+    {
+      phase: "runner",
+      kind: blocked ? "runner-blocked" : mode === "null-runner" ? "runner-skipped" : "runner-dry-run-reserved",
+      status: blocked ? "blocked" : "not-executed",
+      detail: blocked
+        ? "runner remained blocked because preflight was not passed"
+        : mode === "null-runner"
+          ? "null runner reserved output contract shape without execution"
+          : "dry-run reserved output contract shape without execution",
+      evidence: {
+        mode,
+        providerCall: false,
+        transcriptEngineUsed: false,
+        executionReservedOnly: true,
+      },
+    },
+  ];
 }
 
 function assertRequiredInput(input) {
@@ -152,12 +246,15 @@ export function runRuntimeCaseSkeleton({
     throw new RangeError(`Runtime runner skeleton produced forbidden status: ${status}`);
   }
 
+  const observed = buildObservedStub({ mode, caseRecord });
+  const failureReason = blocked ? buildBlockedReason(preflightReport) : null;
+
   const result = effectiveRunnerContract.buildResult({
     caseId: caseRecord.id,
     status,
-    observed: buildObservedStub({ mode, caseRecord }),
+    observed,
     transcriptRef: null,
-    failureReason: blocked ? buildBlockedReason(preflightReport) : null,
+    failureReason,
     runnerMetadata: {
       implementation: "single-case-dry-null-runner-skeleton",
       runnerVersion: DRY_RUNNER_VERSION,
@@ -179,6 +276,68 @@ export function runRuntimeCaseSkeleton({
       ],
     },
   });
+
+  const transcriptArtifact = buildRuntimeTranscriptArtifact({
+    fixture: {
+      path: fixtureDir,
+      id: normalizedFixture?.fixtureId ?? null,
+      version: normalizedFixture?.fixtureVersion ?? null,
+      entry: normalizedFixture?.entryPath ?? null,
+      profile: normalizedFixture?.profile ?? null,
+    },
+    caseRecord,
+    executionMode: mode,
+    boundary: {
+      permissions: effectiveSandboxContract.permissions,
+      toolBoundary: effectiveSandboxContract.toolBoundary,
+      boundarySummary: effectiveSandboxContract.boundarySummary,
+    },
+    runnerMetadata: result.runnerMetadata,
+    outcome: {
+      status: result.status,
+      observedKind: observed.kind,
+      observed,
+      failureReason,
+    },
+    events: buildTranscriptEvents({
+      loadedFixture,
+      normalizedFixture,
+      preflightReport,
+      caseRecord,
+      boundary: {
+        permissions: effectiveSandboxContract.permissions,
+        toolBoundary: effectiveSandboxContract.toolBoundary,
+      },
+      mode,
+      blocked,
+    }),
+    note:
+      "provider-less runtime transcript stub only; captures orchestration evidence for a single draft case without any model dialogue or transcript persistence",
+    pendingCapabilities: [
+      ...result.runnerMetadata.pendingCapabilities,
+      "transcript-ref-wiring",
+      "transcript-persistence",
+    ],
+  });
+
+  const transcriptRef = buildRuntimeTranscriptArtifactRef({
+    artifactId: transcriptArtifact.artifactId,
+    caseId: caseRecord.id,
+    executionMode: mode,
+    available: true,
+    location: {
+      kind: "in-report-artifact",
+      path: ["cases", 0, "transcript"],
+    },
+    providerTranscript: false,
+    note:
+      "draft in-report transcript artifact ref wired to the provider-less runtime transcript stub for this single case; not a provider transcript reference",
+  });
+
+  const resultWithTranscriptRef = {
+    ...result,
+    transcriptRef,
+  };
 
   const runtimeReport = buildRuntimeReplayReport({
     fixtureDir,
@@ -222,8 +381,9 @@ export function runRuntimeCaseSkeleton({
         status: result.status,
         expectedBehavior: caseRecord.expectedBehavior ?? null,
         observed: result.observed,
-        transcriptRef: result.transcriptRef,
+        transcriptRef: resultWithTranscriptRef.transcriptRef,
         failureReason: result.failureReason,
+        transcript: transcriptArtifact,
       },
     ],
     checks: blocked
@@ -263,7 +423,8 @@ export function runRuntimeCaseSkeleton({
     caseRecord,
     runnerInput: effectiveRunnerContract.input,
     sandboxContract: effectiveSandboxContract,
-    result,
+    result: resultWithTranscriptRef,
+    transcriptArtifact,
     runtimeReport,
   };
 }

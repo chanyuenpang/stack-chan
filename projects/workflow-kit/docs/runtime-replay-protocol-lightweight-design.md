@@ -4,6 +4,7 @@
 > 适用阶段：Milestone D 协议收敛前置文档
 > 文档目的：为负责人判断“是否继续进入 runtime 相关子任务”提供边界清晰、与现有 static/schema 阶段兼容的协议草案。
 > 重要声明：本文**不代表 provider-backed runtime replay 已实现**，也**不承诺 transcript engine / sandbox enforcement / model integration / multi-case runtime orchestration 已存在**。
+> 补充边界：当前若出现 transcript evidence，也仅是 **provider-less draft transcript evidence**；它不是 provider transcript，不是 transcript persistence，也不是可复用 transcript registry。
 
 ## 1. 设计目标
 
@@ -19,6 +20,8 @@
 因此，Milestone D 的目标不是“补完整 runtime 实现”，而是先把**runtime replay protocol 和 preflight contract 冻结成轻量文档**，让后续实现有明确边界，且不反向污染当前 static MVP。
 
 当前仓库内已经存在一个**独立 runtime draft CLI** 及其最小 orchestration 承载面，用于诚实地串起 `static validation -> preflight -> single-case dry/null runtime skeleton -> draft artifact`。这一步只代表 Phase 3 draft execution surface 已接通，不代表真实 runtime replay 已交付。
+
+当前 transcript 相关能力也只到 very thin evidence layer：允许在单 case draft artifact 内表达 provider-less transcript evidence 的占位引用，但不能把它解释成 provider transcript、transcript engine 或 persistence 层已经存在。
 
 本文要回答的问题是：
 
@@ -510,12 +513,20 @@ output = {
 
 ### D. Transcript sink / artifact writer
 
-职责：把 execution evidence 写成独立 artifact 引用。
+职责：在后续能力存在时，把 execution evidence 写成独立 artifact 引用。
 
 建议接口意图：
 
 - 输入：transcript / observed / summary
 - 输出：artifact ref
+
+当前 Phase 3 已落地的边界更窄：
+
+- 只允许 provider-less draft transcript evidence；
+- 只允许单 selected case 的 in-report draft transcript artifact ref；
+- `transcriptRef` 语义是“runtime draft report 内的草案级 transcript artifact ref”，不是持久化存储句柄；
+- 必须显式保持 `providerTranscript=false`；
+- 不支持 provider transcript、transcript persistence、multi-case aggregate transcript artifact。
 
 ## 7.1.1 Sandbox boundary contract（已冻结的最小声明面）
 
@@ -562,6 +573,8 @@ Milestone D / 当前 Phase 3 虽然已经有独立 runtime draft CLI 与 preflig
 
 - 不接真实模型 provider；
 - 不做 transcript engine；
+- 不做 transcript persistence；
+- 不做 provider transcript；
 - 不做 sandbox implementation / sandbox enforcement；
 - 不做 tool execution adapter；
 - 不做 scoring engine；
@@ -571,7 +584,11 @@ Milestone D / 当前 Phase 3 虽然已经有独立 runtime draft CLI 与 preflig
 
 补充说明：当前仓库虽然已经存在 single-case dry/null runner skeleton 与独立 `pnpm validate:runtime:contracts` 测试入口，但它们只用于冻结 contract 与诚实性边界，不代表真实 runtime replay/provider/transcript/sandbox enforcement 已实现。
 
+补充到 transcript 口径：当前新增的 transcript evidence 若存在，也只是在 runtime draft artifact 范围内表达 provider-less evidence，不进入统一 validate family，不构成 provider transcript，也不构成 transcript persistence 证明。
+
 当前 draft artifact 也不应把 `passedCases > 0` 解读成 runtime 已通过；这些计数字段仅保留同构 shape，为后续 provider 子计划承接留接口。
+
+同理，当前若存在 `transcriptRef`，也不能把它解读成 transcript 系统已经打通。它只表示：当前 report 内部存在一个 provider-less draft transcript evidence 引用位，用于单 case 证据表达与合同诚实性约束。
 
 ---
 

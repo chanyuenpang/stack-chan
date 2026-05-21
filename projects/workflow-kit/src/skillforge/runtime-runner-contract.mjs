@@ -1,5 +1,7 @@
 const RUNNER_INPUT_VERSION = "runtime-runner-input-draft-1";
 const RUNNER_OUTPUT_VERSION = "runtime-runner-output-draft-1";
+const RUNTIME_TRANSCRIPT_REF_KIND = "runtime-transcript-artifact-ref";
+const RUNTIME_TRANSCRIPT_REF_VERSION = "runtime-transcript-artifact-ref-draft-1";
 
 const DEFAULT_ALLOWED_CASE_STATUSES = Object.freeze([
   "passed",
@@ -192,15 +194,50 @@ export function buildRuntimeRunnerContractContext({
   };
 }
 
+export function buildRuntimeTranscriptArtifactRef({
+  artifactId = null,
+  caseId = null,
+  executionMode = null,
+  available = false,
+  location = null,
+  providerTranscript = false,
+  note = null,
+} = {}) {
+  return {
+    kind: RUNTIME_TRANSCRIPT_REF_KIND,
+    version: RUNTIME_TRANSCRIPT_REF_VERSION,
+    artifactId,
+    caseId,
+    executionMode,
+    available: available === true,
+    location:
+      location && typeof location === "object" && !Array.isArray(location)
+        ? { ...location }
+        : {
+            kind: "in-report-artifact",
+            path: ["cases", caseId == null ? null : { id: caseId }, "transcript"],
+          },
+    providerTranscript: providerTranscript === true,
+    note:
+      note ??
+      "draft in-report transcript artifact ref for single-case provider-less runtime transcript stub; this is not a provider transcript reference",
+  };
+}
+
 export const RUNTIME_RUNNER_INPUT_VERSION = RUNNER_INPUT_VERSION;
 export const RUNTIME_RUNNER_OUTPUT_VERSION = RUNNER_OUTPUT_VERSION;
 export const RUNTIME_RUNNER_ALLOWED_STATUSES = [...DEFAULT_ALLOWED_CASE_STATUSES];
+export const RUNTIME_TRANSCRIPT_ARTIFACT_REF_KIND = RUNTIME_TRANSCRIPT_REF_KIND;
+export const RUNTIME_TRANSCRIPT_ARTIFACT_REF_VERSION = RUNTIME_TRANSCRIPT_REF_VERSION;
 
 export default {
   buildRuntimeRunnerInput,
   buildRuntimeRunnerResult,
   buildRuntimeRunnerContractContext,
+  buildRuntimeTranscriptArtifactRef,
   RUNTIME_RUNNER_INPUT_VERSION: RUNNER_INPUT_VERSION,
   RUNTIME_RUNNER_OUTPUT_VERSION: RUNNER_OUTPUT_VERSION,
   RUNTIME_RUNNER_ALLOWED_STATUSES: [...DEFAULT_ALLOWED_CASE_STATUSES],
+  RUNTIME_TRANSCRIPT_ARTIFACT_REF_KIND: RUNTIME_TRANSCRIPT_REF_KIND,
+  RUNTIME_TRANSCRIPT_ARTIFACT_REF_VERSION: RUNTIME_TRANSCRIPT_REF_VERSION,
 };

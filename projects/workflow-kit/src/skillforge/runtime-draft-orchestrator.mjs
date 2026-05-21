@@ -78,6 +78,7 @@ export async function orchestrateRuntimeDraft({
     sandboxContract: runtimeRun.sandboxContract,
     runnerInput: runtimeRun.runnerInput,
     runtimeResult: runtimeRun.result,
+    transcriptArtifact: runtimeRun.transcriptArtifact,
     runtimeReport: {
       ...runtimeRun.runtimeReport,
       metadata: {

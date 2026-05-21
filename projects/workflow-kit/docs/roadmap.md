@@ -4,9 +4,9 @@
 >
 > 回写机制：每个小计划完成后，必须把实际完成状态回写到 `docs/roadmap.md`、必要的 `docs/static-mvp-validation-report.md` 与 `README.md`；未完成、未验证或仅设计中的能力必须继续标记为 `PENDING` / 风险项，不能写成 done。
 >
-> 当前活跃阶段：**Phase 3 runtime draft CLI 实施中**。Phase 1 已完成 evidence 去重、checklist 聚合语义同步、本地正反例矩阵入口；Phase 2A 已固化最小 schema/profile 文档契约，新增 `study-card-assistant` simple fixture 并实现 `validate:fixtures` 最小多正例入口；Phase 2B 已把 `validate:all` 改为本地总入口，顺序运行多正例入口与独立反例矩阵；Phase 2D 已新增 `release-notes-assistant` standard fixture；Phase 2F 已新增最小 Linux GitHub Actions CI gate；Phase 3 已完成 preflight artifact/CLI/contracts、runtime replay report skeleton、runner/sandbox contract、single-case selector、single-case dry/null runner skeleton、独立 runtime draft CLI、runtime draft orchestrator，以及 runtime draft artifact / contract tests。schema engine、provider-backed runtime replay、transcript capture、sandbox enforcement、multi-case orchestration、cross-platform 与 cross-model 仍未完成。
+> 当前活跃阶段：**Phase 3 runtime draft CLI 实施中**。Phase 1 已完成 evidence 去重、checklist 聚合语义同步、本地正反例矩阵入口；Phase 2A 已固化最小 schema/profile 文档契约，新增 `study-card-assistant` simple fixture 并实现 `validate:fixtures` 最小多正例入口；Phase 2B 已把 `validate:all` 改为本地总入口，顺序运行多正例入口与独立反例矩阵；Phase 2D 已新增 `release-notes-assistant` standard fixture；Phase 2F 已新增最小 Linux GitHub Actions CI gate；Phase 3 已完成 preflight artifact/CLI/contracts、runtime replay report skeleton、runner/sandbox contract、single-case selector、single-case dry/null runner skeleton、独立 runtime draft CLI、runtime draft orchestrator，以及 runtime draft artifact / contract tests，并补上了 provider-less transcript evidence 的受限合同表达。schema engine、provider-backed runtime replay、transcript engine / transcript persistence、sandbox enforcement、multi-case orchestration、cross-platform 与 cross-model 仍未完成。
 >
-> 当前验证入口：`pnpm --silent validate` 输出 baseline 正例 fixture 的 JSON artifact；`pnpm --silent validate:fixtures` 输出当前三个正例 fixture 的 multi-fixture JSON artifact；`pnpm --silent validate:fixture:matrix` 独立运行当前 6/6 正反例矩阵；`pnpm --silent validate:all` 作为本地总入口顺序运行 `validate:fixtures` 与 `validate:fixture:matrix` 并输出 human-readable aggregate summary；`.github/workflows/ci-minimal-gate.yml` 则把 `validate:all` 与 `validate:contracts` 接入最小 Linux GitHub Actions gate；`pnpm --silent validate:preflight` 与 `pnpm --silent validate:runtime:draft` 分别作为独立 preflight / runtime draft 入口存在。除 `validate:runtime:draft` 外，其余默认入口都只代表 static validation 或 standalone preflight；`validate:runtime:draft` 也只代表 preflight→single-case dry/null runtime skeleton 的草案编排，不代表 provider-backed runtime replay、transcript-capable runtime、跨平台、跨模型或 schema engine 已完成。
+> 当前验证入口：`pnpm --silent validate` 输出 baseline 正例 fixture 的 JSON artifact；`pnpm --silent validate:fixtures` 输出当前三个正例 fixture 的 multi-fixture JSON artifact；`pnpm --silent validate:fixture:matrix` 独立运行当前 6/6 正反例矩阵；`pnpm --silent validate:all` 作为本地总入口顺序运行 `validate:fixtures` 与 `validate:fixture:matrix` 并输出 human-readable aggregate summary；`.github/workflows/ci-minimal-gate.yml` 则把 `validate:all` 与 `validate:contracts` 接入最小 Linux GitHub Actions gate；`pnpm --silent validate:preflight` 与 `pnpm --silent validate:runtime:draft` 分别作为独立 preflight / runtime draft 入口存在。除 `validate:runtime:draft` 外，其余默认入口都只代表 static validation 或 standalone preflight；`validate:runtime:draft` 也只代表 preflight→single-case dry/null runtime skeleton 的草案编排，以及受限的 provider-less transcript evidence 表达，不代表 provider-backed runtime replay、provider transcript、transcript persistence、正式 gate、跨平台、跨模型或 schema engine 已完成。
 >
 > 重要边界：当前“静态 MVP / Phase 2A 多正例静态入口 / Phase 2B 本地总入口通过”只表示当前 fixtures 与静态 validator 在当前环境下验证通过；**不等于真实模型回放通过，不等于跨平台/跨模型兼容通过，也不等于完整产品 PASS**。
 
@@ -35,7 +35,7 @@
 
 | 能力 | 当前状态 | 为什么不能宣称已完成 |
 |---|---|---|
-| 运行时模型回放 | PENDING | 目前只有静态 replay 诚实性检查，没有真实模型 transcript、observed 输出和人工/自动评分 |
+| 运行时模型回放 | PENDING | 目前只有静态 replay 诚实性检查，以及 runtime draft 中受限的 provider-less transcript evidence 表达；没有真实 provider transcript、transcript persistence、observed 执行证据和人工/自动评分 |
 | 跨平台兼容 | PENDING | 当前证据来自 Linux + 当前 Node/pnpm 环境，未覆盖 macOS/Windows 路径、shell、换行与权限差异 |
 | 跨模型兼容 | PENDING | 未验证不同模型对同一 skill 的触发、边界遵循、输出稳定性 |
 | 隐私 evidence 去重 | Phase 1 已完成，需防回归 | 同文件、同脱敏 detail、同 pattern kind 的 privacy evidence 已去重，且 secret/private path 反例仍阻断；后续只跟踪回归与覆盖扩展 |
@@ -48,8 +48,8 @@
 
 ### 1.3 当前边界判定
 
-- 可以说：SkillForge 已完成“文档设计闭环 + 单 fixture 静态 MVP + JSON validator + 两个 simple 正例与一个 standard 正例静态验证 + Phase 2A 最小多正例入口”。
-- 不可以说：SkillForge 已完成真实模型回放、完整生成器、完整产品验收、跨平台/跨模型兼容。
+- 可以说：SkillForge 已完成“文档设计闭环 + 单 fixture 静态 MVP + JSON validator + 两个 simple 正例与一个 standard 正例静态验证 + Phase 2A 最小多正例入口 + Phase 3 runtime draft/provider-less transcript evidence 的受限合同表达”。
+- 不可以说：SkillForge 已完成真实模型回放、provider transcript、transcript persistence、完整生成器、完整产品验收、跨平台/跨模型兼容。
 - 后续所有报告必须区分：`static_checked`、`runtime_replay_pending`、`cross_platform_pending`、`product_pending`。
 
 ## 2. 最终形态愿景
@@ -250,7 +250,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 
 ### Phase 3：真实模型回放与评估
 
-> 当前进度口径：Phase 3 目前只完成到 **runtime draft CLI + preflight→single-case dry/null runtime skeleton orchestration**。这代表独立 runtime draft 入口已存在，但仍然不是 provider-backed runtime、不是 transcript-capable runtime、不是正式 gate，也没有接入 `validate:all` / `validate:contracts` / `validate:preflight` 默认链路。
+> 当前进度口径：Phase 3 目前只完成到 **runtime draft CLI + preflight→single-case dry/null runtime skeleton orchestration**，并新增了 **provider-less transcript evidence** 的受限合同表达。这代表独立 runtime draft 入口已存在，但仍然不是 provider-backed runtime、不是 provider transcript、不是 transcript persistence、不是正式 gate，也没有接入 `validate:all` / `validate:contracts` / `validate:preflight` 默认链路。
 
 **目标**
 
@@ -468,7 +468,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 2. **Phase 1 防回归复核**：持续运行 `validate` / `validate:all`，确保 evidence 去重、七维 checklist 多来源聚合语义和本地矩阵不回退。
 3. **新增更多 simple/advanced fixture**：选择非会议场景，验证规则通用性，防止单 fixture 过拟合。
 4. **引入 schema 与 CI 门禁**：先让所有正例 fixture 和关键反例矩阵在 CI 中稳定运行。
-5. **沿着 contract-forward 路线推进 Phase 3 provider/transcript 后续子计划**：preflight artifact/adapter/checks/CLI、runtime replay report skeleton、runner contract、sandbox contract、single-case dry/null runner skeleton、独立 `runtime draft CLI`、`preflight -> runtime skeleton` orchestration wiring 与独立 runtime contract tests 已具备最小合同基础；后续实施型 subplan 应继续聚焦 provider、transcript、sandbox enforcement、multi-case orchestration 等尚未实现部分，并继续保持独立入口、独立 contract tests，不把 runtime draft 写成正式 gate，也不接入 `validate:all` / `validate:contracts` / `validate:preflight` 默认链路。（协议与实施草案见 `docs/runtime-replay-protocol-lightweight-design.md`、`docs/preflight-contract-and-artifacts-design.md`、`docs/phase-3-runtime-report-runner-plan.md`、`docs/phase-3-runtime-draft-cli-plan.md`；当前仍不代表真实 runtime replay、模型接入或 transcript engine 已实现。）
+5. **沿着 contract-forward 路线推进 Phase 3 provider/transcript 后续子计划**：preflight artifact/adapter/checks/CLI、runtime replay report skeleton、runner contract、sandbox contract、single-case dry/null runner skeleton、独立 `runtime draft CLI`、`preflight -> runtime skeleton` orchestration wiring、provider-less transcript evidence 的受限合同表达与独立 runtime contract tests 已具备最小合同基础；后续实施型 subplan 应继续聚焦 provider、provider transcript、transcript persistence、sandbox enforcement、multi-case orchestration 等尚未实现部分，并继续保持独立入口、独立 contract tests，不把 runtime draft 写成正式 gate，也不接入 `validate:all` / `validate:contracts` / `validate:preflight` 默认链路。（协议与实施草案见 `docs/runtime-replay-protocol-lightweight-design.md`、`docs/preflight-contract-and-artifacts-design.md`、`docs/phase-3-runtime-report-runner-plan.md`、`docs/phase-3-runtime-draft-cli-plan.md`；当前仍不代表真实 runtime replay、模型接入、provider transcript 或 transcript engine / persistence 已实现。）
 
 ## 8. 里程碑判定摘要
 

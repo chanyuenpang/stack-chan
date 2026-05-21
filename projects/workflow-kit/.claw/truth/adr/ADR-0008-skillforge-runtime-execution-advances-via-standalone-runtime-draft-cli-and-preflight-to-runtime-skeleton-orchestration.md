@@ -8,65 +8,82 @@ accepted
 
 决定先行：在 ADR-0007 已完成 `runtime-replay-report`、`runtime-runner-contract`、`runtime-sandbox-contract` 与 single-case `dry-run` / `null-runner` skeleton 的最小合同闭环之后，Phase 3 的下一段推进不继续优先补 `report enrichment`，也不接入真实 provider，而是先把最小 execution path 做成可落地的 `standalone runtime draft CLI` 与 `preflight→runtime skeleton orchestration`。
 
-来源计划“SkillForge Phase 3 runtime execution kickoff”已完成。计划中的已完成任务与 retrospective 固定了以下事实：
+来源计划“Phase 3 runtime draft CLI + preflight→runtime skeleton orchestration”已完成。计划中的 `done` 任务与 retrospective 固定了以下事实：
 
-- 只读侦察结论明确：下一份实施型 subplan 最该先做的是 `preflight→runtime skeleton adapter/orchestration`，并以独立 `runtime draft CLI` 作为承载面；相比继续补 report enrichment，这一步更能证明 Phase 3 execution 方向是否成立，同时仍保持 `single fixture`、`single case`、`dry/null`、`无真实 provider`。
-- 负责人已锁定下一实施方向为 `runtime draft CLI + preflight→runtime skeleton orchestration`，并形成 `docs/phase-3-runtime-draft-cli-plan.md` 与 `docs/roadmap.md` 中的实施草案。
-- 草案要求新增 `runtime-draft-orchestrator.mjs`，并固定任务拆分顺序为：`runtime draft CLI`、`preflight→runtime draft orchestrator`、`runtime draft artifact contract tightening`、`runtime draft contract tests`、`docs sync/roadmap write-back`；验证与提交规划留后续单独子计划。
-- 计划同时冻结禁区：不得污染 `static/preflight` 既有 contract 与 fixtures，不得伪造 runtime pass，也不得把 draft CLI 描述成真实 runtime replay 已实现；尤其 `draft CLI` 的 exit code 不应直接绑定 `summary.passed`。
+- 已新增独立 `scripts/run-runtime-draft.mjs` 入口，并在 `package.json` 中新增 `validate:runtime:draft`；CLI 支持 `<fixture-path>`、`--case-id`、`--case-index`、`--mode dry-run|null-runner`、`--format json`、`--help/-h`，`stdout` 始终只输出单个 `runtime-replay-report` draft artifact，且退出码固定为 `0=成功生成 artifact`、`1=orchestration 异常/错误 artifact`、`2=usage error`，明确不复用 preflight 的 `summary.passed→exit` 语义。
+- 已新增 `src/skillforge/runtime-draft-orchestrator.mjs`，并把 orchestration 顺序固定为 `loadFixture() → normalizeFixture() → validateFixture() → validatePreflight() → runRuntimeCaseSkeleton()`；该路径复用既有 loader / normalize / validate / preflight 栈，不重写 fixture 解析逻辑。
+- 已把 static/preflight lineage 透传到 runtime artifact metadata，包括 `sourceStaticReportVersion`、`sourceStaticRuleSetVersion`、`sourceStaticStatus`、`sourcePreflightReportVersion`、`sourcePreflightProtocolVersion`、`sourcePreflightStatus`、`sourceReplayCasesKind`、`sourceFixtureProfile`、`sourceFixtureEntry`，以及 `sourceLineage.static|preflight|replayCases`。
+- 已收紧 `runtime-replay-report` 的 draft contract：顶层 `status` 当前只会是 `blocked` 或 `draft`，`summary.passed` 固定为 `false`，`cases[].status` 收紧到 `blocked` / `dry-run` / `not-executed`，`transcriptRef` 强制为 `null`，`observed` 固定为 `kind=runtime-observed-stub` 且 `providerCall/transcriptCaptured/sideEffectsPerformed` 全为 `false`，`metadata.note` 明确 `no provider execution / no transcript evidence / no scoring result / no runtime pass evidence`。
+- 已新增并运行 `scripts/test-runtime-contracts.mjs`，为 runtime draft CLI 与 orchestration 锁定合同；来源计划记录其实际通过 `Runtime contract tests passed: 10/10 cases`，同时 static / preflight baseline 仍保持 `17/51/6/6` 与既有 contract 轨道零污染。
+- 文档已同步到 `docs/validator-contract.md`、`docs/runtime-replay-protocol-lightweight-design.md`、`docs/roadmap.md`、`docs/phase-3-runtime-draft-cli-plan.md`，并明确当前能力只是独立 runtime draft CLI + single-case dry/null skeleton orchestration，不是正式 gate，也不是 provider-backed runtime replay。
 
-该决策需要沉淀，因为它把“runtime 层如何从合同闭环继续走向更真实 execution proof”的实现策略固定下来：下一步先证明 orchestrated path 存在，但仍坚持 draft-only、skeleton-only、no-provider 的边界，而不是过早把 CLI 成功语义与真实 runtime pass 绑定。
-
+该决策需要沉淀，因为它把“runtime 层如何从合同闭环继续走向更真实 execution proof”的实现策略从规划态推进为已落地约束：现在不仅决定先做 draft-only、skeleton-only、no-provider 路径，而且已经把 CLI 语义、orchestration 接缝、artifact contract、lineage 透传与独立 contract tests 一并固定下来。
 ## Decision
 
-决定将 SkillForge Phase 3 在 runtime execution 的下一段推进策略固定为：先实现 `standalone runtime draft CLI`，并用它承载 `preflight→runtime skeleton orchestration` 的最小 existence proof。
+决定将 SkillForge Phase 3 在 runtime execution 的这一段实现策略固定为：以独立 `standalone runtime draft CLI` 承载 `preflight→runtime skeleton orchestration`，并把这条路径定义为诚实的单 case draft execution 入口，而不是任何形式的真实 runtime pass 证明。
 
 当前阶段的具体规则如下：
 
-- 下一份实施型 subplan 的最小执行对象固定为 `runtime draft CLI + preflight→runtime skeleton orchestration`，而不是继续优先做 `report enrichment` 或直接接入真实 provider。
-- `runtime draft CLI` 必须作为独立承载面存在，用来暴露从 preflight 产物进入 runtime skeleton 的最小调用路径。
-- orchestration 必须通过新增的 `runtime-draft-orchestrator.mjs` 一类独立接缝承接 `preflight→runtime` 串联，而不是把串联逻辑散落进既有 static/preflight contract 层。
-- 本阶段仍只允许 `single fixture`、`single case`、`dry/null`、`无真实 provider` 的 execution proof；不得宣称已实现真实 `runtime replay`。
-- `draft CLI` 的 exit code 不得直接绑定 `summary.passed`，避免把 draft 路径错误编码为真实执行成功语义。
-- artifact contract tightening、runtime draft contract tests 与 docs/roadmap sync 必须作为同一路线的后续原子任务存在，但验证与提交规划应继续留在单独子计划中处理。
-- `static/preflight` 既有 contract、fixtures 与 baseline 继续视为禁区；任何新增 execution 路线都不得通过伪造 runtime pass 或改写上游 contract 来“证明成功”。
+- `runtime draft CLI` 必须保持独立入口，不污染 `validate`、`validate:all`、`validate:contracts`、`validate:preflight`、`validate:preflight:contracts` 的既有语义；其命令锚点为 `validate:runtime:draft`。
+- CLI 成功语义固定为“成功生成 draft artifact”，而不是“runtime passed”；退出码固定为 `0=artifact generated`、`1=orchestration error with error artifact`、`2=usage error`，不得绑定 `summary.passed`。
+- `preflight→runtime` 串联必须通过 `src/skillforge/runtime-draft-orchestrator.mjs` 这一独立 orchestration 接缝完成，并复用既有 `loadFixture()`、`normalizeFixture()`、`validateFixture()`、`validatePreflight()`、`runRuntimeCaseSkeleton()` 栈，而不是重写解析或验证逻辑。
+- 当前 runtime draft artifact 必须显式继承 static / preflight lineage；`metadata` 中要保留 source versions、source statuses、fixture/profile/entry 与 `sourceLineage.static|preflight|replayCases`，确保 runtime draft 始终可追溯回上游静态与 preflight 产物。
+- draft contract 必须保持诚实边界：顶层 `status` 只允许 `blocked` 或 `draft`；`summary.passed` 固定为 `false`；`cases[].status` 只允许 `blocked` / `dry-run` / `not-executed`；`transcriptRef=null`；`observed` 只能是 stub，且 `providerCall`、`transcriptCaptured`、`sideEffectsPerformed` 全为 `false`。
+- runtime draft contract tests 必须作为独立验证轨道存在，用于锁定 CLI、case selection、blocked/dry/null 语义与 artifact contract；同时继续保护 static / preflight baseline 零污染。
+- 当前能力仍只允许 `single fixture`、`single case`、`dry/null`、`no-provider`、`no transcript`、`no scoring`、`no sandbox enforcement` 的 execution proof；不得把这条路径描述成正式 gate、provider-backed runtime replay 或多 case orchestration 已实现。
 
 ## Alternatives Considered
 
-- 继续优先补 `report enrichment`：拒绝。来源计划明确认为这一步不如先打通最小 execution path，更难证明 Phase 3 execution 方向是否成立。
-- 直接接入真实 provider 或把 draft CLI 包装成真实 runtime replay：拒绝。计划已明确当前阶段仍是 `draft` / `skeleton` proof，不得越过 `no-provider` 边界。
-- 把 runtime draft CLI 的成功语义直接绑定 `summary.passed`：拒绝。来源计划明确要求 exit code 不应直接绑定 `summary.passed`，以防把 draft 铺轨误写成真实执行成功。
-- 把 orchestration 混入既有 static/preflight contract 改造中一起推进：拒绝。计划已明确禁区是 `static/preflight` 既有 contract 与 fixtures，应通过独立 orchestration 接缝推进。
+- 继续优先补 `report enrichment`：拒绝。来源计划与 retrospective 都明确，相比继续补报表字段，先打通最小 execution path 更能证明 Phase 3 runtime 方向成立。
+- 直接接入真实 provider、transcript 或把 draft CLI 包装成真实 runtime replay：拒绝。已完成任务明确当前阶段仍是 `draft` / `skeleton` proof，不得越过 `no-provider`、`no transcript`、`no scoring` 边界。
+- 把 runtime draft CLI 的成功语义直接绑定 `summary.passed`：拒绝。已完成 CLI 合同明确退出码只表达 orchestration 与 artifact 生成结果，不表达 runtime passed。
+- 重写 loader / validator / preflight 栈，另外做一套 runtime fixture 解析逻辑：拒绝。已完成 orchestrator 明确复用既有 `loadFixture()` / `normalizeFixture()` / `validateFixture()` / `validatePreflight()` 栈。
+- 把 runtime tests 并入既有 `validate:contracts` 或 `validate:preflight:contracts`：拒绝。来源计划已明确 runtime tests 必须保持独立，以继续保护 static / preflight baseline。
 
 ## Related Code
 
 | Path | Role |
 | ---- | ---- |
-| `plans/subplan-4-subplan-4-subplan-phase-3-runtime-execution-kickoff.json` | 来源计划记录，提供已完成任务、review 与 retrospective 结论。 |
-| `docs/phase-3-runtime-draft-cli-plan.md` | 下一实施型 subplan 的实施草案锚点。 |
-| `docs/roadmap.md` | 已同步的路线回写锚点。 |
-| `runtime-draft-orchestrator.mjs` | 来源计划明确要求新增的 orchestration 接缝锚点。 |
-| `runtime draft CLI` | 来源计划固定的独立承载面与最小 execution path 入口。 |
+| `plans/subplan-4-subplan-4-subplan-5-phase-3-runtime-draft-cli-implementation.json` | 来源计划记录，提供已完成任务、review 与 retrospective 结论。 |
+| `scripts/run-runtime-draft.mjs` | 独立 runtime draft CLI 入口与退出码/stdout contract 锚点。 |
+| `src/skillforge/runtime-draft-orchestrator.mjs` | `preflight→runtime` 独立 orchestration 接缝。 |
+| `src/skillforge/runtime-runner.mjs` | 被 orchestrator 调用的 single-case dry/null runtime skeleton。 |
+| `src/skillforge/runtime-replay-reporter.mjs` | `runtime-replay-report` draft contract 与 metadata/summary/cases 锚点。 |
+| `scripts/test-runtime-contracts.mjs` | runtime draft CLI 与 orchestration 的独立 contract tests。 |
+| `package.json` | `validate:runtime:draft` 与 `validate:runtime:contracts` 命令锚点。 |
+| `docs/validator-contract.md` | runtime draft CLI 合同说明同步锚点。 |
+| `docs/runtime-replay-protocol-lightweight-design.md` | runtime draft artifact / protocol 边界同步锚点。 |
+| `docs/roadmap.md` | Phase 3 路线口径回写锚点。 |
+| `docs/phase-3-runtime-draft-cli-plan.md` | 本轮实施边界与后续承接说明锚点。 |
 
 ## Consequences
 
-- 正向：Phase 3 的下一步从“runtime skeleton 已闭环”推进到“preflight 可被最小 orchestration 驱动进入 runtime skeleton”，形成更真实但仍受控的 existence proof。
-- 正向：以独立 `draft CLI` 与 `runtime-draft-orchestrator.mjs` 承载串联，能把 execution 路线与 static/preflight 既有 contract 解耦，减少基线污染风险。
-- 正向：通过禁止 exit code 直接绑定 `summary.passed`，明确区分 draft 铺轨与真实 runtime pass，避免后续语义回归。
-- 取舍：当前仍不进入真实 provider、不支持多 case，也不把 draft CLI 视为生产级 runtime replay 入口。
-- 取舍：artifact contract tightening、contract tests、docs sync 仍需后续实施型子计划逐步落地，当前 ADR 固定的是推进顺序与边界，不代表这些产物已全部实现。
-- 验证锚点：来源完成记录确认本轮已完成侦察、方向锁定与实施型 subplan 草案产出，并明确下一步应进入真正实现型子计划，而不是继续停留在规划层。
+- 正向：Phase 3 已从“runtime skeleton 合同闭环”推进到“preflight 可被独立 CLI/orchestrator 驱动进入单 case runtime draft 路径”，形成更接近真实执行、但仍受控的 existence proof。
+- 正向：以独立 `scripts/run-runtime-draft.mjs` 与 `src/skillforge/runtime-draft-orchestrator.mjs` 承载串联，保持 execution 路线与 static/preflight 默认验证族解耦，降低基线污染风险。
+- 正向：通过固定 lineage metadata，后续 provider/transcript/scoring 扩展必须沿既有 static/preflight 来源链路演进，减少 report 语义漂移。
+- 正向：通过把 CLI exit code 与 `summary.passed` 解耦，明确区分“artifact 已生成”和“runtime 真正通过”，避免把 draft 能力误当成正式 gate。
+- 正向：独立 `scripts/test-runtime-contracts.mjs` 让 runtime draft CLI、case selection、blocked/dry/null contract 有稳定回归锚点；来源计划记录其已通过 `10/10 cases`。
+- 取舍：当前仍不支持真实 provider integration、transcript capture、sandbox enforcement、多 case / multi-fixture orchestration 或 scoring，功能上依然只是诚实的 draft skeleton。
+- 取舍：后续进入更真实 runtime execution 时，必须继续遵守已固定的 artifact contract、lineage 透传与独立 runtime 验证轨道，不能回退到模糊语义或混入 static/preflight 既有入口。
+- 验证锚点：来源完成记录确认 `validate:fixture` 仍为 `17 checks`、`validate:fixtures` 仍为 `51 totalChecks`、`validate:all` 仍为 `6/6`、`validate:contracts` / `validate:preflight` / `validate:preflight:contracts` 通过、`validate:runtime:contracts` 通过 `10/10`，且 `validate:runtime:draft` 能稳定输出合法 draft artifact，`status=draft`、`passed=false`。
 
 ## Search Terms
 
 - `runtime draft CLI`
 - `preflight→runtime skeleton orchestration`
+- `scripts/run-runtime-draft.mjs`
 - `runtime-draft-orchestrator.mjs`
+- `validate:runtime:draft`
+- `validate:runtime:contracts`
 - `summary.passed`
+- `sourceLineage.static`
+- `sourceLineage.preflight`
+- `sourceLineage.replayCases`
 - `single fixture`
 - `single case`
 - `dry/null`
 - `no-provider`
-- `report enrichment`
+- `transcriptRef`
+- `runtime-observed-stub`
 - `docs/phase-3-runtime-draft-cli-plan.md`
 - `docs/roadmap.md`

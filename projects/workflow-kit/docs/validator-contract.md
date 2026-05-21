@@ -65,6 +65,7 @@ Current coverage is intentionally narrow:
 
 - the standalone CLI already exists;
 - orchestration only covers `static validation -> preflight -> single-case selection -> dry-run/null-runner runtime skeleton -> runtime draft artifact`;
+- transcript evidence is currently provider-less and draft-only;
 - it is a draft execution surface, not a formal validation gate;
 - it is not transcript-capable runtime replay.
 
@@ -77,7 +78,10 @@ Notes:
 - This CLI currently reuses `loadFixture()`, `validateFixture()`, `validatePreflight()`, and `runRuntimeCaseSkeleton()` through the runtime draft orchestrator; it does not introduce provider execution, transcript persistence, sandbox enforcement, multi-case orchestration, or a separate raw fixture parsing pipeline.
 - The orchestration scope stops at preflight plus the current single-case dry/null runtime skeleton. It does not perform provider-backed runtime replay and should not be interpreted as a production runtime gate.
 - CLI success does **not** mean runtime passed. In the current draft phase, the emitted artifact must remain honest about `blocked`, `dry-run`, and `not-executed` outcomes.
-- The current draft runtime artifact contract is intentionally non-executional: top-level `status` is constrained to `draft` or `blocked`, `summary.passed` must remain `false`, `cases[].status` is constrained to `blocked | dry-run | not-executed`, `observed` stays a stub, and `transcriptRef` remains `null`.
+- The current draft runtime artifact contract is intentionally non-executional: top-level `status` is constrained to `draft` or `blocked`, `summary.passed` must remain `false`, `cases[].status` is constrained to `blocked | dry-run | not-executed`, and `observed` stays a stub.
+- Phase 3 transcript evidence is currently limited to provider-less draft evidence for a single selected case. When emitted, `transcriptRef` is only an in-report draft transcript artifact ref and must not be interpreted as transcript persistence, provider transcript support, or a reusable transcript registry.
+- Any emitted transcript evidence must continue to declare `providerTranscript=false` and must not claim provider execution.
+- Multi-case aggregate transcript collection is not supported; transcript evidence, if present, is per selected case only.
 - Provider execution, transcript capture/persistence, sandbox enforcement, scoring, and multi-case aggregate orchestration remain unimplemented.
 - This entrypoint is intentionally not wired into `pnpm validate`, `pnpm validate:all`, `pnpm validate:contracts`, `pnpm validate:preflight`, or `pnpm validate:preflight:contracts`.
 
@@ -95,12 +99,14 @@ Current scope:
 - validates single-case selector stability for default first case, `caseId`, and `caseIndex` selection;
 - validates that `dry-run` / `null-runner` results never masquerade as `passed` runtime execution;
 - validates blocked-case summary/check alignment and `blockedCases` accounting;
-- validates that `pendingCapabilities`, sandbox declaration-only metadata, lineage references, and runtime report notes stay explicit about unimplemented provider/transcript/scoring/sandbox enforcement.
+- validates that `pendingCapabilities`, sandbox declaration-only metadata, lineage references, and runtime report notes stay explicit about unimplemented provider transcript support, transcript persistence, scoring, and sandbox enforcement.
 
 Intentional limits:
 
 - no real provider execution;
-- no transcript capture or transcript persistence;
+- no provider transcript support;
+- no transcript persistence;
+- no multi-case aggregate transcript evidence;
 - no sandbox enforcement verification;
 - no integration into `pnpm validate:contracts` or `pnpm validate:preflight:contracts`;
 - no claim that passing runtime contract tests means runtime replay is implemented.

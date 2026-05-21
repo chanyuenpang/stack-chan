@@ -6,6 +6,16 @@ import {
   buildRuntimeReplayReport,
   RUNTIME_REPLAY_KIND,
 } from "../src/skillforge/runtime-replay-reporter.mjs";
+import {
+  RUNTIME_TRANSCRIPT_ARTIFACT_CONTRACT_VERSION,
+  RUNTIME_TRANSCRIPT_ARTIFACT_EXECUTION_CLASS,
+  RUNTIME_TRANSCRIPT_ARTIFACT_KIND,
+  RUNTIME_TRANSCRIPT_ARTIFACT_SCOPE,
+} from "../src/skillforge/runtime-transcript-contract.mjs";
+import {
+  RUNTIME_TRANSCRIPT_ARTIFACT_REF_KIND,
+  RUNTIME_TRANSCRIPT_ARTIFACT_REF_VERSION,
+} from "../src/skillforge/runtime-runner-contract.mjs";
 import { selectRuntimeCase } from "../src/skillforge/runtime-case-selector.mjs";
 import {
   buildRuntimeRunnerContractContext,
@@ -271,6 +281,122 @@ function testBlockedSummaryAndCountsAlign() {
   assert.equal(blockedRun.runtimeReport.cases.length, blockedRun.runtimeReport.summary.totalCases);
 }
 
+function testTranscriptArtifactAndReportReferenceContract() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+
+  const run = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport,
+    options: { mode: "dry-run" },
+  });
+
+  const runtimeCase = run.runtimeReport.cases[0];
+  const transcript = runtimeCase.transcript;
+  const transcriptRef = runtimeCase.transcriptRef;
+
+  assert.equal(transcript.kind, RUNTIME_TRANSCRIPT_ARTIFACT_KIND);
+  assert.equal(transcript.artifactVersion, RUNTIME_TRANSCRIPT_ARTIFACT_CONTRACT_VERSION);
+  assert.equal(transcript.scope, RUNTIME_TRANSCRIPT_ARTIFACT_SCOPE);
+  assert.equal(transcript.executionClass, RUNTIME_TRANSCRIPT_ARTIFACT_EXECUTION_CLASS);
+  assert.equal(transcript.executionClass, "provider-less-draft-only");
+  assert.equal(transcript.case.id, runtimeCase.id);
+  assert.equal(transcript.executionMode, "dry-run");
+
+  assert.equal(transcriptRef.kind, RUNTIME_TRANSCRIPT_ARTIFACT_REF_KIND);
+  assert.equal(transcriptRef.version, RUNTIME_TRANSCRIPT_ARTIFACT_REF_VERSION);
+  assert.equal(transcriptRef.available, true);
+  assert.equal(transcriptRef.providerTranscript, false);
+  assert.deepEqual(transcriptRef.location, {
+    kind: "in-report-artifact",
+    path: ["cases", 0, "transcript"],
+  });
+  assert.equal(transcriptRef.artifactId, transcript.artifactId);
+  assert.match(transcriptRef.note, /not a provider transcript reference/i);
+}
+
+function testTranscriptStubRecordsOnlyOrchestrationEvidence() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+
+  const run = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport,
+    options: { mode: "dry-run" },
+  });
+
+  const transcript = run.transcriptArtifact;
+  assert.ok(Array.isArray(transcript.events));
+  assert.equal(transcript.events.length > 0, true);
+  assert.equal(transcript.outcome.transcriptCaptured, false);
+  assert.equal(transcript.outcome.providerResponseCaptured, false);
+  assert.equal(transcript.runnerMetadata.providerCall, false);
+  assert.equal(transcript.runnerMetadata.transcriptEngineUsed, false);
+  assert.match(transcript.note, /orchestration evidence/i);
+  assert.match(transcript.note, /(without any model dialogue|excludes any fictional model\/provider dialogue)/i);
+
+  for (const event of transcript.events) {
+    assert.ok(event.seq >= 1);
+    assert.equal(typeof event.phase, "string");
+    assert.equal(typeof event.kind, "string");
+    assert.equal(typeof event.detail, "string");
+    assert.ok(event.evidence && typeof event.evidence === "object");
+  }
+
+  const runnerEvent = transcript.events.find((event) => event.phase === "runner");
+  assert.ok(runnerEvent);
+  assert.equal(runnerEvent.evidence.providerCall, false);
+  assert.equal(runnerEvent.evidence.transcriptEngineUsed, false);
+  assert.equal(runnerEvent.evidence.executionReservedOnly, true);
+}
+
+function testTranscriptRefDoesNotUpgradeDraftStatuses() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+
+  const dryRun = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport: createPreflightReport("passed"),
+    options: { mode: "dry-run" },
+  });
+
+  const nullRun = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport: createPreflightReport("passed"),
+    options: { mode: "null-runner" },
+  });
+
+  const blockedRun = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport: createPreflightReport("failed"),
+    options: { mode: "dry-run" },
+  });
+
+  for (const run of [dryRun, nullRun, blockedRun]) {
+    assert.equal(run.result.transcriptRef?.available, true);
+    assert.equal(run.result.transcriptRef?.providerTranscript, false);
+    assert.notEqual(run.result.status, "passed");
+    assert.ok(["blocked", "dry-run", "not-executed"].includes(run.result.status));
+    assert.notEqual(run.runtimeReport.cases[0].status, "passed");
+  }
+
+  assert.equal(dryRun.result.status, "dry-run");
+  assert.equal(nullRun.result.status, "not-executed");
+  assert.equal(blockedRun.result.status, "blocked");
+}
+
 function testPendingCapabilitiesAndDraftMetadata() {
   const normalizedFixture = createNormalizedFixture();
   const preflightReport = createPreflightReport("passed");
@@ -411,6 +537,9 @@ const tests = [
   ["single-case selector default/caseId/caseIndex behavior", testCaseSelectorStability],
   ["dry-run and null-runner never masquerade as passed runtime", testDryAndNullRunnerNeverPass],
   ["blocked case summary and counts stay aligned", testBlockedSummaryAndCountsAlign],
+  ["runtime transcript artifact and runtime report reference stay aligned", testTranscriptArtifactAndReportReferenceContract],
+  ["runtime transcript stub records orchestration evidence only", testTranscriptStubRecordsOnlyOrchestrationEvidence],
+  ["transcript ref presence never upgrades draft statuses to passed", testTranscriptRefDoesNotUpgradeDraftStatuses],
   ["pending capabilities and draft metadata stay explicit", testPendingCapabilitiesAndDraftMetadata],
   ["runtime draft CLI emits runtime-replay-report and defaults to dry-run", testRuntimeDraftCliDefaultModeAndKind],
   ["runtime draft CLI keeps case-id and case-index selection stable", testRuntimeDraftCliStableCaseSelection],
