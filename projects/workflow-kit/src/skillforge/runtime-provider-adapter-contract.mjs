@@ -13,6 +13,93 @@ const DEFAULT_ALLOWED_PROVIDER_STATUSES = Object.freeze([
   "not-executed",
 ]);
 
+const PROVIDER_FAILURE_TAXONOMY_VERSION = "runtime-provider-failure-taxonomy-draft-1";
+const PROVIDER_FAILURE_STATUS_PRIORITY = Object.freeze([
+  "blocked",
+  "error",
+  "dry-run",
+  "not-executed",
+]);
+const PROVIDER_FAILURE_STATUS_ALLOWED_SET = Object.freeze([
+  "blocked",
+  "error",
+  "dry-run",
+  "not-executed",
+  "adapter-error",
+]);
+const PROVIDER_FAILURE_STATUS_SEMANTICS = Object.freeze({
+  blocked: Object.freeze({
+    adapterResultStatus: "blocked",
+    runnerStatus: "blocked",
+    mapperStatus: "blocked",
+    reportCaseStatus: "blocked",
+    precedenceRank: 0,
+    terminal: true,
+    requiresPreflightBlocked: true,
+    allowsProviderBackedSelection: true,
+    allowsExecution: false,
+    allowsProviderCall: false,
+    allowsObservedEvidence: ["preflight-blocked"],
+    meaning: "preflight or an earlier gate prevented runtime execution before any provider attempt could begin",
+  }),
+  error: Object.freeze({
+    adapterResultStatus: "error",
+    runnerStatus: "error",
+    mapperStatus: "error",
+    reportCaseStatus: "error",
+    precedenceRank: 1,
+    terminal: true,
+    requiresPreflightBlocked: false,
+    allowsProviderBackedSelection: true,
+    allowsExecution: false,
+    allowsProviderCall: false,
+    allowsObservedEvidence: ["provider-slot-reserved", "not-executed"],
+    meaning: "selected runtime path could not produce an executable provider-backed result because the reserved adapter path is intentionally unimplemented or internally failed before execution",
+  }),
+  "dry-run": Object.freeze({
+    adapterResultStatus: "dry-run",
+    runnerStatus: "dry-run",
+    mapperStatus: "dry-run",
+    reportCaseStatus: "dry-run",
+    precedenceRank: 2,
+    terminal: true,
+    requiresPreflightBlocked: false,
+    allowsProviderBackedSelection: false,
+    allowsExecution: false,
+    allowsProviderCall: false,
+    allowsObservedEvidence: ["not-executed"],
+    meaning: "the dry-run adapter path was deliberately selected, so runtime stayed non-executing by design rather than because of a blocking failure",
+  }),
+  "not-executed": Object.freeze({
+    adapterResultStatus: "not-executed",
+    runnerStatus: "not-executed",
+    mapperStatus: "not-executed",
+    reportCaseStatus: "not-executed",
+    precedenceRank: 3,
+    terminal: true,
+    requiresPreflightBlocked: false,
+    allowsProviderBackedSelection: false,
+    allowsExecution: false,
+    allowsProviderCall: false,
+    allowsObservedEvidence: ["not-executed"],
+    meaning: "a provider-less runner path intentionally skipped runtime execution without declaring a dry-run simulation",
+  }),
+  "adapter-error": Object.freeze({
+    adapterResultStatus: "error",
+    runnerStatus: "error",
+    mapperStatus: "error",
+    reportCaseStatus: "error",
+    precedenceRank: 1,
+    terminal: true,
+    requiresPreflightBlocked: false,
+    allowsProviderBackedSelection: true,
+    allowsExecution: false,
+    allowsProviderCall: false,
+    allowsObservedEvidence: ["provider-slot-reserved", "not-executed"],
+    meaning: "adapter-error is a contract-layer semantic alias used to describe adapter-originated failure, but it must serialize outward as error rather than as a new public status token",
+  }),
+});
+
 const DEFAULT_PENDING_CAPABILITIES = Object.freeze([
   "provider-integration",
   "provider-selection",
@@ -245,10 +332,97 @@ function resolveRuntimeProviderSelection(selection = {}) {
   });
 }
 
+function normalizeProviderFailureSemanticStatus(status = "not-executed") {
+  const normalizedStatus = String(status ?? "not-executed");
+  if (!PROVIDER_FAILURE_STATUS_ALLOWED_SET.includes(normalizedStatus)) {
+    throw new RangeError(`Unsupported runtime provider failure taxonomy status: ${normalizedStatus}`);
+  }
+  return normalizedStatus;
+}
+
+function resolveProviderAdapterPublicStatus(status = "not-executed") {
+  const semanticStatus = normalizeProviderFailureSemanticStatus(status);
+  return PROVIDER_FAILURE_STATUS_SEMANTICS[semanticStatus]?.adapterResultStatus ?? "not-executed";
+}
+
+function assertProviderAdapterFailureTaxonomy({
+  semanticStatus = "not-executed",
+  publicStatus = "not-executed",
+  selection = {},
+  execution = {},
+  evidence = {},
+} = {}) {
+  const semantics = PROVIDER_FAILURE_STATUS_SEMANTICS[semanticStatus];
+  const providerBacked = selection?.providerBacked === true;
+  const preflightBlocked =
+    evidence?.preflightBlocked === true ||
+    execution?.preflightBlocked === true ||
+    execution?.blockingStage === "preflight";
+  const executed = execution?.executed === true;
+  const providerCall = execution?.providerCall === true;
+
+  if (!semantics) {
+    throw new RangeError(`Missing runtime provider failure taxonomy semantics for status: ${semanticStatus}`);
+  }
+
+  if (publicStatus !== semantics.adapterResultStatus) {
+    throw new RangeError(
+      `Runtime provider adapter status ${semanticStatus} must serialize as ${semantics.adapterResultStatus}, got: ${publicStatus}`,
+    );
+  }
+
+  if (semanticStatus === "blocked" && preflightBlocked !== true) {
+    throw new RangeError("Runtime provider adapter blocked status requires preflight-blocked evidence");
+  }
+
+  if (semanticStatus !== "blocked" && preflightBlocked === true) {
+    throw new RangeError(
+      `Runtime provider adapter status ${semanticStatus} cannot carry preflight-blocked evidence; use blocked instead`,
+    );
+  }
+
+  if (providerBacked && semanticStatus !== "blocked" && semanticStatus !== "error") {
+    throw new RangeError(
+      `Runtime provider adapter provider-backed reserved seam only allows blocked/error, got: ${semanticStatus}`,
+    );
+  }
+
+  if (providerBacked && semantics.allowsProviderBackedSelection !== true) {
+    throw new RangeError(
+      `Runtime provider adapter status ${semanticStatus} is not allowed for provider-backed selection`,
+    );
+  }
+
+  if (providerBacked && executed === true) {
+    throw new RangeError(
+      "Runtime provider adapter provider-backed reserved seam forbids executed=true until provider integration is implemented",
+    );
+  }
+
+  if (providerBacked && providerCall === true) {
+    throw new RangeError(
+      "Runtime provider adapter provider-backed reserved seam forbids providerCall=true until provider integration is implemented",
+    );
+  }
+
+  if (executed && semantics.allowsExecution !== true) {
+    throw new RangeError(
+      `Runtime provider adapter status ${semanticStatus} forbids executed=true in the current reserved seam`,
+    );
+  }
+
+  if (providerCall && semantics.allowsProviderCall !== true) {
+    throw new RangeError(
+      `Runtime provider adapter status ${semanticStatus} forbids providerCall=true in the current reserved seam`,
+    );
+  }
+}
+
 export function buildRuntimeProviderAdapterResult({
   caseId = null,
   status = "not-executed",
   observed = null,
+  failureReason = null,
   providerMetadata = {},
   selection = {},
   execution = {},
@@ -259,7 +433,8 @@ export function buildRuntimeProviderAdapterResult({
   pendingCapabilities = DEFAULT_PENDING_CAPABILITIES,
   allowedStatuses = DEFAULT_ALLOWED_PROVIDER_STATUSES,
 } = {}) {
-  const normalizedStatus = String(status ?? "not-executed");
+  const semanticStatus = normalizeProviderFailureSemanticStatus(status);
+  const normalizedStatus = resolveProviderAdapterPublicStatus(semanticStatus);
   if (!allowedStatuses.includes(normalizedStatus)) {
     throw new RangeError(`Unsupported runtime provider adapter result status: ${normalizedStatus}`);
   }
@@ -281,8 +456,17 @@ export function buildRuntimeProviderAdapterResult({
     transcriptCaptured: false,
     transcriptPersistence: false,
     persistence: "none",
+    preflightBlocked: false,
     ...cloneObject(evidence),
   };
+
+  normalizedExecution.executed = normalizedExecution.executed === true;
+  normalizedExecution.providerCall = normalizedExecution.providerCall === true;
+  normalizedEvidence.providerEvidenceAvailable = normalizedEvidence.providerEvidenceAvailable === true;
+  normalizedEvidence.transcriptAvailable = normalizedEvidence.transcriptAvailable === true;
+  normalizedEvidence.transcriptCaptured = normalizedEvidence.transcriptCaptured === true;
+  normalizedEvidence.transcriptPersistence = normalizedEvidence.transcriptPersistence === true;
+  normalizedEvidence.preflightBlocked = normalizedEvidence.preflightBlocked === true;
 
   const normalizedRawResponse = {
     kind: RAW_RESPONSE_KIND,
@@ -308,6 +492,12 @@ export function buildRuntimeProviderAdapterResult({
     executionId: null,
     providerRunId: null,
     providerStatus: null,
+    semanticStatus,
+    statusPriority: PROVIDER_FAILURE_STATUS_SEMANTICS[semanticStatus]?.precedenceRank ?? null,
+    failureTaxonomyVersion: PROVIDER_FAILURE_TAXONOMY_VERSION,
+    failureTaxonomyAllowedSet: [...PROVIDER_FAILURE_STATUS_ALLOWED_SET],
+    failureTaxonomyPriority: [...PROVIDER_FAILURE_STATUS_PRIORITY],
+    failureTaxonomySemantics: PROVIDER_FAILURE_STATUS_SEMANTICS,
     futureRequiredFields: [...FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS],
     reservedStatusSet: [...RESERVED_PROVIDER_BACKED_STATUS_SET],
     note:
@@ -319,7 +509,18 @@ export function buildRuntimeProviderAdapterResult({
     ...cloneObject(providerMetadata),
   };
 
-  if (normalizedExecution.executed !== true || normalizedSelection.providerBacked !== true) {
+  if (normalizedSelection.providerBacked === true) {
+    normalizedExecution.executionId = null;
+    normalizedExecution.providerRunId = null;
+    normalizedExecution.providerStatus = null;
+    normalizedExecution.executed = false;
+    normalizedExecution.providerCall = false;
+    normalizedEvidence.providerEvidenceAvailable = false;
+    normalizedEvidence.transcriptAvailable = false;
+    normalizedEvidence.transcriptCaptured = false;
+    normalizedEvidence.transcriptPersistence = false;
+    normalizedEvidence.persistence = "none";
+  } else if (normalizedExecution.executed !== true) {
     normalizedExecution.executionId = null;
     normalizedExecution.providerRunId = null;
     normalizedExecution.providerStatus = null;
@@ -327,13 +528,21 @@ export function buildRuntimeProviderAdapterResult({
     normalizedExecution.providerCall = false;
   }
 
-  if (normalizedEvidence.providerEvidenceAvailable !== true || normalizedSelection.providerBacked !== true) {
+  if (normalizedSelection.providerBacked !== true || normalizedEvidence.providerEvidenceAvailable !== true) {
     normalizedEvidence.providerEvidenceAvailable = false;
     normalizedEvidence.transcriptAvailable = false;
     normalizedEvidence.transcriptCaptured = false;
     normalizedEvidence.transcriptPersistence = false;
     normalizedEvidence.persistence = normalizedEvidence.persistence ?? "none";
   }
+
+  assertProviderAdapterFailureTaxonomy({
+    semanticStatus,
+    publicStatus: normalizedStatus,
+    selection: normalizedSelection,
+    execution: normalizedExecution,
+    evidence: normalizedEvidence,
+  });
 
   const rawResponseExposureAllowed = canExposeProviderBackedRawResponse({
     selection: normalizedSelection,
@@ -374,7 +583,18 @@ export function buildRuntimeProviderAdapterResult({
   normalizedMetadata.providerRunId = normalizedExecution.providerRunId ?? null;
   normalizedMetadata.providerStatus = normalizedExecution.providerStatus ?? null;
 
-  if (normalizedMetadata.providerBacked !== true) {
+  if (normalizedMetadata.providerBacked === true) {
+    normalizedMetadata.executed = false;
+    normalizedMetadata.providerCall = false;
+    normalizedMetadata.providerEvidenceAvailable = false;
+    normalizedMetadata.transcriptAvailable = false;
+    normalizedMetadata.transcriptCaptured = false;
+    normalizedMetadata.transcriptPersistence = false;
+    normalizedMetadata.persistence = "none";
+    normalizedMetadata.executionId = null;
+    normalizedMetadata.providerRunId = null;
+    normalizedMetadata.providerStatus = null;
+  } else {
     normalizedMetadata.executed = false;
     normalizedMetadata.providerCall = false;
     normalizedMetadata.providerEvidenceAvailable = false;
@@ -432,6 +652,13 @@ export function buildRuntimeProviderAdapterResult({
     caseId,
     status: normalizedStatus,
     observed,
+    failureReason:
+      failureReason && typeof failureReason === "object" && !Array.isArray(failureReason)
+        ? {
+            ...failureReason,
+            blockingCheckIds: cloneArray(failureReason?.blockingCheckIds),
+          }
+        : null,
     selection: normalizedSelection,
     execution: normalizedExecution,
     evidence: normalizedEvidence,
@@ -493,6 +720,10 @@ export function buildRuntimeProviderAdapterContractContext({
 export const RUNTIME_PROVIDER_ADAPTER_INPUT_VERSION = PROVIDER_ADAPTER_INPUT_VERSION;
 export const RUNTIME_PROVIDER_ADAPTER_OUTPUT_VERSION = PROVIDER_ADAPTER_OUTPUT_VERSION;
 export const RUNTIME_PROVIDER_ADAPTER_ALLOWED_STATUSES = [...DEFAULT_ALLOWED_PROVIDER_STATUSES];
+export const RUNTIME_PROVIDER_FAILURE_TAXONOMY_VERSION = PROVIDER_FAILURE_TAXONOMY_VERSION;
+export const RUNTIME_PROVIDER_FAILURE_STATUS_PRIORITY = [...PROVIDER_FAILURE_STATUS_PRIORITY];
+export const RUNTIME_PROVIDER_FAILURE_STATUS_ALLOWED_SET = [...PROVIDER_FAILURE_STATUS_ALLOWED_SET];
+export const RUNTIME_PROVIDER_FAILURE_STATUS_SEMANTICS = PROVIDER_FAILURE_STATUS_SEMANTICS;
 export const RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND = PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND;
 export const RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION = PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION;
 export const RUNTIME_PROVIDER_RAW_RESPONSE_KIND = RAW_RESPONSE_KIND;
@@ -518,6 +749,10 @@ export default {
   RUNTIME_PROVIDER_ADAPTER_INPUT_VERSION: PROVIDER_ADAPTER_INPUT_VERSION,
   RUNTIME_PROVIDER_ADAPTER_OUTPUT_VERSION: PROVIDER_ADAPTER_OUTPUT_VERSION,
   RUNTIME_PROVIDER_ADAPTER_ALLOWED_STATUSES: [...DEFAULT_ALLOWED_PROVIDER_STATUSES],
+  RUNTIME_PROVIDER_FAILURE_TAXONOMY_VERSION: PROVIDER_FAILURE_TAXONOMY_VERSION,
+  RUNTIME_PROVIDER_FAILURE_STATUS_PRIORITY: [...PROVIDER_FAILURE_STATUS_PRIORITY],
+  RUNTIME_PROVIDER_FAILURE_STATUS_ALLOWED_SET: [...PROVIDER_FAILURE_STATUS_ALLOWED_SET],
+  RUNTIME_PROVIDER_FAILURE_STATUS_SEMANTICS: PROVIDER_FAILURE_STATUS_SEMANTICS,
   RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND: PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND,
   RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION: PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION,
   RUNTIME_PROVIDER_RAW_RESPONSE_KIND: RAW_RESPONSE_KIND,

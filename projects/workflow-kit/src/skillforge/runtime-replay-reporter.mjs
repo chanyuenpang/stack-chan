@@ -8,6 +8,7 @@ const FAILING_CASE_STATUSES = new Set(["error"]);
 const BLOCKED_CASE_STATUSES = new Set(["blocked"]);
 const DRAFT_NON_EXECUTED_CASE_STATUSES = new Set(["blocked", "dry-run", "not-executed"]);
 const ALLOWED_DRAFT_CASE_STATUSES = new Set(["blocked", "error", "dry-run", "not-executed"]);
+const PROVIDER_BACKED_RESERVED_FAILURE_STATUSES = new Set(["blocked", "error"]);
 const WARNING_CHECK_STATUSES = new Set(["warn"]);
 const ERROR_CHECK_STATUSES = new Set(["error", "fail"]);
 const DEFAULT_PENDING_CAPABILITIES = [
@@ -78,6 +79,47 @@ function normalizeCaseStatus(status) {
   const normalized = String(status);
   if (!ALLOWED_DRAFT_CASE_STATUSES.has(normalized)) return "not-executed";
   return normalized;
+}
+
+function normalizeFailureReason(failureReason, status) {
+  if (!failureReason || typeof failureReason !== "object" || Array.isArray(failureReason)) return null;
+
+  return {
+    ...failureReason,
+    blockingCheckIds: Array.isArray(failureReason?.blockingCheckIds) ? [...failureReason.blockingCheckIds] : [],
+    sourceStatus: failureReason?.sourceStatus ?? status,
+    sameSource: failureReason?.sameSource === true,
+    providerBackedReserved: failureReason?.providerBackedReserved === true,
+  };
+}
+
+function assertSameSourceFailurePropagation({ status, providerExecution, failureReason, observed }) {
+  if (providerExecution.providerBacked === true && !PROVIDER_BACKED_RESERVED_FAILURE_STATUSES.has(status)) {
+    throw new RangeError(
+      `Runtime replay report reserved provider-backed seam only allows blocked/error case statuses, got: ${status}`,
+    );
+  }
+
+  if (failureReason?.sourceStatus && failureReason.sourceStatus !== status) {
+    throw new RangeError("Runtime replay report failureReason sourceStatus must match case status");
+  }
+
+  if (status === "blocked") {
+    if (failureReason?.code !== "RUNTIME_PREFLIGHT_BLOCKED") {
+      throw new RangeError("Runtime replay report blocked case requires same-source preflight failureReason");
+    }
+    if (observed.evidence !== "preflight-blocked") {
+      throw new RangeError("Runtime replay report blocked case must keep preflight-blocked observed evidence");
+    }
+  }
+
+  if (status !== "blocked" && failureReason?.code === "RUNTIME_PREFLIGHT_BLOCKED") {
+    throw new RangeError("Runtime replay report cannot reuse preflight-blocked failureReason for non-blocked case");
+  }
+
+  if (status === "error" && providerExecution.providerBacked === true && observed.evidence !== "provider-slot-reserved") {
+    throw new RangeError("Runtime replay report provider-backed error must keep provider-slot-reserved observed evidence");
+  }
 }
 
 function normalizeObserved(observed, status) {
@@ -222,19 +264,29 @@ function normalizeTranscriptAvailability(transcriptAvailability) {
 
 function normalizeRuntimeCase(runtimeCase) {
   const status = normalizeCaseStatus(runtimeCase?.status);
+  const observed = normalizeObserved(runtimeCase?.observed, status);
+  const providerExecution = normalizeProviderExecution(runtimeCase?.providerExecution);
   const transcriptAvailability = normalizeTranscriptAvailability(runtimeCase?.transcriptAvailability);
+  const failureReason = normalizeFailureReason(runtimeCase?.failureReason, status);
+
+  assertSameSourceFailurePropagation({
+    status,
+    providerExecution,
+    failureReason,
+    observed,
+  });
 
   return {
     id: runtimeCase?.id ?? null,
     type: runtimeCase?.type ?? null,
     status,
     expectedBehavior: runtimeCase?.expectedBehavior ?? null,
-    observed: normalizeObserved(runtimeCase?.observed, status),
-    providerExecution: normalizeProviderExecution(runtimeCase?.providerExecution),
+    observed,
+    providerExecution,
     transcriptAvailability,
     transcriptRef: normalizeTranscriptRef(runtimeCase?.transcriptRef, runtimeCase),
     transcript: runtimeCase?.transcript ?? null,
-    failureReason: runtimeCase?.failureReason ?? null,
+    failureReason,
   };
 }
 
@@ -323,6 +375,7 @@ export function buildRuntimeReplayReport({
       statusTaxonomy: {
         reportStatuses: ["draft", "blocked"],
         caseStatuses: [...ALLOWED_DRAFT_CASE_STATUSES],
+        providerBackedReservedCaseStatuses: [...PROVIDER_BACKED_RESERVED_FAILURE_STATUSES],
         passedReserved: true,
         providerReadyPassPathImplemented: false,
       },
@@ -330,6 +383,13 @@ export function buildRuntimeReplayReport({
       transcriptAvailability: reportTranscriptAvailability,
       providerBackedContract: {
         currentState: reportProviderExecution.implementationState,
+        reservedFailurePropagation: {
+          allowedCaseStatuses: [...PROVIDER_BACKED_RESERVED_FAILURE_STATUSES],
+          sameSourceOnly: true,
+          mixedSourceFailureReasonDisallowed: true,
+          blockedReasonCode: "RUNTIME_PREFLIGHT_BLOCKED",
+          errorObservedEvidence: "provider-slot-reserved",
+        },
         reservedFields: {
           runtimeCaseStatuses: [...reportProviderExecution.reservedStatusSet],
           providerEvidenceAvailable: reportProviderExecution.providerEvidenceAvailable,

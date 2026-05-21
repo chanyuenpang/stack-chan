@@ -534,6 +534,7 @@ function testProviderAdapterOutputSkeletonStaysConservative() {
     transcriptCaptured: false,
     transcriptPersistence: false,
     persistence: "none",
+    preflightBlocked: false,
   });
   assert.deepEqual(adapterResult.rawResponse, {
     kind: "runtime-provider-raw-response",
@@ -708,6 +709,11 @@ function testObservedMappingSeamContractAcrossReservedModes() {
       adapterResult: {
         caseId: caseRecord.id,
         status: "blocked",
+        failureReason: {
+          code: "RUNTIME_PREFLIGHT_BLOCKED",
+          message: "blocked by preflight",
+          blockingCheckIds: ["RF-P1-PREFLIGHT-STATIC-BASELINE-PASSED"],
+        },
         providerMetadata: {
           implementationState: "preflight-blocked",
           executed: false,
@@ -1001,6 +1007,11 @@ function testRawResponseSkeletonContractShapeStaysStable() {
       adapterResult: {
         caseId: caseRecord.id,
         status: "blocked",
+        failureReason: {
+          code: "RUNTIME_PREFLIGHT_BLOCKED",
+          message: "blocked by preflight",
+          blockingCheckIds: ["RF-P1-PREFLIGHT-STATIC-BASELINE-PASSED"],
+        },
         rawResponse: {
           available: true,
           captureMode: "summary-only",
@@ -1619,6 +1630,386 @@ function testNonProviderBackedModesCannotForgeProviderTranscriptOrProviderExecut
   }
 }
 
+function testProviderBackedReservedSeamRejectsNonBlockedNonErrorStatuses() {
+  const normalizedFixture = createNormalizedFixture();
+  const caseRecord = selectRuntimeCase({ normalizedFixture });
+
+  for (const status of ["dry-run", "not-executed"]) {
+    assert.throws(
+      () =>
+        mapProviderResultToObservedRuntime({
+          adapterResult: {
+            caseId: caseRecord.id,
+            status,
+            providerMetadata: {
+              implementationState: "reserved-unimplemented-provider-slot",
+              executed: false,
+              providerCall: false,
+              providerEvidenceAvailable: false,
+              transcriptCaptured: false,
+              transcriptPersistence: false,
+              persistence: "none",
+            },
+          },
+          providerSelection: {
+            adapterKey: "provider-backed",
+            providerKey: "provider-backed",
+            providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+            builtin: true,
+            implemented: false,
+            providerBacked: true,
+          },
+          caseContext: caseRecord,
+        }),
+      /reserved provider-backed seam only allows blocked\/error/i,
+    );
+  }
+}
+
+function testBlockedFailureReasonMustStayPreflightBlockedSameSource() {
+  const normalizedFixture = createNormalizedFixture();
+  const caseRecord = selectRuntimeCase({ normalizedFixture });
+
+  assert.throws(
+    () =>
+      mapProviderResultToObservedRuntime({
+        adapterResult: {
+          caseId: caseRecord.id,
+          status: "blocked",
+          failureReason: {
+            code: "RUNTIME_PROVIDER_ADAPTER_UNIMPLEMENTED",
+            message: "wrong blocked reason",
+          },
+          providerMetadata: {
+            implementationState: "preflight-blocked",
+            executed: false,
+            providerCall: false,
+            providerEvidenceAvailable: false,
+            transcriptCaptured: false,
+            transcriptPersistence: false,
+            persistence: "none",
+          },
+        },
+        providerSelection: {
+          adapterKey: "dry-run",
+          providerKey: "dry-run",
+          providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+          builtin: true,
+          implemented: true,
+          providerBacked: false,
+        },
+        caseContext: caseRecord,
+      }),
+    /blocked status requires same-source preflight failureReason/i,
+  );
+
+  assert.throws(
+    () =>
+      buildRuntimeReplayReport({
+        fixtureDir: "/tmp/runtime-contract-fixture",
+        fixture: {
+          id: "runtime-contract-fixture",
+          version: "0.1.0",
+          entry: "skill/SKILL.md",
+          profile: "standard",
+        },
+        runtime: {
+          mode: "dry-run",
+          providerExecution: {
+            adapterKey: "dry-run",
+            providerKey: "dry-run",
+            providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+            builtin: true,
+            implemented: true,
+            providerBacked: false,
+            status: "blocked",
+          },
+        },
+        cases: [
+          {
+            id: caseRecord.id,
+            type: caseRecord.type,
+            status: "blocked",
+            observed: {
+              kind: "runtime-observed-stub",
+              mode: "dry-run",
+              evidence: "not-executed",
+              providerCall: false,
+              transcriptCaptured: false,
+              sideEffectsPerformed: false,
+              providerEvidenceAvailable: false,
+              persistedEvidenceAvailable: false,
+            },
+            providerExecution: {
+              selection: {
+                kind: "runtime-provider-selection",
+                version: "runtime-provider-selection-draft-1",
+                adapterKey: "dry-run",
+                providerKey: "dry-run",
+                providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+                builtin: true,
+                implemented: true,
+                providerBacked: false,
+              },
+              adapterKey: "dry-run",
+              providerKey: "dry-run",
+              providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+              builtin: true,
+              implemented: true,
+              providerBacked: false,
+              status: "blocked",
+            },
+            transcriptAvailability: {
+              available: false,
+              providerManaged: false,
+              handle: null,
+              location: null,
+              providerBacked: false,
+              transcriptCaptured: false,
+              transcriptPersistence: false,
+              persistence: "none",
+            },
+            failureReason: {
+              code: "RUNTIME_PREFLIGHT_BLOCKED",
+              message: "blocked",
+              sourceStatus: "blocked",
+              sameSource: true,
+              providerBackedReserved: false,
+            },
+          },
+        ],
+      }),
+    /blocked case must keep preflight-blocked observed evidence/i,
+  );
+}
+
+function testPreflightBlockedReasonCannotDriftIntoNonBlockedProviderBackedError() {
+  const normalizedFixture = createNormalizedFixture();
+  const caseRecord = selectRuntimeCase({ normalizedFixture });
+
+  assert.throws(
+    () =>
+      mapProviderResultToObservedRuntime({
+        adapterResult: {
+          caseId: caseRecord.id,
+          status: "error",
+          failureReason: {
+            code: "RUNTIME_PREFLIGHT_BLOCKED",
+            message: "drifted blocked reason",
+            blockingCheckIds: ["RF-P1-PREFLIGHT-STATIC-BASELINE-PASSED"],
+          },
+          providerMetadata: {
+            implementationState: "reserved-unimplemented-provider-slot",
+            executed: false,
+            providerCall: false,
+            providerEvidenceAvailable: false,
+            transcriptCaptured: false,
+            transcriptPersistence: false,
+            persistence: "none",
+          },
+        },
+        providerSelection: {
+          adapterKey: "provider-backed",
+          providerKey: "provider-backed",
+          providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+          builtin: true,
+          implemented: false,
+          providerBacked: true,
+        },
+        caseContext: caseRecord,
+      }),
+    /cannot reuse preflight-blocked failureReason for non-blocked status/i,
+  );
+
+  assert.throws(
+    () =>
+      buildRuntimeReplayReport({
+        fixtureDir: "/tmp/runtime-contract-fixture",
+        fixture: {
+          id: "runtime-contract-fixture",
+          version: "0.1.0",
+          entry: "skill/SKILL.md",
+          profile: "standard",
+        },
+        runtime: {
+          mode: "provider-backed",
+        },
+        cases: [
+          {
+            id: caseRecord.id,
+            type: caseRecord.type,
+            status: "error",
+            observed: {
+              kind: "runtime-observed-stub",
+              mode: "provider-backed",
+              evidence: "not-executed",
+              providerCall: false,
+              transcriptCaptured: false,
+              sideEffectsPerformed: false,
+              providerEvidenceAvailable: false,
+              persistedEvidenceAvailable: false,
+            },
+            providerExecution: {
+              selection: {
+                kind: "runtime-provider-selection",
+                version: "runtime-provider-selection-draft-1",
+                adapterKey: "provider-backed",
+                providerKey: "provider-backed",
+                providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+                builtin: true,
+                implemented: false,
+                providerBacked: true,
+              },
+              adapterKey: "provider-backed",
+              providerKey: "provider-backed",
+              providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+              builtin: true,
+              implemented: false,
+              providerBacked: true,
+              status: "error",
+            },
+            transcriptAvailability: {
+              available: false,
+              providerManaged: false,
+              handle: null,
+              location: null,
+              providerBacked: true,
+              transcriptCaptured: false,
+              transcriptPersistence: false,
+              persistence: "none",
+            },
+            failureReason: {
+              code: "RUNTIME_PROVIDER_ADAPTER_UNIMPLEMENTED",
+              message: "unimplemented",
+              sourceStatus: "blocked",
+              sameSource: true,
+              providerBackedReserved: true,
+            },
+          },
+        ],
+      }),
+    /failureReason sourceStatus must match case status/i,
+  );
+}
+
+function testFailureReasonSemanticsAreStampedFromSameSourceStatus() {
+  const normalizedFixture = createNormalizedFixture();
+  const caseRecord = selectRuntimeCase({ normalizedFixture });
+
+  const blockedMapped = mapProviderResultToObservedRuntime({
+    adapterResult: {
+      caseId: caseRecord.id,
+      status: "blocked",
+      failureReason: {
+        code: "RUNTIME_PREFLIGHT_BLOCKED",
+        message: "blocked by preflight",
+        blockingCheckIds: ["RF-P1-PREFLIGHT-STATIC-BASELINE-PASSED"],
+        sourceStatus: "error",
+        sameSource: false,
+        providerBackedReserved: true,
+      },
+      providerMetadata: {
+        implementationState: "preflight-blocked",
+        executed: false,
+        providerCall: false,
+        providerEvidenceAvailable: false,
+        transcriptCaptured: false,
+        transcriptPersistence: false,
+        persistence: "none",
+      },
+    },
+    providerSelection: {
+      adapterKey: "dry-run",
+      providerKey: "dry-run",
+      providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+      builtin: true,
+      implemented: true,
+      providerBacked: false,
+    },
+    caseContext: caseRecord,
+  });
+
+  assert.equal(blockedMapped.failureReason.sourceStatus, "blocked");
+  assert.equal(blockedMapped.failureReason.sameSource, true);
+  assert.equal(blockedMapped.failureReason.providerBackedReserved, false);
+
+  const providerBackedErrorMapped = mapProviderResultToObservedRuntime({
+    adapterResult: {
+      caseId: caseRecord.id,
+      status: "error",
+      failureReason: {
+        code: "RUNTIME_PROVIDER_ADAPTER_UNIMPLEMENTED",
+        message: "reserved slot",
+        sourceStatus: "blocked",
+        sameSource: false,
+        providerBackedReserved: false,
+      },
+      providerMetadata: {
+        implementationState: "reserved-unimplemented-provider-slot",
+        executed: false,
+        providerCall: false,
+        providerEvidenceAvailable: false,
+        transcriptCaptured: false,
+        transcriptPersistence: false,
+        persistence: "none",
+      },
+    },
+    providerSelection: {
+      adapterKey: "provider-backed",
+      providerKey: "provider-backed",
+      providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+      builtin: true,
+      implemented: false,
+      providerBacked: true,
+    },
+    caseContext: caseRecord,
+  });
+
+  assert.equal(providerBackedErrorMapped.failureReason.sourceStatus, "error");
+  assert.equal(providerBackedErrorMapped.failureReason.sameSource, true);
+  assert.equal(providerBackedErrorMapped.failureReason.providerBackedReserved, true);
+}
+
+function testReportRejectsMixedSourceFailureReasonOnNonBlockedCase() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+
+  const run = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport,
+    options: { mode: "provider-backed" },
+  });
+
+  const runtimeCase = run.runtimeReport.cases[0];
+
+  assert.throws(
+    () =>
+      buildRuntimeReplayReport({
+        fixtureDir: "/tmp/runtime-contract-fixture",
+        fixture: run.runtimeReport.fixture,
+        runtime: {
+          mode: "provider-backed",
+          providerExecution: runtimeCase.providerExecution,
+          transcriptAvailability: runtimeCase.transcriptAvailability,
+        },
+        cases: [
+          {
+            ...runtimeCase,
+            failureReason: {
+              ...runtimeCase.failureReason,
+              sourceStatus: "blocked",
+              sameSource: false,
+            },
+          },
+        ],
+      }),
+    /failureReason sourceStatus must match case status/i,
+  );
+}
+
 const tests = [
   ["runtime replay report skeleton top-level contract", testRuntimeReplayReportSkeleton],
   ["single-case selector default/caseId/caseIndex behavior", testCaseSelectorStability],
@@ -1646,6 +2037,11 @@ const tests = [
   ["runtime draft CLI keeps passed preflight cases non-passed in draft mode", testRuntimeDraftCliPreflightPassedStillNotPassedCase],
   ["runtime draft CLI usage errors and unsupported mode stay stable", testRuntimeDraftCliUsageErrorsAndUnsupportedMode],
   ["runtime preflight failure still stays non-passing", testRuntimePreflightFailureStillStaysNonPassing],
+  ["provider-backed reserved seam rejects dry-run/not-executed statuses", testProviderBackedReservedSeamRejectsNonBlockedNonErrorStatuses],
+  ["blocked failureReason must stay preflight-blocked and same-source", testBlockedFailureReasonMustStayPreflightBlockedSameSource],
+  ["preflight-blocked failureReason cannot drift into provider-backed error or mismatched source status", testPreflightBlockedReasonCannotDriftIntoNonBlockedProviderBackedError],
+  ["failureReason sourceStatus/sameSource/providerBackedReserved semantics are stamped from same source", testFailureReasonSemanticsAreStampedFromSameSourceStatus],
+  ["report rejects mixed-source failureReason on non-blocked case", testReportRejectsMixedSourceFailureReasonOnNonBlockedCase],
 ];
 
 let passed = 0;

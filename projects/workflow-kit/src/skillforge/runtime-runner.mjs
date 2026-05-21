@@ -17,9 +17,9 @@ const SUPPORTED_MODES = new Set(["dry-run", "null-runner", "provider-backed"]);
 const NON_PASSING_STATUSES = new Set(["dry-run", "blocked", "not-executed", "error"]);
 
 function pickStatusForMode(mode, { preflightBlocked = false } = {}) {
-  if (preflightBlocked) return "blocked";
-  if (mode === "null-runner") return "not-executed";
+  if (preflightBlocked === true) return "blocked";
   if (mode === "provider-backed") return "error";
+  if (mode === "null-runner") return "not-executed";
   return "dry-run";
 }
 
@@ -178,12 +178,12 @@ function resolveRunnerProviderSelection(mode) {
   });
 }
 
-function buildFailureReason({ mode, preflightReport }) {
-  if (preflightReport?.status !== "passed") {
+function buildFailureReason({ mode, preflightReport, status }) {
+  if (status === "blocked") {
     return buildBlockedReason(preflightReport);
   }
 
-  if (mode === "provider-backed") {
+  if (status === "error" && mode === "provider-backed") {
     return buildProviderAdapterUnimplementedReason();
   }
 
@@ -192,12 +192,17 @@ function buildFailureReason({ mode, preflightReport }) {
 
 function runBuiltinProviderAdapter({ mode, caseRecord, providerAdapterContract, preflightReport }) {
   const preflightBlocked = preflightReport?.status !== "passed";
+  const failureReason = preflightBlocked ? buildBlockedReason(preflightReport) : null;
 
   return providerAdapterContract.buildResult({
     caseId: caseRecord.id,
     status: pickStatusForMode(mode, { preflightBlocked }),
     observed: null,
     transcriptRef: null,
+    evidence: {
+      preflightBlocked,
+    },
+    failureReason,
     note: preflightBlocked
       ? "provider adapter output remained blocked because preflight did not pass"
       : mode === "provider-backed"
@@ -380,7 +385,23 @@ export function runRuntimeCaseSkeleton({
     caseContext: caseRecord,
   });
 
-  const failureReason = buildFailureReason({ mode, preflightReport });
+  if (providerSelection.providerBacked === true && mappedRuntime.status !== "blocked" && mappedRuntime.status !== "error") {
+    throw new RangeError(
+      `Runtime runner reserved provider-backed seam only allows blocked/error, got: ${mappedRuntime.status}`,
+    );
+  }
+
+  if (mappedRuntime.status === "blocked" && preflightReport?.status === "passed") {
+    throw new RangeError("Runtime runner blocked status cannot be emitted after passed preflight");
+  }
+
+  if (mappedRuntime.status !== "blocked" && preflightReport?.status !== "passed") {
+    throw new RangeError(
+      `Runtime runner non-blocked status ${mappedRuntime.status} requires passed preflight`,
+    );
+  }
+
+  const failureReason = buildFailureReason({ mode, preflightReport, status: mappedRuntime.status });
   const blocked = mappedRuntime.status === "blocked";
   const providerExecution = mappedRuntime.providerExecution;
   const transcriptAvailability = mappedRuntime.transcriptAvailability;
@@ -558,7 +579,7 @@ export function runRuntimeCaseSkeleton({
         providerExecution,
         transcriptAvailability,
         transcriptRef: resultWithTranscriptRef.transcriptRef,
-        failureReason: result.failureReason,
+        failureReason: mappedRuntime.failureReason ?? result.failureReason,
         transcript: transcriptArtifact,
       },
     ],

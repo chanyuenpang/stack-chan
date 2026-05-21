@@ -7,6 +7,11 @@ const SUPPORTED_OBSERVED_STATUSES = Object.freeze([
   "not-executed",
 ]);
 const SUPPORTED_PROVIDER_SELECTION_KEYS = Object.freeze(["dry-run", "null-runner", "provider-backed"]);
+const PROVIDER_BACKED_RESERVED_FAILURE_STATUSES = Object.freeze(["blocked", "error"]);
+
+function cloneNullableObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : null;
+}
 
 function cloneArray(value) {
   return Array.isArray(value) ? [...value] : [];
@@ -60,7 +65,7 @@ function normalizeAdapterResult(adapterResult = {}) {
   return {
     caseId: adapterResult?.caseId ?? null,
     status,
-    observed: cloneObject(adapterResult?.observed, null),
+    observed: cloneNullableObject(adapterResult?.observed),
     selection: cloneObject(adapterResult?.selection),
     execution: cloneObject(adapterResult?.execution),
     evidence: cloneObject(adapterResult?.evidence),
@@ -70,37 +75,69 @@ function normalizeAdapterResult(adapterResult = {}) {
         ? { ...adapterResult.transcriptRef }
         : null,
     providerMetadata: cloneObject(adapterResult?.providerMetadata),
+    failureReason: cloneNullableObject(adapterResult?.failureReason),
   };
 }
 
 function inferObservedEvidence({ status, providerSelection }) {
   if (status === "blocked") return "preflight-blocked";
-  if (providerSelection.providerBacked) return "provider-slot-reserved";
+  if (status === "error" && providerSelection.providerBacked) return "provider-slot-reserved";
   if (providerSelection.adapterKey === "null-runner") return "not-executed";
   return "not-executed";
+}
+
+function assertFailurePropagationAlignment({ adapterResult, providerSelection }) {
+  if (
+    providerSelection.providerBacked === true &&
+    !PROVIDER_BACKED_RESERVED_FAILURE_STATUSES.includes(adapterResult.status)
+  ) {
+    throw new RangeError(
+      `Runtime observed mapper reserved provider-backed seam only allows blocked/error, got: ${adapterResult.status}`,
+    );
+  }
+
+  if (adapterResult.status === "blocked" && adapterResult.failureReason?.code !== "RUNTIME_PREFLIGHT_BLOCKED") {
+    throw new RangeError("Runtime observed mapper blocked status requires same-source preflight failureReason");
+  }
+
+  if (adapterResult.status !== "blocked" && adapterResult.failureReason?.code === "RUNTIME_PREFLIGHT_BLOCKED") {
+    throw new RangeError("Runtime observed mapper cannot reuse preflight-blocked failureReason for non-blocked status");
+  }
+}
+
+function normalizeFailureReason({ adapterResult, providerSelection }) {
+  const failureReason = adapterResult.failureReason;
+  if (!failureReason) return null;
+
+  return {
+    ...failureReason,
+    blockingCheckIds: cloneArray(failureReason?.blockingCheckIds),
+    sourceStatus: adapterResult.status,
+    sameSource: true,
+    providerBackedReserved:
+      providerSelection.providerBacked === true &&
+      PROVIDER_BACKED_RESERVED_FAILURE_STATUSES.includes(adapterResult.status),
+  };
 }
 
 function buildObserved({ adapterResult, providerSelection, caseContext }) {
   const evidence = adapterResult.evidence;
   const execution = adapterResult.execution;
   const providerBacked = adapterResult.selection?.providerBacked === true || providerSelection.providerBacked === true;
+  const observedInput = adapterResult.observed;
 
-  if (adapterResult.observed && Object.keys(adapterResult.observed).length > 0) {
+  if (observedInput && Object.keys(observedInput).length > 0) {
     return {
-      kind: adapterResult.observed.kind ?? OBSERVED_KIND,
-      mode: adapterResult.observed.mode ?? providerSelection.adapterKey,
-      evidence:
-        adapterResult.observed.evidence ?? inferObservedEvidence({ status: adapterResult.status, providerSelection }),
-      providerCall: adapterResult.observed.providerCall === true || execution?.providerCall === true,
-      transcriptCaptured:
-        adapterResult.observed.transcriptCaptured === true || evidence?.transcriptCaptured === true,
-      sideEffectsPerformed: adapterResult.observed.sideEffectsPerformed === true,
-      providerEvidenceAvailable:
-        adapterResult.observed.providerEvidenceAvailable === true || evidence?.providerEvidenceAvailable === true,
-      persistedEvidenceAvailable:
-        adapterResult.observed.persistedEvidenceAvailable === true || evidence?.transcriptPersistence === true,
+      kind: observedInput.kind ?? OBSERVED_KIND,
+      mode: observedInput.mode ?? providerSelection.adapterKey,
+      evidence: inferObservedEvidence({ status: adapterResult.status, providerSelection }),
+      providerCall: execution?.providerCall === true,
+      transcriptCaptured: evidence?.transcriptCaptured === true,
+      sideEffectsPerformed: false,
+      providerEvidenceAvailable: evidence?.providerEvidenceAvailable === true,
+      persistedEvidenceAvailable: evidence?.transcriptPersistence === true,
       note:
-        adapterResult.observed.note ??
+        observedInput.note ??
         `runtime observed mapper normalized adapter result for case ${caseContext.id ?? adapterResult.caseId ?? "<unknown>"}`,
     };
   }
@@ -209,6 +246,10 @@ export function mapProviderResultToObservedRuntime({
   const normalizedAdapterResult = normalizeAdapterResult(adapterResult);
   const normalizedProviderSelection = normalizeProviderSelection(providerSelection);
   const normalizedCaseContext = normalizeCaseContext(caseContext);
+  assertFailurePropagationAlignment({
+    adapterResult: normalizedAdapterResult,
+    providerSelection: normalizedProviderSelection,
+  });
 
   return {
     contract: {
@@ -227,6 +268,10 @@ export function mapProviderResultToObservedRuntime({
       providerSelection: normalizedProviderSelection,
     }),
     transcriptAvailability: buildTranscriptAvailability({
+      adapterResult: normalizedAdapterResult,
+      providerSelection: normalizedProviderSelection,
+    }),
+    failureReason: normalizeFailureReason({
       adapterResult: normalizedAdapterResult,
       providerSelection: normalizedProviderSelection,
     }),

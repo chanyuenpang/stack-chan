@@ -106,10 +106,12 @@ preflight 不负责执行模型，不负责生成 transcript，不做最终评�
 2. **Preflight pass 只表示“可尝试执行”，不表示“执行通过”。**
 3. **当前 provider seam 只是 contract-first adapter seam，不等于 provider-backed runtime replay 已实现。**
 4. **Preflight 未通过时，runtime draft 结果应更诚实地收敛为 `blocked`，而不是继续暴露带执行幻觉的 `preflight-failed` 运行态标签。**
-5. **当前 provider-backed selection 只允许在内部 `adapter -> runner -> observed mapper -> report` 单一路径上传播，不应在 CLI、validate 默认链路或其他外层入口重新开放第二条来源。**
-6. **Runtime replay report 只能建立在实际执行证据之上。**
-7. **任何 runtime 结果都不回写为伪造的 static pass。**
-8. **`validate:all` / `validate:contracts` 继续只代表 static validation，不混入 runtime。**
+5. **当前 provider-backed reserved seam 的 failure taxonomy 只允许 `blocked | error`：`blocked` 绑定 `preflight-blocked` / guard-blocked 语义，provider-backed `error` 只是 reserved slot，不代表真实 provider execution failure taxonomy。**
+6. **`adapter-error` 只是 internal semantic alias，对外仍必须序列化为 `error`；report / failureReason 当前必须 same-source，不允许 mixed-source fallback。**
+7. **当前 provider-backed selection 只允许在内部 `adapter -> runner -> observed mapper -> report` 单一路径上传播，不应在 CLI、validate 默认链路或其他外层入口重新开放第二条来源。**
+8. **Runtime replay report 只能建立在实际执行证据之上。**
+9. **任何 runtime 结果都不回写为伪造的 static pass。**
+10. **`validate:all` / `validate:contracts` 继续只代表 static validation，不混入 runtime。**
 
 ---
 
@@ -414,12 +416,13 @@ pendingCapabilities: []
 
 1. 顶层 `status` 在当前 draft mode 只诚实落在 `draft | blocked`，不再伪装成 `passed | failed` 执行结论；
 2. `summary.passed` 固定为 `false`，直到真实 provider + transcript + scoring evidence 存在；
-3. `cases[].status` 当前合同只保留 `blocked | error | dry-run | not-executed`；其中目前面向用户可达的诚实结果仍应落在 `blocked | dry-run | not-executed`，`error` 只是保留给 orchestration/runtime skeleton 错误报告的 slot；preflight 未通过时也应在 runtime 层收口为 `blocked`；
-4. `observed` 必须保持 stub-shaped truth mapping output，不是 provider transcript，也不是 scoring evidence；当前 adapter result 只是更真实的中间 truth payload，`cases[].observed`、`providerExecution`、`transcriptAvailability` 与 `rawResponse` 只是共用同一来源的草案视图，四者同源，但都不能被解读成 provider integration、真实 provider call、transcript persistence 或正式 runtime pass 证据；其中 `rawResponse` 只表示最小 skeleton / truth payload slot，`rawResponse.summary` 也只表示摘要位，不表示完整 provider payload，而 `rawResponse` / rawResponse handle 也都不是 transcript/persistence handle；
-5. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
-6. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；与 provider-backed slot 对应的 execution metadata、provider transcript、persistence、provider evidence flags 也都必须继续保持 `false` / `null` / reserved；
-7. 当前可达的 selection lineage 只是在内部沿 `adapter -> runner -> observed mapper -> report` 单一路径透传，不能被解读成 provider mode 已开放，也不能替代未来真实 provider integration 所需的 request/response/transcript/persistence contract；
-8. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
+3. `cases[].status` 当前 provider-backed reserved seam 只诚实允许 `blocked | error`；其中 `blocked` 绑定 `preflight-blocked` / guard-blocked 语义，`error` 只是保留给 orchestration/runtime skeleton / adapter internal error propagation 的 reserved slot，对外不能扩张成真实 provider execution failure taxonomy；preflight 未通过时也应在 runtime 层收口为 `blocked`；
+4. `adapter-error` 只是 internal semantic alias，对外必须继续序列化为 `error`，不能新增对外 status；同时 `report.failureReason` 与 case-level failure reason 当前必须 same-source，不能混 adapter / runner / report 多源 fallback；
+5. `observed` 必须保持 stub-shaped truth mapping output，不是 provider transcript，也不是 scoring evidence；当前 adapter result 只是更真实的中间 truth payload，`cases[].observed`、`providerExecution`、`transcriptAvailability` 与 `rawResponse` 只是共用同一来源的草案视图，四者同源，但都不能被解读成 provider integration、真实 provider call、transcript persistence 或正式 runtime pass 证据；其中 `rawResponse` 只表示最小 skeleton / truth payload slot，`rawResponse.summary` 也只表示摘要位，不表示完整 provider payload，而 `rawResponse` / rawResponse handle 也都不是 transcript/persistence handle；
+6. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
+7. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；与 provider-backed slot 对应的 execution metadata、provider transcript、persistence、provider evidence flags 也都必须继续保持 `false` / `null` / reserved；
+8. 当前可达的 selection lineage 只是在内部沿 `adapter -> runner -> observed mapper -> report` 单一路径透传，不能被解读成 provider mode 已开放，也不能替代未来真实 provider integration 所需的 request/response/transcript/persistence contract；
+9. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
 
 ## 6.3 为什么不直接复用 validator report
 
@@ -526,8 +529,8 @@ output = {
 
 - runner 读取的是 `normalize + preflight` 已经整理好的上游事实，而不是自己重造解析逻辑；
 - `boundary` 目前只是声明式消费面，不等于真实 sandbox enforcement；
-- `status` 可以是 `dry-run` / `not-executed` / `blocked`，并为 runtime skeleton/internal failure 保留 `error` slot，因此 contract 本身不制造“已经执行成功”的幻觉；
-- provider-backed status/path 仍未开放，相关 mode slot 只是 reserved/unimplemented。
+- 当前 provider-backed reserved seam 对外 status 只应诚实落在 `blocked | error`：`blocked` 对应 preflight/guard blocked，`error` 只保留给 runtime skeleton/internal propagation；`adapter-error` 仍只作 internal alias，对外统一序列化为 `error`；
+- provider-backed status/path 仍未开放，相关 mode slot 只是 reserved/unimplemented，也还不是完整 provider execution failure taxonomy。
 
 ### D. Transcript sink / artifact writer
 

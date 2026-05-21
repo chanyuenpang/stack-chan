@@ -10,6 +10,36 @@ const DEFAULT_ALLOWED_CASE_STATUSES = Object.freeze([
   "not-executed",
 ]);
 
+const RUNNER_FAILURE_TAXONOMY_VERSION = "runtime-runner-failure-taxonomy-draft-1";
+const RUNNER_FAILURE_STATUS_PRIORITY = Object.freeze([
+  "blocked",
+  "error",
+  "dry-run",
+  "not-executed",
+]);
+const RUNNER_FAILURE_STATUS_SEMANTICS = Object.freeze({
+  blocked: Object.freeze({
+    precedenceRank: 0,
+    requiresFailureReasonCodes: ["RUNTIME_PREFLIGHT_BLOCKED"],
+    meaning: "runner must use blocked only when preflight or an earlier non-execution gate prevented runtime start",
+  }),
+  error: Object.freeze({
+    precedenceRank: 1,
+    requiresFailureReasonCodes: [],
+    meaning: "runner must use error for non-blocking runtime-path failure states, including provider-backed reserved-slot unimplemented adapter outcomes",
+  }),
+  "dry-run": Object.freeze({
+    precedenceRank: 2,
+    requiresFailureReasonCodes: [],
+    meaning: "runner must use dry-run only for the explicit dry-run adapter path after preflight passed",
+  }),
+  "not-executed": Object.freeze({
+    precedenceRank: 3,
+    requiresFailureReasonCodes: [],
+    meaning: "runner must use not-executed only for intentional non-executing skip paths such as null-runner after preflight passed",
+  }),
+});
+
 const BLOCKING_FAILURE_REASON_CODES = Object.freeze([
   "RUNTIME_PREFLIGHT_BLOCKED",
 ]);
@@ -169,6 +199,47 @@ export function buildRuntimeRunnerInput({
   };
 }
 
+function assertRunnerFailureTaxonomy({ status = "not-executed", failureReason = null, runnerMetadata = {} } = {}) {
+  const semantics = RUNNER_FAILURE_STATUS_SEMANTICS[status];
+  if (!semantics) {
+    throw new RangeError(`Missing runtime runner failure taxonomy semantics for status: ${status}`);
+  }
+
+  const providerBacked = runnerMetadata?.providerBacked === true;
+  const executed = runnerMetadata?.executed === true;
+  const providerCall = runnerMetadata?.providerCall === true;
+  const providerAdapterStatus = runnerMetadata?.providerAdapter?.status ?? null;
+
+  if (status === "blocked" && !BLOCKING_FAILURE_REASON_CODES.includes(failureReason?.code)) {
+    throw new RangeError("Runtime runner blocked status requires a blocking failureReason code");
+  }
+
+  if (
+    status !== "blocked" &&
+    BLOCKING_FAILURE_REASON_CODES.includes(failureReason?.code)
+  ) {
+    throw new RangeError(
+      `Runtime runner blocking failureReason requires blocked status, got: ${status}`,
+    );
+  }
+
+  if (providerBacked && status !== "blocked" && status !== "error") {
+    throw new RangeError(`Runtime runner provider-backed reserved seam only allows blocked/error, got: ${status}`);
+  }
+
+  if (providerBacked && executed === true) {
+    throw new RangeError("Runtime runner provider-backed reserved seam forbids executed=true until provider integration is implemented");
+  }
+
+  if (providerBacked && providerCall === true) {
+    throw new RangeError("Runtime runner provider-backed reserved seam forbids providerCall=true until provider integration is implemented");
+  }
+
+  if (status === "blocked" && providerAdapterStatus && providerAdapterStatus !== "blocked") {
+    throw new RangeError(`Runtime runner blocked status requires blocked adapter status, got: ${providerAdapterStatus}`);
+  }
+}
+
 export function buildRuntimeRunnerResult({
   caseId = null,
   status = "not-executed",
@@ -191,6 +262,11 @@ export function buildRuntimeRunnerResult({
     transcriptPersistence: "none",
     evidenceProduced: false,
     passedReserved: true,
+    failureTaxonomyVersion: RUNNER_FAILURE_TAXONOMY_VERSION,
+    failureTaxonomyPriority: [...RUNNER_FAILURE_STATUS_PRIORITY],
+    failureTaxonomySemantics: RUNNER_FAILURE_STATUS_SEMANTICS,
+    semanticStatus: normalizedStatus,
+    statusPriority: RUNNER_FAILURE_STATUS_SEMANTICS[normalizedStatus]?.precedenceRank ?? null,
     futureProviderRequiredFields: [
       "runnerMetadata.providerExecutionId",
       "runnerMetadata.providerStatus",
@@ -223,14 +299,7 @@ export function buildRuntimeRunnerResult({
     normalizedTranscriptRef.providerTranscript = false;
   }
 
-  if (
-    normalizedStatus !== "blocked" &&
-    BLOCKING_FAILURE_REASON_CODES.includes(failureReason?.code)
-  ) {
-    throw new RangeError(
-      `Runtime runner blocking failureReason requires blocked status, got: ${normalizedStatus}`,
-    );
-  }
+  assertRunnerFailureTaxonomy({ status: normalizedStatus, failureReason, runnerMetadata: normalizedRunnerMetadata });
 
   return {
     contract: {
@@ -311,6 +380,9 @@ export function buildRuntimeTranscriptArtifactRef({
 export const RUNTIME_RUNNER_INPUT_VERSION = RUNNER_INPUT_VERSION;
 export const RUNTIME_RUNNER_OUTPUT_VERSION = RUNNER_OUTPUT_VERSION;
 export const RUNTIME_RUNNER_ALLOWED_STATUSES = [...DEFAULT_ALLOWED_CASE_STATUSES];
+export const RUNTIME_RUNNER_FAILURE_TAXONOMY_VERSION = RUNNER_FAILURE_TAXONOMY_VERSION;
+export const RUNTIME_RUNNER_FAILURE_STATUS_PRIORITY = [...RUNNER_FAILURE_STATUS_PRIORITY];
+export const RUNTIME_RUNNER_FAILURE_STATUS_SEMANTICS = RUNNER_FAILURE_STATUS_SEMANTICS;
 export const RUNTIME_TRANSCRIPT_ARTIFACT_REF_KIND = RUNTIME_TRANSCRIPT_REF_KIND;
 export const RUNTIME_TRANSCRIPT_ARTIFACT_REF_VERSION = RUNTIME_TRANSCRIPT_REF_VERSION;
 export const RUNTIME_PROVIDER_EXECUTION_FRAGMENT_VERSION = PROVIDER_EXECUTION_FRAGMENT_VERSION;
@@ -324,6 +396,9 @@ export default {
   RUNTIME_RUNNER_INPUT_VERSION: RUNNER_INPUT_VERSION,
   RUNTIME_RUNNER_OUTPUT_VERSION: RUNNER_OUTPUT_VERSION,
   RUNTIME_RUNNER_ALLOWED_STATUSES: [...DEFAULT_ALLOWED_CASE_STATUSES],
+  RUNTIME_RUNNER_FAILURE_TAXONOMY_VERSION: RUNNER_FAILURE_TAXONOMY_VERSION,
+  RUNTIME_RUNNER_FAILURE_STATUS_PRIORITY: [...RUNNER_FAILURE_STATUS_PRIORITY],
+  RUNTIME_RUNNER_FAILURE_STATUS_SEMANTICS: RUNNER_FAILURE_STATUS_SEMANTICS,
   RUNTIME_TRANSCRIPT_ARTIFACT_REF_KIND: RUNTIME_TRANSCRIPT_REF_KIND,
   RUNTIME_TRANSCRIPT_ARTIFACT_REF_VERSION: RUNTIME_TRANSCRIPT_REF_VERSION,
   RUNTIME_PROVIDER_EXECUTION_FRAGMENT_VERSION: PROVIDER_EXECUTION_FRAGMENT_VERSION,

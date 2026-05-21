@@ -25,11 +25,14 @@
 当前仓库已经在 contract 层冻结了下面这些事实：
 
 - `provider-backed` slot 仍是 `reserved-unimplemented`；
-- 当前允许的 runtime/provider case status 仍限定在：
+- 当前 runtime draft/report 对外可见的 case status 仍限定在：
   - `blocked`
   - `error`
-  - `dry-run`
-  - `not-executed`
+- 其中 provider-backed reserved seam 下当前只允许：
+  - `blocked`
+  - `error`
+- `blocked` 绑定 `preflight-blocked` 语义；
+- provider-backed `error` 绑定 reserved slot 语义，用于保留 orchestration/runtime skeleton 内部错误报告位，不代表真实 provider execution failure taxonomy；
 - 当前不允许开放真实 `passed` path；
 - 当前不允许伪造 provider transcript、provider evidence、provider persistence；
 - 当前不接真实 provider，不做真实 transcript persistence，不做 scoring。
@@ -143,21 +146,43 @@
 
 ### 3.6 Failure taxonomy
 
+> 当前已完成的是 provider-backed reserved seam 的 failure taxonomy tightening，不是完整 provider execution failure taxonomy。
+>
+> 当前真实边界：provider-backed reserved seam 只允许 `blocked | error`。其中：
+> - `blocked` 只绑定 `preflight-blocked` / guard-blocked 语义；
+> - provider-backed `error` 只绑定 reserved slot 语义，用于保留未来 orchestration/runtime skeleton/adapter 内部错误传播位；
+> - `adapter-error` 只是 internal semantic alias，对外仍必须序列化为 `error`；
+> - `report.failureReason` 与 case-level failure reason 当前要求 same-source，同一个 adapter/runner truth source 直出，不允许 mixed-source fallback。
+>
+> 这些收紧只是为了防止把 reserved slot 误读成真实 provider failure taxonomy，**不表示** provider request failure、provider execution failure、provider transcript failure、persistence failure、或 passed path 已经实现。
+
+- [x] 明确 provider-backed reserved seam 当前只允许 `blocked | error`
+- [x] 明确 `blocked` 绑定 `preflight-blocked` / guard-blocked 语义
+- [x] 明确 provider-backed `error` 绑定 reserved slot 语义
+- [x] 明确 `adapter-error` 只是 internal semantic alias，对外仍序列化为 `error`
+- [x] 明确 report / failureReason 当前要求 same-source，不允许 mixed-source fallback
 - [ ] 明确 provider selection failure
 - [ ] 明确 provider request failure
 - [ ] 明确 provider response parse / mapping failure
 - [ ] 明确 transcript capture failure
 - [ ] 明确 persistence failure
 - [ ] 明确 sandbox / side-effect guard 阻断 failure
-- [ ] 明确哪些 failure 只影响 metadata，哪些会落成 `cases[].status=error|blocked`
+- [ ] 明确哪些 future provider failures 只影响 metadata，哪些会落成 `cases[].status=error|blocked`
 
 **最低落地要求**
 
-- failure taxonomy 至少要能区分：
+- 当前阶段 failure taxonomy 至少要诚实表达：
+  - preflight / guard 阻断时落 `blocked`
+  - reserved seam 内部错误传播位对外统一落 `error`
+  - `adapter-error` 不得作为新的对外 status 暴露
+  - failure reason 必须 same-source，不能混 adapter / runner / report 多源 fallback
+
+- 以下能力故意留给后续真实 provider 子计划：
   - 没选中 provider
   - 选中了但没发出 call
   - call 发出但结果不可用
   - transcript / persistence 后处理失败
+  - 真实 provider execution / transcript / persistence failure taxonomy
 
 ---
 
@@ -233,7 +258,7 @@
 | transcript provider bit | `transcriptRef.providerTranscript` | `false` | required `true` only for real provider transcript | runner/report case |
 | observed provider call | `cases[].observed.providerCall` | `false` | must be `true` only on real provider call | runtime report case |
 | observed evidence flag | `cases[].observed.providerEvidenceAvailable` | reserved/implicit false today | must be explicit and truthful after mapping | runtime report case |
-| runtime case status | `cases[].status` | only `blocked|error|dry-run|not-executed` | `passed` may open only after full provider-backed path | runtime report case |
+| runtime case status | `cases[].status` | provider-backed reserved seam currently allows only `blocked|error`; `blocked` = preflight/guard blocked, `error` = reserved slot only | `passed` may open only after full provider-backed path | runtime report case |
 | runner provider execution flag | `runnerMetadata.providerBacked` | default false | must match adapter/provider-backed truth | runner result |
 | runner provider call flag | `runnerMetadata.providerCall` | false | must reflect actual provider call | runner result |
 | runner transcript captured | `runnerMetadata.transcriptCaptured` | false | must reflect actual transcript capture | runner result |
@@ -264,7 +289,7 @@
    再把 adapter truth 透传到 runner metadata / runtime report metadata。
 
 6. **failure taxonomy**  
-   最后补细粒度 failure codes 和 status 映射。
+   当前只先收紧 reserved seam：`blocked` 绑定 preflight/guard blocked，provider-backed `error` 绑定 reserved slot，`adapter-error` 仅作 internal alias；更细粒度 provider execution failure taxonomy 留到真实 provider 子计划。
 
 7. **passed path unlock**  
    全部前置就绪后，才讨论开放 `passed`。
@@ -279,7 +304,7 @@
 - rawResponse persistence / evidence retrieval
 - scoring / rubric
 - passed path 解锁
-- failure taxonomy 统一扩展
+- 真实 provider execution failure taxonomy 统一扩展
 - 状态机小修
 - tests / contract tests 扩展
 - validate* 默认链路接入
