@@ -54,6 +54,25 @@ errors=0
 
 The command writes a JSON validation report to stdout. A passing result means the current fixture passed the static validator only.
 
+### Run the fixture matrix
+
+```bash
+pnpm --silent validate:fixture:matrix
+```
+
+The matrix command copies the positive fixture into temporary directories, mutates those copies into representative counterexamples, and cleans them up before exit. It currently covers the positive baseline, missing description/trigger, secret/token leakage, private paths, forged replay pass claims, and all-source missing `compatibility` checklist coverage.
+
+### CLI contract
+
+- `validate:fixture <fixture-path> --format json` writes a JSON report to stdout.
+- Exit `0` means `summary.passed=true`; exit `1` means validation completed but blocking rules failed; exit `2` is reserved for CLI usage errors.
+- Diagnostics use stable `checks[].id` rule IDs and sanitized `evidence`; `metadata.generatedAt` is runtime metadata and should not be snapshot-tested.
+- `validate:fixture:matrix` writes a human-readable summary to stdout and exits `0` only when every matrix case meets its expected exit code, JSON parseability, and target rule assertions.
+
+### Checklist aggregation semantics
+
+`SF-P1-STRUCTURE-SEVEN-DIMENSION-CHECKLIST` does **not** require a single file to list the seven dimensions exactly once. The validator normalizes supported checklist sources and checks their union: `workflowSource`, `skillSpec`, `generationRun`, `skillManifest`, `replayCases`, `validationResult`, nested validation checks, and the `skill/SKILL.md` body checklist. A dimension is considered covered when any supported source provides its canonical name; a missing-dimension failure requires that dimension to be absent from all supported sources.
+
 ## Repository layout
 
 ```text
@@ -61,7 +80,8 @@ workflow-kit/
 ├── README.md
 ├── package.json
 ├── scripts/
-│   └── validate-fixture.mjs
+│   ├── validate-fixture.mjs
+│   └── validate-fixture-matrix.mjs
 ├── src/
 │   └── skillforge/
 │       ├── loader.mjs
@@ -95,6 +115,7 @@ workflow-kit/
 - Validates a single fixture: `fixtures/meeting-summary-assistant`.
 - Runs a static rule set: `skillforge-static-mvp-0.1.0`.
 - Emits a stable JSON report for the fixture validation command.
+- Provides a local fixture matrix command for positive and representative negative validation paths.
 - Covers 15 static checks across structure, trigger, boundary, dependency, replay, privacy, and compatibility.
 - Fails high-priority static risks such as missing core metadata, high-confidence secret/path leaks, and forged replay pass claims.
 - Redacts sensitive evidence in validation findings.
@@ -138,6 +159,7 @@ See [`docs/roadmap.md`](docs/roadmap.md) for planned next steps. The current exp
 Main entry points:
 
 - `scripts/validate-fixture.mjs` — CLI entry for `pnpm --silent validate:fixture ...`.
+- `scripts/validate-fixture-matrix.mjs` — local positive/negative fixture matrix using temporary copies.
 - `src/skillforge/loader.mjs` — loads fixture files for validation.
 - `src/skillforge/normalize.mjs` — normalizes fixture data before rules inspect it.
 - `src/skillforge/rules.mjs` — static MVP rule definitions and checks.

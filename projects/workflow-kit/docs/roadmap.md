@@ -25,12 +25,12 @@
 | 运行时模型回放 | PENDING | 目前只有静态 replay 诚实性检查，没有真实模型 transcript、observed 输出和人工/自动评分 |
 | 跨平台兼容 | PENDING | 当前证据来自 Linux + 当前 Node/pnpm 环境，未覆盖 macOS/Windows 路径、shell、换行与权限差异 |
 | 跨模型兼容 | PENDING | 未验证不同模型对同一 skill 的触发、边界遵循、输出稳定性 |
-| 隐私 evidence 去重 | PENDING | 已能脱敏，但同文件同模式 evidence 可能重复，报告噪音仍需治理 |
-| checklist 多来源聚合语义说明 | PENDING | 规则会从多个 YAML/Markdown 来源聚合七维 checklist，需在规则说明与诊断中明确 |
+| 隐私 evidence 去重 | Phase 1 已完成 | 同文件、同脱敏 detail、同 pattern kind 的 privacy evidence 已去重，且 secret/private path 反例仍阻断 |
+| checklist 多来源聚合语义说明 | Phase 1 已完成 | 规则说明与 README 已明确多来源聚合覆盖七维，不是单文件 exactly once |
 | 完整生成器 | PENDING | 还不能从任意 workflow 自动生成完整 skill 文件树 |
 | UI | PENDING | 尚无可视化录入、审核、回放、发布界面 |
 | CI | PENDING | validator 尚未接入 PR/发布门禁 |
-| 自动化验收矩阵 | PENDING | 尚无多 fixture、多平台、多模型、多反例的系统矩阵 |
+| 自动化验收矩阵 | Phase 1 局部完成 | 已有本地单 fixture 正反例矩阵；多 fixture、多平台、多模型系统矩阵仍属 Phase 2+ |
 
 ### 1.3 当前边界判定
 
@@ -134,11 +134,12 @@ workflow/经验输入
 1. 固化命令契约：输入 fixture 路径、`--format json`、exit code、stdout/stderr 责任。
 2. 梳理规则注册表：每条规则包含 ID、dimension、severity、scope、失败条件、修复建议。
 3. 明确 P0/P1/P2 策略：P0 阻断，P1 默认阻断或需明确豁免，P2 warning。
-4. 实现 evidence 去重：同文件、同规则、同模式、同位置附近的 evidence 合并。
-5. 明确 checklist 聚合语义：说明来自 manifest、validation、README、SKILL.md 等来源的聚合逻辑。
+4. [x] 实现 evidence 去重：privacy evidence 按同文件、脱敏 detail、pattern kind 合并，避免重复噪音且不降低 P0 检出。
+5. [x] 明确 checklist 聚合语义：说明来自 manifest、validation、README、SKILL.md 等来源的聚合逻辑。
 6. 优化错误信息：让失败报告能直接指导 fixture 作者修复。
 7. 增加开发者文档：如何创建 fixture、如何运行校验、如何解释报告。
 8. 防止规则过拟合：标注 generic 与 fixture-profile 规则，避免业务关键词硬编码。
+9. [x] 新增本地正反例矩阵脚本，覆盖正例 baseline、缺 description/trigger、secret/token、private path、伪 replay、全来源缺 compatibility。
 
 **验收标准**
 
@@ -155,6 +156,8 @@ workflow/经验输入
 - 规则说明和代码实现继续漂移。
 
 **退出条件**
+
+Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合语义同步已完成；但仍不宣称进入 Phase 2 完成状态。
 
 - validator 输出契约稳定。
 - 规则清单、报告字段、开发指南三者一致。

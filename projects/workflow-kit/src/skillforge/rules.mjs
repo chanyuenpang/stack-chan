@@ -165,16 +165,16 @@ export const RULES = Object.freeze([
     id: "SF-P1-STRUCTURE-SEVEN-DIMENSION-CHECKLIST",
     dimension: "structure",
     severity: "P1",
-    scope: "fixture checklist or validation metadata",
+    scope: "aggregated fixture checklist sources and validation metadata",
     description:
-      "The fixture must expose a checklist covering all seven MVP dimensions exactly once.",
+      "The fixture must expose checklist coverage for all seven MVP dimensions after aggregating supported YAML and Markdown sources.",
     evidence: [
-      "checklist is missing one of structure, trigger, boundary, dependency, replay, privacy, compatibility",
-      "checklist includes unsupported dimensions",
-      "dimension names differ by casing, spelling, or aliases",
+      "aggregated checklist coverage is missing one of structure, trigger, boundary, dependency, replay, privacy, compatibility",
+      "a dimension may be supplied by workflowSource, skillSpec, generationRun, skillManifest, replayCases, validationResult, validation checks, or the SKILL.md body",
+      "dimension names differ by casing, spelling, or aliases and are not counted toward canonical coverage",
     ],
     closeCondition:
-      "Add a checklist containing exactly the seven canonical dimensions exported by DIMENSIONS.",
+      "Add checklist entries so the supported sources collectively cover exactly the seven canonical dimensions exported by DIMENSIONS.",
   },
   {
     id: "SF-P1-DEPENDENCY-MVP-STATIC-DECLARATION",

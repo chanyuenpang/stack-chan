@@ -50,9 +50,9 @@ pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 
 正例摘要：15 条规则全部通过，其中 P0 5 条、P1 8 条、P2 2 条；`blockingFailures=0`、`warnings=0`、`errors=0`。
 
-## 3. T5 反例矩阵摘要（引用前置结果）
+## 3. Phase 1 反例矩阵摘要
 
-以下反例结果引用自任务目录报告：`/home/yankeeting/.openclaw/.projects/workflow-kit/tasks/skillforge-static-mvp-implementation/subagents/5.md`。T6 未重跑全部反例。
+Phase 1 已新增 `pnpm --silent validate:fixture:matrix`，使用 `/tmp` 临时副本运行正例与代表性反例，并在退出前清理临时 fixture。矩阵断言 exit code、stdout JSON 可解析、目标规则 ID 命中；不 snapshot `generatedAt`。
 
 | 反例类别 | 修改点 | exit code | stdout JSON | summary.passed | 命中规则 ID | evidence 脱敏 |
 |---|---|---:|---|---|---|---|
@@ -62,7 +62,7 @@ pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 | replay 伪造 observed/passed=true | 将第一条 replay case 改为 `passed: true` 且 `observed` 保持 `null` | `1` | 是 | `false` | `SF-P0-REPLAY-PASSED-WITHOUT-OBSERVED-EVIDENCE` | 是；无敏感原文 |
 | 缺 7 维 checklist | 从所有 checklist 来源删除 `compatibility` 维度 | `1` | 是 | `false` | `SF-P1-STRUCTURE-SEVEN-DIMENSION-CHECKLIST` | 是；显示 `missing compatibility` |
 
-T5 结论：5 类反例均 exit 非 0，失败场景 stdout 均为合法 JSON，临时目录已清理，未联网、未外发、未 commit/push。
+Phase 1 结论：5 类反例均 exit 非 0，失败场景 stdout 均为合法 JSON，临时目录已清理，未联网、未外发、未 commit/push；正例 baseline 仍 exit 0。
 
 ## 4. 已关闭风险 / 未关闭风险
 
@@ -73,6 +73,8 @@ T5 结论：5 类反例均 exit 非 0，失败场景 stdout 均为合法 JSON，
 - **静态命令证据风险：静态 MVP 已关闭。** T6 已重新运行正例命令并记录 CWD、版本、report/ruleSet、fixture 与 summary。
 - **反例失败 JSON 合同风险：静态 MVP 已关闭。** T5 5 类反例均输出合法 JSON 且 exit 非 0。
 - **高置信隐私脱敏风险：静态 MVP 已关闭。** T5 证明 secret/token 与私有路径 evidence 会被替换为 `<redacted-secret>` / `<redacted-path>`。
+- **隐私 evidence 重复噪音：Phase 1 已修复并验证。** 隐私扫描使用独立扫描 regex，避免脱敏逻辑扰动 `lastIndex`；同文件、同脱敏 detail、同 pattern kind 的 evidence 会去重，矩阵脚本覆盖 secret/token 与 private path 重复注入。
+- **checklist 聚合语义：Phase 1 已文档化。** 规则说明与 README 均明确七维 checklist 是多来源聚合覆盖，不是单文件 exactly once。
 
 ### 未关闭 / 仍需后续跟踪
 
@@ -93,8 +95,9 @@ T5 结论：5 类反例均 exit 非 0，失败场景 stdout 均为合法 JSON，
 
 ## 6. 已知小风险
 
-1. **隐私 evidence 重复项。** T5 发现 secret 与 private path 反例中，同一注入点可能被重复收集到多条 evidence；不影响阻断判断，但会增加报告噪音，后续可做去重优化。
-2. **checklist 聚合语义。** `SF-P1-STRUCTURE-SEVEN-DIMENSION-CHECKLIST` 会从多个 YAML/Markdown 来源聚合七维 checklist；只删除单一来源中的 `compatibility` 不一定失败，必须从所有来源删除才触发缺维度。这是当前实现语义，文档和测试应保持一致。
+1. **模型回放仍是静态诚实性检查。** 当前只阻断伪造 `passed=true` 且无 observed/executed 证据，不等价于真实模型回放。
+2. **跨平台证据仍不足。** 当前矩阵在本机 Linux/Node 环境运行，尚未覆盖 macOS/Windows 差异。
+3. **checklist 聚合语义。** `SF-P1-STRUCTURE-SEVEN-DIMENSION-CHECKLIST` 会从多个 YAML/Markdown 来源聚合七维 checklist；只删除单一来源中的 `compatibility` 不一定失败，必须从所有来源删除才触发缺维度。这是当前实现语义，文档、规则说明和矩阵测试已同步。
 
 ## 7. 结论
 

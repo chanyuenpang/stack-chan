@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate:fixture": "node scripts/validate-fixture.mjs"
+    "validate:fixture": "node scripts/validate-fixture.mjs",
+    "validate:fixture:matrix": "node scripts/validate-fixture-matrix.mjs"
   }
 }

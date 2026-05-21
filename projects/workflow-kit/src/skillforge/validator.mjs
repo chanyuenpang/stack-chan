@@ -20,6 +20,11 @@ const REQUIRED_FILES = Object.freeze([
 const PRIVATE_PATH_RE = /(?:\/home\/[A-Za-z0-9._-]+|\/Users\/[A-Za-z0-9._-]+|[A-Za-z]:\\Users\\[A-Za-z0-9._-]+|\.openclaw|\/workspace\b|\\workspace\b)/giu;
 const SECRET_ASSIGNMENT_RE = /\b(?:api[_-]?key|secret|token|password|passwd|credential|access[_-]?token|private[_-]?key)\b\s*[:=]\s*["']?([A-Za-z0-9_./+=-]{8,})["']?/giu;
 const INTERNAL_HOST_RE = /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/gu;
+const PRIVACY_PATTERNS = Object.freeze([
+  { kind: "private-path", regex: /(?:\/home\/[A-Za-z0-9._-]+|\/Users\/[A-Za-z0-9._-]+|[A-Za-z]:\\Users\\[A-Za-z0-9._-]+|\.openclaw|\/workspace\b|\\workspace\b)/giu },
+  { kind: "secret-assignment", regex: /\b(?:api[_-]?key|secret|token|password|passwd|credential|access[_-]?token|private[_-]?key)\b\s*[:=]\s*["']?([A-Za-z0-9_./+=-]{8,})["']?/giu },
+  { kind: "internal-host", regex: /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/gu },
+]);
 const SIDE_EFFECT_RE = /(?:network|web|联网|访问网络|外发|发送|message|external|write|写入|delete|删除|覆盖|exec|shell|命令|privatePathRead|私有路径)/iu;
 const DENY_RE = /(?:false|deny|denied|不|拒绝|禁止|无|保守|approval|required|需.*批准)/iu;
 const TRIGGER_RE = /(?:当用户|用户.*(?:要求|需要|说|请求)|when to use|use when|trigger|触发|整理会议纪要|生成会议总结|提炼会议结论|提取会议待办)/iu;
@@ -88,12 +93,17 @@ function collectRawTexts(loaded) {
 
 function findPrivacyFindings(loaded) {
   const findings = [];
+  const seen = new Set();
   for (const { file, text } of collectRawTexts(loaded)) {
-    for (const pattern of [PRIVATE_PATH_RE, SECRET_ASSIGNMENT_RE, INTERNAL_HOST_RE]) {
-      pattern.lastIndex = 0;
+    for (const pattern of PRIVACY_PATTERNS) {
+      const scanRegex = new RegExp(pattern.regex.source, pattern.regex.flags);
       let match;
-      while ((match = pattern.exec(text)) !== null) {
-        findings.push(evidence(file, match[0]));
+      while ((match = scanRegex.exec(text)) !== null) {
+        const item = evidence(file, match[0]);
+        const key = `${file}\u0000${pattern.kind}\u0000${item.detail}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        findings.push(item);
         if (findings.length >= 10) return findings;
       }
     }
