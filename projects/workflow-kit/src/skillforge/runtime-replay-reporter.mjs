@@ -6,7 +6,8 @@ export const RUNTIME_REPLAY_KIND = "runtime-replay-report";
 
 const PASSING_CASE_STATUSES = new Set(["passed"]);
 const FAILING_CASE_STATUSES = new Set(["failed", "error"]);
-const BLOCKED_CASE_STATUSES = new Set(["blocked", "dry-run", "not-executed"]);
+const DRAFT_NON_EXECUTED_CASE_STATUSES = new Set(["blocked", "dry-run", "not-executed"]);
+const ALLOWED_DRAFT_CASE_STATUSES = new Set(["blocked", "dry-run", "not-executed"]);
 const WARNING_CHECK_STATUSES = new Set(["warn"]);
 const ERROR_CHECK_STATUSES = new Set(["error", "fail"]);
 const DEFAULT_PENDING_CAPABILITIES = [
@@ -17,6 +18,8 @@ const DEFAULT_PENDING_CAPABILITIES = [
   "provider-integration",
   "scoring-engine",
 ];
+const DEFAULT_METADATA_NOTE =
+  "runtime draft artifact only: no provider execution, no transcript evidence, no scoring result, no runtime pass evidence";
 
 function safeFixturePath(fixtureDir) {
   if (!fixtureDir) return null;
@@ -28,17 +31,43 @@ function safeFixturePath(fixtureDir) {
 
 function normalizeCaseStatus(status) {
   if (!status) return "not-executed";
-  return String(status);
+  const normalized = String(status);
+  if (!ALLOWED_DRAFT_CASE_STATUSES.has(normalized)) return "not-executed";
+  return normalized;
+}
+
+function normalizeObserved(observed, status) {
+  const fallback = {
+    kind: "runtime-observed-stub",
+    evidence: "not-executed",
+    providerCall: false,
+    transcriptCaptured: false,
+    sideEffectsPerformed: false,
+    note: `runtime draft reserved observed stub for status ${status}`,
+  };
+
+  if (!observed || typeof observed !== "object" || Array.isArray(observed)) return fallback;
+
+  return {
+    ...observed,
+    kind: observed?.kind ?? fallback.kind,
+    evidence: "not-executed",
+    providerCall: false,
+    transcriptCaptured: false,
+    sideEffectsPerformed: false,
+    note: observed?.note ?? fallback.note,
+  };
 }
 
 function normalizeRuntimeCase(runtimeCase) {
+  const status = normalizeCaseStatus(runtimeCase?.status);
   return {
     id: runtimeCase?.id ?? null,
     type: runtimeCase?.type ?? null,
-    status: normalizeCaseStatus(runtimeCase?.status),
+    status,
     expectedBehavior: runtimeCase?.expectedBehavior ?? null,
-    observed: runtimeCase?.observed ?? null,
-    transcriptRef: runtimeCase?.transcriptRef ?? null,
+    observed: normalizeObserved(runtimeCase?.observed, status),
+    transcriptRef: null,
     failureReason: runtimeCase?.failureReason ?? null,
   };
 }
@@ -67,13 +96,12 @@ function normalizeError(error) {
 function buildSummary(runtimeCases, checks, errors) {
   const passedCases = runtimeCases.filter((runtimeCase) => PASSING_CASE_STATUSES.has(runtimeCase.status)).length;
   const failedCases = runtimeCases.filter((runtimeCase) => FAILING_CASE_STATUSES.has(runtimeCase.status)).length;
-  const blockedCases = runtimeCases.filter((runtimeCase) => BLOCKED_CASE_STATUSES.has(runtimeCase.status)).length;
+  const blockedCases = runtimeCases.filter((runtimeCase) => DRAFT_NON_EXECUTED_CASE_STATUSES.has(runtimeCase.status)).length;
   const warnings = checks.filter((check) => WARNING_CHECK_STATUSES.has(check.status)).length;
   const errorCount = errors.length + checks.filter((check) => ERROR_CHECK_STATUSES.has(check.status)).length;
-  const passed = failedCases === 0 && errorCount === 0 && runtimeCases.every((runtimeCase) => runtimeCase.status === "passed");
 
   return {
-    passed,
+    passed: false,
     totalCases: runtimeCases.length,
     passedCases,
     failedCases,
@@ -109,7 +137,7 @@ export function buildRuntimeReplayReport({
       entry: fixture?.entry ?? runtime?.fixture?.entry ?? null,
       profile: fixture?.profile ?? runtime?.fixture?.profile ?? null,
     },
-    status: summary.passed ? "passed" : "failed",
+    status: normalizedCases.some((runtimeCase) => runtimeCase.status === "blocked") ? "blocked" : "draft",
     summary,
     cases: normalizedCases,
     checks: normalizedChecks,
@@ -118,15 +146,32 @@ export function buildRuntimeReplayReport({
       generatedAt,
       runner: runtime?.runner ?? options.runner ?? null,
       sandbox: runtime?.sandbox ?? options.sandbox ?? null,
+      executionMode: runtime?.mode ?? null,
+      note: options.note ?? DEFAULT_METADATA_NOTE,
+      lineage: {
+        static: {
+          kind: runtime?.staticBaseline?.kind ?? null,
+          reportVersion: runtime?.staticBaseline?.reportVersion ?? null,
+          ruleSetVersion: runtime?.staticBaseline?.ruleSetVersion ?? null,
+          status: runtime?.staticBaseline?.status ?? null,
+        },
+        preflight: {
+          kind: runtime?.preflight?.kind ?? null,
+          reportVersion: runtime?.preflight?.reportVersion ?? null,
+          protocolVersion: runtime?.preflight?.protocolVersion ?? null,
+          ruleSetVersion: runtime?.preflight?.ruleSetVersion ?? null,
+          status: runtime?.preflight?.status ?? null,
+        },
+        replayCases: {
+          kind: runtime?.replayCases?.kind ?? null,
+          fixtureId: runtime?.replayCases?.fixtureId ?? null,
+        },
+      },
       sourceStaticReportVersion: runtime?.staticBaseline?.reportVersion ?? null,
       sourceStaticRuleSetVersion: runtime?.staticBaseline?.ruleSetVersion ?? null,
       sourcePreflightReportVersion: runtime?.preflight?.reportVersion ?? null,
       sourcePreflightProtocolVersion: runtime?.preflight?.protocolVersion ?? null,
       sourceReplayCasesKind: runtime?.replayCases?.kind ?? null,
-      executionMode: runtime?.mode ?? null,
-      note:
-        options.note ??
-        "skeleton-only artifact; runtime replay execution evidence is not implemented in this phase",
     },
     pendingCapabilities: Array.isArray(runtime?.pendingCapabilities)
       ? [...runtime.pendingCapabilities]

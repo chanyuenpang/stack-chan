@@ -1,0 +1,27 @@
+# Workflow Kit Truth Summary
+
+## project
+
+| 文档 | 主题 | 可检索摘要 |
+| ---- | ---- | ---------- |
+| [`PROJECT-TRUTH.md`](PROJECT-TRUTH.md) | Workflow Kit 项目级 truth 总纲 | SkillForge static-only MVP、fixture required files、profile passthrough、`validate:fixtures`、`validate:all`。 |
+
+## adr
+
+| 文档 | 主题 | 可检索摘要 |
+| ---- | ---- | ---------- |
+| [`adr/ADR-0001-skillforge-validator-contract-tests-use-minimal-node-script.md`](adr/ADR-0001-skillforge-validator-contract-tests-use-minimal-node-script.md) | SkillForge validator contract tests 的最小回归策略 | `validate:contracts`、`scripts/test-validator-contracts.mjs`、`fixture.profile`、`validate:all`、`validate:fixture:matrix`、`generatedAt`、`schema engine`、`AJV`、`runtime replay`。 |
+| [`adr/ADR-0002-skillforge-next-milestone-prioritizes-ci-before-schema-engine-and-runtime-replay.md`](adr/ADR-0002-skillforge-next-milestone-prioritizes-ci-before-schema-engine-and-runtime-replay.md) | SkillForge 下一里程碑的决策门排序与 CI 最小门禁边界 | `CI最小接入`、`static-only minimal gate`、`schema engine轻量设计`、`runtime replay前置调研`、`validate:all`、`validate:contracts`、`.github/workflows/ci-minimal-gate.yml`、`pull_request`、`push(main)`、`ubuntu-latest`、`fixture.profile`、`standard fixture`。 |
+| [`adr/ADR-0003-skillforge-schema-engine-stays-lightweight-and-extends-validator-with-p1-gates.md`](adr/ADR-0003-skillforge-schema-engine-stays-lightweight-and-extends-validator-with-p1-gates.md) | SkillForge schema engine 轻量化边界与 P1 gate 接入策略 | `schema engine lightweight design`、`src/skillforge/schema.mjs`、`P1 schema gate`、`skill-manifest.yaml`、`replay-cases.yaml`、`validation-result.yaml`、`validator/rules`、`validate:fixtures`、`validate:all`、`matrix 6/6`。 |
+| [`adr/ADR-0004-skillforge-runtime-replay-stays-protocol-first-and-layered-from-static-validation.md`](adr/ADR-0004-skillforge-runtime-replay-stays-protocol-first-and-layered-from-static-validation.md) | SkillForge runtime replay 协议优先与 static/preflight/runtime 分层推进策略 | `runtime replay protocol lightweight design`、`static validation -> preflight -> runtime replay`、`replay-cases.yaml`、`preflight result`、`runtime replay report`、`validate:all`、`validate:contracts`、`runner`、`sandbox contract`、`observed`。 |
+| [`adr/ADR-0005-skillforge-post-static-expansion-stays-contract-forward-before-runtime-or-productization.md`](adr/ADR-0005-skillforge-post-static-expansion-stays-contract-forward-before-runtime-or-productization.md) | SkillForge post-static 扩张阶段先走 contract-forward，而非 runtime 或产品化 | `contract-forward`、`artifact schema`、`preflight contract`、`post-static expansion`、`runtime runner`、`generator`、`UI`、`docs/preflight-contract-and-artifacts-design.md`。 |
+| [`adr/ADR-0005-skillforge-post-static-expansion-stays-contract-forward-before-runtime-runner.md`](adr/ADR-0005-skillforge-post-static-expansion-stays-contract-forward-before-runtime-runner.md) | SkillForge post-static expansion 在进入 runtime runner 前继续保持 contract-forward | `contract-forward`、`artifact schema`、`preflight contract`、`replay-cases.yaml`、`runtime-preflight-result`、`runtime-replay-report`、`normalizeFixture`、`runtime runner`、`CI runtime integration`、`generator/UI`。 |
+| [`adr/ADR-0006-skillforge-phase-3-preflight-implementation-stays-standalone-and-zero-pollution-to-static-baseline.md`](adr/ADR-0006-skillforge-phase-3-preflight-implementation-stays-standalone-and-zero-pollution-to-static-baseline.md) | SkillForge Phase 3 preflight 首段实现采用独立实现包，并保持 static baseline 零污染 | `runtime-preflight-result`、`validate:preflight`、`validate:preflight:contracts`、`normalizeFixture`、`validatePreflight`、`buildPreflightInput`、`17/51/6/6 baseline`、`static baseline zero pollution`。 |
+| [`adr/ADR-0007-skillforge-runtime-runner-layer-starts-with-report-runner-sandbox-contract-closure-and-single-case-dry-null-skeleton.md`](adr/ADR-0007-skillforge-runtime-runner-layer-starts-with-report-runner-sandbox-contract-closure-and-single-case-dry-null-skeleton.md) | SkillForge runtime runner 层先完成 report / runner / sandbox 合同闭环，再进入真实执行 | `runtime-replay-report`、`runtime-runner-contract`、`runtime-sandbox-contract`、`validate:runtime:contracts`、`single-case dry-run`、`null-runner`、`not-executed`、`pendingCapabilities`、`17/51/6/6 baseline`。 |
+| [`adr/ADR-0008-skillforge-runtime-execution-advances-via-standalone-runtime-draft-cli-and-preflight-to-runtime-skeleton-orchestration.md`](adr/ADR-0008-skillforge-runtime-execution-advances-via-standalone-runtime-draft-cli-and-preflight-to-runtime-skeleton-orchestration.md) | SkillForge runtime execution 下一段先以 standalone runtime draft CLI + preflight→runtime skeleton orchestration 推进 | `runtime draft CLI`、`preflight→runtime skeleton orchestration`、`runtime-draft-orchestrator.mjs`、`summary.passed`、`single fixture`、`single case`、`dry/null`、`no-provider`、`report enrichment`、`docs/phase-3-runtime-draft-cli-plan.md`。 |
+
+## features
+
+| 文档 | 主题 | 可检索摘要 |
+| ---- | ---- | ---------- |
+| [`features/skillforge-fixture-profiles.md`](features/skillforge-fixture-profiles.md) | SkillForge fixture profiles、release notes standard fixture、最小 contract gate 与 CI minimal gate | `release-notes-assistant`、`profile: standard`、`fixture.profile`、`validate:fixture fixtures/release-notes-assistant`、`validate:fixtures`、`validate:all`、`validate:contracts`、`ci-minimal-gate.yml`、`ubuntu-latest`、`multi-fixture-validation-report`、`observed: null`、`passed: null`、`templates/release-notes-template.md`、`examples/synthetic-changelog.md`。 |

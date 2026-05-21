@@ -1,9 +1,9 @@
 # SkillForge Runtime Replay Protocol & Preflight 轻量设计草案
 
-> 状态：设计草案（未实现）  
-> 适用阶段：Milestone D 协议收敛前置文档  
-> 文档目的：为负责人判断“是否继续进入 runtime 相关子任务”提供边界清晰、与现有 static/schema 阶段兼容的协议草案。  
-> 重要声明：本文**不代表 runtime replay 已实现**，也**不承诺 runner / sandbox / transcript engine / model integration 已存在**。
+> 状态：设计草案（协议仍为 draft，仓库内已有受限的 Phase 3 runtime draft CLI / orchestrator 实施）
+> 适用阶段：Milestone D 协议收敛前置文档
+> 文档目的：为负责人判断“是否继续进入 runtime 相关子任务”提供边界清晰、与现有 static/schema 阶段兼容的协议草案。
+> 重要声明：本文**不代表 provider-backed runtime replay 已实现**，也**不承诺 transcript engine / sandbox enforcement / model integration / multi-case runtime orchestration 已存在**。
 
 ## 1. 设计目标
 
@@ -16,7 +16,9 @@
   - 不允许 `passed: true` 但没有 observed evidence；
   - 不允许把 runtime 未执行的结果伪装成 validation passed。
 
-因此，Milestone D 的目标不是“补 runtime 实现”，而是先把**runtime replay protocol 和 preflight contract 冻结成轻量文档**，让后续实现有明确边界，且不反向污染当前 static MVP。
+因此，Milestone D 的目标不是“补完整 runtime 实现”，而是先把**runtime replay protocol 和 preflight contract 冻结成轻量文档**，让后续实现有明确边界，且不反向污染当前 static MVP。
+
+当前仓库内已经存在一个**独立 runtime draft CLI** 及其最小 orchestration 承载面，用于诚实地串起 `static validation -> preflight -> single-case dry/null runtime skeleton -> draft artifact`。这一步只代表 Phase 3 draft execution surface 已接通，不代表真实 runtime replay 已交付。
 
 本文要回答的问题是：
 
@@ -76,7 +78,7 @@ preflight 不负责执行模型，不负责生成 transcript，不做最终评�
 - runner 所需接口声明是否齐备；
 - 是否存在显式禁止进入 runtime 的条件。
 
-### C. Runtime replay（未来新增，先定义协议）
+### C. Runtime replay（当前仅有 draft orchestration，真实执行仍未实现）
 
 职责：在明确输入、边界、工具权限和 case 语义的前提下，记录**真实执行证据**：
 
@@ -107,14 +109,14 @@ Milestone D 建议只冻结 3 个最小对象，不再额外扩张：
 
 ## 3.1 replay-cases.yaml
 
-定位：**case declaration artifact**。  
+定位：**case declaration artifact**。
 它描述“将来应该如何 replay”，而不是“已经 replay 过什么”。
 
 建议继续把它视为 fixture 的一部分，和 static validation 共存。
 
 ## 3.2 preflight result
 
-定位：**runtime-readiness artifact**。  
+定位：**runtime-readiness artifact**。
 它描述“这批 replay case 是否已经满足 runtime 执行前的最小合同”。
 
 它的职责是：
@@ -125,7 +127,7 @@ Milestone D 建议只冻结 3 个最小对象，不再额外扩张：
 
 ## 3.3 runtime replay report
 
-定位：**execution evidence artifact**。  
+定位：**execution evidence artifact**。
 它描述“哪些 case 被实际执行了，观察到了什么，结果如何”。
 
 它与现有 validator report 平行，不替代 validator report。
@@ -359,9 +361,9 @@ fixture:
   version: ...
   entry: ...
   profile: ...
-status: passed | failed
+status: draft | blocked
 summary:
-  passed: true|false
+  passed: false
   totalCases: number
   passedCases: number
   failedCases: number
@@ -371,10 +373,10 @@ summary:
 cases:
   - id: ...
     type: positive|negative|edge
-    status: passed|failed|blocked|error|dry-run|not-executed
+    status: blocked|dry-run|not-executed
     expectedBehavior: ...
-    observed: ...
-    transcriptRef: ...
+    observed: runtime-observed-stub
+    transcriptRef: null
     failureReason: ...
 checks: []
 errors: []
@@ -382,12 +384,24 @@ metadata:
   generatedAt: ...
   runner: reserved
   sandbox: reserved
-  sourceReplayCasesVersion: ...
-  note: skeleton-only artifact; not execution evidence
+  lineage:
+    static: ...
+    preflight: ...
+    replayCases: ...
+  note: runtime draft artifact only; no provider execution, no transcript evidence, no scoring result, no runtime pass evidence
 pendingCapabilities: []
 ```
 
-当前 Phase 3 这一小步若已落代码，也应只落到 runtime replay report skeleton builder 为止；`dry-run` / `not-executed` / `pendingCapabilities` / `metadata.note` 这些位的存在，本身就是为了防止外界误读成“真实 runtime replay 已经跑通”。
+当前 Phase 3 这一小步若已落代码，也应只落到 runtime replay report skeleton builder 为止；`blocked` / `dry-run` / `not-executed` / `pendingCapabilities` / `metadata.note` 这些位的存在，本身就是为了防止外界误读成“真实 runtime replay 已经跑通”。
+
+进一步收敛后的 draft 合同建议是：
+
+1. 顶层 `status` 在当前 draft mode 只诚实落在 `draft | blocked`，不再伪装成 `passed | failed` 执行结论；
+2. `summary.passed` 固定为 `false`，直到真实 provider + transcript + scoring evidence 存在；
+3. `cases[].status` 当前只允许 `blocked | dry-run | not-executed`；
+4. `observed` 必须保持 stub，`transcriptRef` 必须默认为 `null`；
+5. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
+6. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
 
 ## 6.3 为什么不直接复用 validator report
 
@@ -544,17 +558,20 @@ output = {
 
 ## 7.3 本阶段明确不实现的能力
 
-Milestone D / 当前 Phase 3 仍明确不做：
+Milestone D / 当前 Phase 3 虽然已经有独立 runtime draft CLI 与 preflight→single-case dry/null runtime skeleton orchestration，但仍明确不做：
 
 - 不接真实模型 provider；
 - 不做 transcript engine；
-- 不做 sandbox implementation；
+- 不做 sandbox implementation / sandbox enforcement；
 - 不做 tool execution adapter；
 - 不做 scoring engine；
+- 不做多 case / 多 fixture orchestration；
 - 不做多模型/多平台矩阵执行器；
-- 不把 runtime 入口混进 `validate:contracts`、`validate:preflight:contracts` 或其他 static/preflight 默认链路。
+- 不把 runtime 入口混进 `validate:all`、`validate:contracts`、`validate:preflight:contracts` 或其他 static/preflight 默认链路。
 
 补充说明：当前仓库虽然已经存在 single-case dry/null runner skeleton 与独立 `pnpm validate:runtime:contracts` 测试入口，但它们只用于冻结 contract 与诚实性边界，不代表真实 runtime replay/provider/transcript/sandbox enforcement 已实现。
+
+当前 draft artifact 也不应把 `passedCases > 0` 解读成 runtime 已通过；这些计数字段仅保留同构 shape，为后续 provider 子计划承接留接口。
 
 ---
 
@@ -580,10 +597,10 @@ Milestone D / 当前 Phase 3 仍明确不做：
 
 为防止范围膨胀，Milestone D 需要明确写死以下非目标：
 
-1. **不写 runtime runner。**
+1. **不把当前 draft orchestration 写成真实 runtime runner。**
 2. **不接模型 provider / API。**
 3. **不做 transcript engine。**
-4. **不做 sandbox 执行器。**
+4. **不做 sandbox 执行器 / enforcement。**
 5. **不做自动评分系统。**
 6. **不把 runtime 混进 `validate:all`。**
 7. **不把 runtime 混进 `validate:contracts`。**
@@ -666,12 +683,12 @@ Milestone D 最需要避免的，就是为了“看起来接近 runtime”，把
 
 ## 11.3 现有 schema 仍偏轻量
 
-`schema.mjs` 现在只是 lightweight gate，不是完整 artifact schema engine。  
+`schema.mjs` 现在只是 lightweight gate，不是完整 artifact schema engine。
 因此本文的“协议冻结”要诚实：它只是给后续 schema 子任务提供目标，不是说当前 schema 已覆盖 runtime-ready 语义。
 
 ## 11.4 report 兼容要“同构，不混型”
 
-runtime report 最好长得像现有 report，方便人读和下游接入；  
+runtime report 最好长得像现有 report，方便人读和下游接入；
 但不能假装自己就是 validator report，否则统计口径会立刻乱掉。
 
 ---

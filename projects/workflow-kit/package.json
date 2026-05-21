@@ -12,6 +12,7 @@
     "validate:fixture:matrix": "node scripts/validate-fixture-matrix.mjs",
     "validate:preflight": "node scripts/validate-preflight.mjs",
     "validate:preflight:contracts": "node scripts/test-preflight-contracts.mjs",
+    "validate:runtime:draft": "node scripts/run-runtime-draft.mjs",
     "validate:runtime:contracts": "node scripts/test-runtime-contracts.mjs"
   }
 }

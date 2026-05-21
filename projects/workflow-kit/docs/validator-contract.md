@@ -57,6 +57,30 @@ Notes:
 - `summary.totalChecks` in the preflight artifact counts preflight checks only, not static validator checks or runtime replay cases.
 - A passing preflight artifact still does **not** mean runtime replay ran. It only means the fixture passes the current standalone runtime-readiness gate.
 
+## Standalone runtime draft CLI contract
+
+The Phase 3 runtime draft CLI is intentionally separate from the static validator, preflight CLI, and runtime contract test entrypoints. It is a thin standalone entry for the current single-fixture, single-case runtime skeleton wiring and does not claim that provider-backed runtime replay exists.
+
+Current coverage is intentionally narrow:
+
+- the standalone CLI already exists;
+- orchestration only covers `static validation -> preflight -> single-case selection -> dry-run/null-runner runtime skeleton -> runtime draft artifact`;
+- it is a draft execution surface, not a formal validation gate;
+- it is not transcript-capable runtime replay.
+
+| Command | Args / flags | stdout | stderr | Exit code |
+| --- | --- | --- | --- | --- |
+| `pnpm validate:runtime:draft <fixture-path> [--case-id <id> \| --case-index <n>] [--mode dry-run\|null-runner] [--format json]` | Required positional `<fixture-path>`. Optional `--case-id <id>` or `--case-index <n>` for single-case selection. Optional `--mode dry-run\|null-runner`; default is `dry-run`. Optional `--format json`; `--json` is accepted as a JSON shortcut. `--help`/`-h` prints usage. JSON is the default and only supported output format. | On successful CLI parsing, writes one runtime draft JSON artifact with `kind: "runtime-replay-report"`. If orchestration throws, writes a fallback runtime draft JSON artifact with `status: "failed"`. Help text is printed to stdout for `--help`/`-h`. | CLI usage errors print a short error message and, for missing/unknown args, usage text. Normal runtime draft execution should not write diagnostics to stderr. | `0` when the CLI successfully completes the current static -> preflight -> single-case runtime skeleton orchestration and emits a runtime draft artifact, even if the artifact summary is non-passing because the case is `blocked`, `dry-run`, or `not-executed`; `1` when runtime draft orchestration itself throws and a fallback error artifact is emitted; `2` for CLI usage errors such as missing fixture path, mutually exclusive `--case-id` / `--case-index`, unknown argument, unsupported mode, unsupported format, or invalid case index value. |
+
+Notes:
+
+- This CLI currently reuses `loadFixture()`, `validateFixture()`, `validatePreflight()`, and `runRuntimeCaseSkeleton()` through the runtime draft orchestrator; it does not introduce provider execution, transcript persistence, sandbox enforcement, multi-case orchestration, or a separate raw fixture parsing pipeline.
+- The orchestration scope stops at preflight plus the current single-case dry/null runtime skeleton. It does not perform provider-backed runtime replay and should not be interpreted as a production runtime gate.
+- CLI success does **not** mean runtime passed. In the current draft phase, the emitted artifact must remain honest about `blocked`, `dry-run`, and `not-executed` outcomes.
+- The current draft runtime artifact contract is intentionally non-executional: top-level `status` is constrained to `draft` or `blocked`, `summary.passed` must remain `false`, `cases[].status` is constrained to `blocked | dry-run | not-executed`, `observed` stays a stub, and `transcriptRef` remains `null`.
+- Provider execution, transcript capture/persistence, sandbox enforcement, scoring, and multi-case aggregate orchestration remain unimplemented.
+- This entrypoint is intentionally not wired into `pnpm validate`, `pnpm validate:all`, `pnpm validate:contracts`, `pnpm validate:preflight`, or `pnpm validate:preflight:contracts`.
+
 ## Standalone runtime contract test entry
 
 The current Phase 3 runtime contract test entry is also intentionally separate from both static and preflight contract suites.
@@ -71,7 +95,7 @@ Current scope:
 - validates single-case selector stability for default first case, `caseId`, and `caseIndex` selection;
 - validates that `dry-run` / `null-runner` results never masquerade as `passed` runtime execution;
 - validates blocked-case summary/check alignment and `blockedCases` accounting;
-- validates that `pendingCapabilities`, sandbox declaration-only metadata, and runtime report notes stay explicit about unimplemented provider/transcript/sandbox enforcement.
+- validates that `pendingCapabilities`, sandbox declaration-only metadata, lineage references, and runtime report notes stay explicit about unimplemented provider/transcript/scoring/sandbox enforcement.
 
 Intentional limits:
 

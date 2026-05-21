@@ -29,6 +29,7 @@ function buildBlockedReason(preflightReport) {
 
 function buildObservedStub({ mode, caseRecord }) {
   return {
+    kind: "runtime-observed-stub",
     mode,
     evidence: "not-executed",
     providerCall: false,
@@ -194,12 +195,22 @@ export function runRuntimeCaseSkeleton({
         version: DRY_RUNNER_VERSION,
       },
       sandbox: effectiveSandboxContract.boundarySummary,
+      staticBaseline: {
+        kind: preflightReport?.metadata?.lineage?.static?.kind ?? null,
+        reportVersion: preflightReport?.metadata?.sourceStaticReportVersion ?? null,
+        ruleSetVersion: preflightReport?.metadata?.sourceStaticRuleSetVersion ?? null,
+        status: preflightReport?.preflight?.staticBaseline?.status ?? null,
+      },
       preflight: {
+        kind: preflightReport?.kind ?? null,
         reportVersion: preflightReport?.reportVersion ?? null,
         protocolVersion: preflightReport?.protocolVersion ?? null,
+        ruleSetVersion: preflightReport?.ruleSetVersion ?? null,
+        status: preflightReport?.status ?? null,
       },
       replayCases: {
         kind: normalizedFixture?.replayCases?.kind ?? null,
+        fixtureId: normalizedFixture?.replayCases?.fixtureId ?? null,
       },
       mode,
       pendingCapabilities: result.runnerMetadata.pendingCapabilities,
@@ -243,7 +254,7 @@ export function runRuntimeCaseSkeleton({
       },
       sandbox: effectiveSandboxContract.boundarySummary,
       note:
-        "single-case dry/null runner skeleton only; no provider call, no transcript engine, no scoring, no runtime pass evidence",
+        "runtime draft artifact only; single-case dry/null skeleton with no provider call, no transcript evidence, no scoring, and no runtime pass evidence",
     },
   });
 

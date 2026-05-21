@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 import {
   buildRuntimeReplayReport,
@@ -17,6 +19,24 @@ import {
   buildRuntimeRunnerSkeletonInput,
   runRuntimeCaseSkeleton,
 } from "../src/skillforge/runtime-runner.mjs";
+
+const repoRoot = path.resolve(import.meta.dirname, "..");
+const runtimeDraftScript = path.join(repoRoot, "scripts/run-runtime-draft.mjs");
+const baselineFixture = path.join(repoRoot, "fixtures/meeting-summary-assistant");
+const nodeExecutable = process.execPath;
+
+function runRuntimeDraftCli(args = []) {
+  return spawnSync(nodeExecutable, [runtimeDraftScript, ...args], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+}
+
+function parseJsonStdout(result, message) {
+  assert.equal(result.stderr, "", `${message}: expected empty stderr, got ${result.stderr}`);
+  assert.ok(result.stdout.trim().length > 0, `${message}: expected JSON stdout`);
+  return JSON.parse(result.stdout);
+}
 
 function createFixtureCases() {
   return [
@@ -151,7 +171,7 @@ function testRuntimeReplayReportSkeleton() {
   assert.equal(report.summary.failedCases, 0);
   assert.equal(report.summary.blockedCases, 1);
   assert.equal(report.summary.passed, false);
-  assert.match(report.metadata.note, /skeleton-only artifact/i);
+  assert.match(report.metadata.note, /runtime draft artifact only/i);
   assert.ok(report.pendingCapabilities.includes("provider-integration"));
 }
 
@@ -310,12 +330,93 @@ function testPendingCapabilitiesAndDraftMetadata() {
   assert.ok(run.result.runnerMetadata.pendingCapabilities.includes("sandbox-implementation"));
 }
 
+function testRuntimeDraftCliDefaultModeAndKind() {
+  const result = runRuntimeDraftCli([baselineFixture]);
+  assert.equal(result.status, 0, `runtime draft default invocation should exit 0, got ${result.status}`);
+
+  const artifact = parseJsonStdout(result, "default runtime draft invocation");
+  assert.equal(artifact.kind, "runtime-replay-report");
+  assert.equal(artifact.metadata.executionMode, "dry-run");
+  assert.equal(artifact.summary.passed, false);
+  assert.equal(artifact.cases.length, 1);
+  assert.notEqual(artifact.cases[0].status, "passed");
+  assert.equal(typeof artifact.metadata.generatedAt, "string");
+}
+
+function testRuntimeDraftCliStableCaseSelection() {
+  const byId = runRuntimeDraftCli([baselineFixture, "--case-id", "positive-basic-summary"]);
+  assert.equal(byId.status, 0, `runtime draft --case-id should exit 0, got ${byId.status}`);
+  const byIdArtifact = parseJsonStdout(byId, "runtime draft case-id invocation");
+  assert.equal(byIdArtifact.cases.length, 1);
+  assert.equal(byIdArtifact.cases[0].id, "positive-basic-summary");
+
+  const byIndex = runRuntimeDraftCli([baselineFixture, "--case-index", "0"]);
+  assert.equal(byIndex.status, 0, `runtime draft --case-index should exit 0, got ${byIndex.status}`);
+  const byIndexArtifact = parseJsonStdout(byIndex, "runtime draft case-index invocation");
+  assert.equal(byIndexArtifact.cases.length, 1);
+  assert.equal(byIndexArtifact.cases[0].id, byIdArtifact.cases[0].id);
+}
+
+function testRuntimeDraftCliPreflightPassedStillNotPassedCase() {
+  const result = runRuntimeDraftCli([baselineFixture]);
+  assert.equal(result.status, 0, `runtime draft baseline should exit 0, got ${result.status}`);
+
+  const artifact = parseJsonStdout(result, "runtime draft baseline preflight passed");
+  assert.equal(artifact.metadata.lineage.preflight.status, "passed");
+  assert.notEqual(artifact.cases[0].status, "passed");
+  assert.equal(artifact.summary.passedCases, 0);
+  assert.equal(artifact.summary.passed, false);
+}
+
+function testRuntimeDraftCliUsageErrorsAndUnsupportedMode() {
+  const missingPath = runRuntimeDraftCli([]);
+  assert.equal(missingPath.status, 2, `missing path should exit 2, got ${missingPath.status}`);
+  assert.match(missingPath.stderr, /Missing fixture path\./, "missing path error message mismatch");
+  assert.match(missingPath.stdout, /Usage: pnpm validate:runtime:draft/, "missing path should print usage");
+
+  const unsupportedMode = runRuntimeDraftCli([baselineFixture, "--mode", "live-run"]);
+  assert.equal(unsupportedMode.status, 2, `unsupported mode should exit 2, got ${unsupportedMode.status}`);
+  assert.match(
+    unsupportedMode.stderr,
+    /Unsupported mode: live-run\. Supported modes: dry-run, null-runner\./,
+    "unsupported mode error message mismatch",
+  );
+  assert.equal(unsupportedMode.stdout, "", "unsupported mode should not print JSON stdout");
+}
+
+function testRuntimeCaseBlockedWhenPreflightFails() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const blockedPreflight = createPreflightReport("failed");
+
+  const blockedRun = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport: blockedPreflight,
+    options: { mode: "dry-run" },
+  });
+
+  assert.equal(blockedRun.result.status, "blocked");
+  assert.equal(blockedRun.runtimeReport.status, "blocked");
+  assert.equal(blockedRun.runtimeReport.cases.length, 1);
+  assert.equal(blockedRun.runtimeReport.cases[0].status, "blocked");
+  assert.equal(blockedRun.runtimeReport.summary.blockedCases, 1);
+  assert.equal(blockedRun.runtimeReport.summary.passedCases, 0);
+  assert.equal(blockedRun.runtimeReport.summary.passed, false);
+}
+
 const tests = [
   ["runtime replay report skeleton top-level contract", testRuntimeReplayReportSkeleton],
   ["single-case selector default/caseId/caseIndex behavior", testCaseSelectorStability],
   ["dry-run and null-runner never masquerade as passed runtime", testDryAndNullRunnerNeverPass],
   ["blocked case summary and counts stay aligned", testBlockedSummaryAndCountsAlign],
   ["pending capabilities and draft metadata stay explicit", testPendingCapabilitiesAndDraftMetadata],
+  ["runtime draft CLI emits runtime-replay-report and defaults to dry-run", testRuntimeDraftCliDefaultModeAndKind],
+  ["runtime draft CLI keeps case-id and case-index selection stable", testRuntimeDraftCliStableCaseSelection],
+  ["runtime draft CLI keeps passed preflight cases non-passed in draft mode", testRuntimeDraftCliPreflightPassedStillNotPassedCase],
+  ["runtime draft CLI usage errors and unsupported mode stay stable", testRuntimeDraftCliUsageErrorsAndUnsupportedMode],
+  ["runtime runner skeleton marks case blocked when preflight fails", testRuntimeCaseBlockedWhenPreflightFails],
 ];
 
 let passed = 0;
