@@ -1,0 +1,45 @@
+fixtureId: meeting-summary-assistant
+fixtureVersion: 0.1.0
+kind: validation-result
+validation:
+  mode: static
+  status: pending
+  executed: false
+  modelReplayExecuted: false
+  summary: 静态验证入口尚未执行；本文件不声明真实模型回放已通过。
+  checks:
+    structure:
+      status: pending
+      note: 待校验 8 个 fixture 文件是否齐全。
+    trigger:
+      status: pending
+      note: 待校验中文触发词与会议纪要主题是否匹配。
+    boundary:
+      status: pending
+      note: 待校验权限边界是否默认保守。
+    dependency:
+      status: pending
+      note: 待校验是否无外部依赖。
+    replay:
+      status: pending
+      note: 待校验 replay cases 是否未伪造 observed/passed。
+    privacy:
+      status: pending
+      note: 待校验是否不含敏感信息。
+    compatibility:
+      status: pending
+      note: 待校验 YAML 与 Markdown 是否可被静态 MVP 读取。
+permissions:
+  network: false
+  externalSend: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+checklist:
+  structure: validation-result 声明静态验证状态。
+  trigger: 包含 trigger 检查项。
+  boundary: 包含 boundary 检查项与保守权限。
+  dependency: 包含 dependency 检查项。
+  replay: 明确未执行真实模型回放。
+  privacy: 包含 privacy 检查项。
+  compatibility: 包含 compatibility 检查项。

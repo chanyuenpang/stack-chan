@@ -1,0 +1,41 @@
+fixtureId: meeting-summary-assistant
+fixtureVersion: 0.1.0
+kind: workflow-source
+name: 会议纪要整理助手工作流
+summary: 将公开或虚构会议记录整理为结构化纪要。
+source:
+  type: public-fictional-sample
+  language: zh-CN
+  inputContract:
+    acceptedInputs:
+      - 公开会议记录文本
+      - 虚构会议逐字稿
+      - 不含个人敏感信息的讨论摘要
+    rejectedInputs:
+      - 真实访问令牌或密钥
+      - 真实联系人信息
+      - 私有系统链接
+      - 本地私有路径
+  outputContract:
+    format: markdown
+    sections:
+      - meetingTitle
+      - attendeesIfProvided
+      - decisions
+      - actionItems
+      - risks
+      - nextSteps
+permissions:
+  network: false
+  externalSend: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+checklist:
+  structure: 工作流源声明 fixtureId、版本、输入输出契约。
+  trigger: 主题明确为会议纪要整理。
+  boundary: 明确拒绝敏感输入与私有材料。
+  dependency: 不依赖外部服务或私有数据源。
+  replay: 可由 replay-cases.yaml 提供静态回放设计。
+  privacy: 仅使用公开或虚构材料。
+  compatibility: 使用 YAML 与 Markdown，可被静态校验器读取。

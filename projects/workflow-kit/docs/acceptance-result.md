@@ -7,7 +7,20 @@
 - 验收人：verify-agent
 - 验收对象：`docs/data-structure.md`、`docs/sample-skill-library.md`、`docs/workflow.md`、`docs/acceptance.md`
 
-判定理由：四份核心设计文档已形成从 `WorkflowSource` 到 `AnalysisDocument` 的闭环；数据结构、样本库启发、端到端流程、7 维验证、验收规则和 10 轮优化机制均可执行。遗留风险主要是：10 轮优化尚处于机制设计阶段、样本库统计表存在局部数量标注不一致、跨平台/模型兼容仍需后续实测。这些风险不阻断 MVP 文档/设计验收，但必须进入优化轮跟踪。
+判定理由：四份核心设计文档已形成从 `WorkflowSource` 到 `AnalysisDocument` 的闭环；数据结构、样本库启发、端到端流程、7 维验证、验收规则和 10 轮优化机制均可执行。后续 T1-T6 已补充真实 fixture、最小静态校验器与静态命令证据，静态 MVP 相关风险已部分关闭/静态关闭。遗留风险主要是：运行时模型回放未执行、跨平台/模型兼容仍需后续实测、完整产品链路尚未验收。这些风险不阻断 MVP 文档/设计验收或静态 MVP 证据固化，但必须继续跟踪。**静态通过不等于模型回放通过，也不等于完整产品 PASS。**
+
+## 1.1 静态 MVP 增量验收更新（2026-05-21）
+
+| 项 | 结果 | 证据 | 备注 |
+|---|---|---|---|
+| 真实 fixture | 静态 MVP 已关闭 | `fixtures/meeting-summary-assistant/**` | 已作为正例接入静态校验 |
+| 最小静态校验器 | 静态 MVP 已关闭 | `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json` exit `0` | 15 条规则全部 pass，P0/P1/P2=`5/8/2` |
+| 静态命令证据 | 静态 MVP 已关闭 | `docs/static-mvp-validation-report.md` | 记录 CWD、Node/pnpm、reportVersion、ruleSetVersion、fixture 与 summary |
+| 反例矩阵 | 静态 MVP 已关闭 | T5 反例矩阵：5 类 `/tmp` 反例均 exit 非 0 且 stdout 为合法 JSON | T6 引用 T5 结果，未重跑全部反例 |
+| evidence 脱敏 | 静态 MVP 已关闭 | T5 secret/token 与私有路径反例显示 `<redacted-secret>` / `<redacted-path>` | 小风险：重复 evidence 噪音仍待优化 |
+| 运行时模型回放 | PENDING | 尚无真实模型执行 transcript/观测结果 | 静态 replay 规则只防伪造，不代表模型回放通过 |
+| 跨平台/模型兼容 | PENDING | 当前证据来自 Linux + 当前 Node/pnpm 环境 | 仍需 macOS/Windows 与多模型实测 |
+
 
 ## 2. Checklist 表格
 
@@ -68,10 +81,16 @@
 
 | 风险/问题 | 级别 | 影响 | 证据 | 建议 |
 |---|---|---|---|---|
-| 10 轮优化尚未实际执行 | P1 风险 | 不影响文档/设计验收，但影响后续“优化完成”目标 | `docs/workflow.md`、`docs/acceptance.md` 已定义机制，未见实际 10 轮结果文档 | 进入优化阶段后补齐 round-01 至 round-10 分析文档 |
+| 缺真实 fixture 证据 | 已静态关闭 | 不再阻断静态 MVP | `fixtures/meeting-summary-assistant/**`；`docs/static-mvp-validation-report.md` 正例 exit `0` | 后续保持 fixture 与规则同步 |
+| 缺最小静态校验器证据 | 已静态关闭 | 不再阻断静态 MVP | `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json` 输出 `reportVersion=0.1.0`、15 checks 全 pass | 后续将静态校验接入 CI/发布门禁 |
+| 缺静态命令证据 | 已静态关闭 | 不再阻断静态 MVP | `docs/static-mvp-validation-report.md` 已记录 CWD、Node/pnpm、ruleSet 与 summary | 重要规则变更时刷新报告 |
+| 运行时模型回放尚未执行 | P1 风险 | 静态 replay 通过不能证明模型真实执行稳定 | 仅有 fixture/replay 静态检查，缺少模型 transcript 与 observed 输出 | 补充真实模型回放矩阵，单独验收 |
+| 10 轮优化尚未与运行时证据完全闭环 | P1 风险 | 不影响文档/静态 MVP 验收，但影响后续“优化完成”目标 | `docs/optimization/round-01.md` 至 `round-10.md` 已存在；仍需与静态/运行时证据持续对齐 | 后续优化轮同步引用静态报告与运行时结果 |
 | 样本库局部数量标注不一致 | P2 风险 | 影响统计严谨性，不影响核心设计闭环 | `docs/sample-skill-library.md` §2.1 标题写“37 个”，表格编号到 46 | 首轮优化校正表头、来源分布和去重口径 |
-| 跨平台/模型兼容尚未实测 | P2 风险 | 后续真实生成器/UI 实现时可能出现路径、OS、模型差异 | 文档已有兼容策略，但未执行跨平台验证 | 第 2-3 轮优化补充兼容矩阵和实测记录 |
+| 跨平台/模型兼容尚未实测 | P2 风险 | 后续真实生成器/UI 实现时可能出现路径、OS、模型差异 | 文档已有兼容策略，但未执行跨平台/跨模型验证；当前正例证据来自 Linux 环境 | 补充 Linux/macOS/Windows 与多模型兼容矩阵和实测记录 |
 | 样本来源偏 OpenClaw 当前环境 | P2 风险 | 可能放大当前环境格式偏好 | 样本来源集中于 OpenClaw dev/global/projects | 后续引入社区/外部样本或按来源降权 |
+| 隐私 evidence 重复项 | P2 风险 | 不影响阻断判断，但会增加报告噪音 | T5 secret/private path 反例发现重复 evidence | 后续对同文件同模式 evidence 去重 |
+| checklist 多来源聚合语义 | P2 风险 | 单一文件缺维度不一定触发失败，测试和文档需理解聚合语义 | T5 缺 compatibility 反例需从所有 checklist 来源删除该维度才失败 | 在规则说明或诊断中明确聚合来源 |
 
 ## 4. 必须修复项
 

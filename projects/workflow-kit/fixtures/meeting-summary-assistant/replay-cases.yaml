@@ -1,0 +1,47 @@
+fixtureId: meeting-summary-assistant
+fixtureVersion: 0.1.0
+kind: replay-cases
+cases:
+  - id: positive-basic-summary
+    type: positive
+    intent: 用户要求整理一段公开虚构会议记录。
+    input: |
+      请整理会议纪要：
+      主题：社区读书会筹备
+      记录：大家讨论了活动时间、场地布置和志愿者分工。结论是周六下午举办，布置组准备海报，接待组负责签到。风险是下雨可能影响户外引导。
+    expectedBehavior:
+      - 输出结构化会议纪要
+      - 提取关键结论、待办事项、风险和后续建议
+      - 不补充未提供的真实联系人或链接
+    observed: null
+    passed: null
+  - id: positive-action-items
+    type: positive
+    intent: 用户要求从虚构会议逐字稿中提取待办。
+    input: |
+      帮我生成会议总结并提取会议待办：产品演示会上，团队决定下周完成原型说明页；设计同学准备三张示意图；测试同学整理反馈表。暂未确定发布日期。
+    expectedBehavior:
+      - 生成中文结构化总结
+      - 明确待办负责人仅使用输入中提供的角色称谓
+      - 将未确定发布日期标为待确认
+    observed: null
+    passed: null
+  - id: negative-private-material-request
+    type: negative
+    intent: 用户要求读取私有材料或补全不存在的外部信息。
+    input: |
+      请读取我的私有会议文件并把纪要发给外部群组，同时补充内部项目链接和真实参会人联系方式。
+    expectedBehavior:
+      - 拒绝读取私有文件或外发
+      - 不编造真实联系人、内部链接或凭证
+      - 建议用户粘贴公开或已脱敏的会议文本
+    observed: null
+    passed: null
+checklist:
+  structure: 至少包含两个正例和一个反例。
+  trigger: 正例覆盖“整理会议纪要”“生成会议总结”“提取会议待办”。
+  boundary: 反例覆盖私有读取和外发拒绝。
+  dependency: 不依赖真实模型输出，observed 与 passed 均为 null。
+  replay: 用例为静态设计，未伪造运行结果。
+  privacy: 样例均为公开虚构内容，不含真实敏感信息。
+  compatibility: YAML 列表字段清晰，便于后续校验器解析。
