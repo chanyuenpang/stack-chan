@@ -15,8 +15,10 @@
 #include <application.h>
 #include <ArduinoJson.h>
 #include <assets/lang_config.h>
+#include <algorithm>
 #include <atomic>
 #include <cJSON.h>
+#include <cstdio>
 #include <cstring>
 #include <esp_app_desc.h>
 #include <esp_err.h>
@@ -30,6 +32,7 @@
 #include <mooncake_log.h>
 #include <string>
 #include <string_view>
+#include <vector>
 #include <wifi_manager.h>
 
 #ifndef STACKCHAN_DEV_LOCAL_CONTROL_TOKEN
@@ -403,8 +406,29 @@ constexpr int kListeningWaitMs = 2500;
 constexpr int kPostInjectVadWaitMs = 1200;
 constexpr int kTrailingSilentFrames = 5;
 
-extern const uint8_t prompt_wav_start[] asm("_binary_celebration_tts_16k_mono_s16_approx3s_wav_start");
-extern const uint8_t prompt_wav_end[] asm("_binary_celebration_tts_16k_mono_s16_approx3s_wav_end");
+extern const uint8_t prompt_short_wav_start[] asm("_binary_celebration_short_16k_mono_s16_wav_start");
+extern const uint8_t prompt_short_wav_end[] asm("_binary_celebration_short_16k_mono_s16_wav_end");
+extern const uint8_t prompt_tts_wav_start[] asm("_binary_celebration_tts_16k_mono_s16_approx3s_wav_start");
+extern const uint8_t prompt_tts_wav_end[] asm("_binary_celebration_tts_16k_mono_s16_approx3s_wav_end");
+
+enum class InjectPromptSample : uint8_t {
+    Short,
+    Tts,
+};
+
+struct InjectPromptRequest {
+    InjectPromptSample sample = InjectPromptSample::Short;
+    bool explicit_stop = false;
+};
+
+struct EmbeddedPromptWav {
+    const char* name;
+    const char* repo_path;
+    const uint8_t* start;
+    const uint8_t* end;
+};
+
+static InjectPromptRequest g_inject_request;
 
 struct WavPcmView {
     const uint8_t* data = nullptr;
@@ -486,6 +510,70 @@ bool local_parse_wav_pcm16_mono_16k(const uint8_t* wav, size_t wav_size, WavPcmV
     return true;
 }
 
+uint32_t local_crc32(const uint8_t* data, size_t size)
+{
+    uint32_t crc = 0xFFFFFFFFU;
+    for (size_t i = 0; i < size; ++i) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1U)));
+        }
+    }
+    return ~crc;
+}
+
+bool parse_bool_text(const char* value, bool& out)
+{
+    if (value == nullptr) {
+        return false;
+    }
+    if (std::strcmp(value, "true") == 0 || std::strcmp(value, "1") == 0 || std::strcmp(value, "yes") == 0) {
+        out = true;
+        return true;
+    }
+    if (std::strcmp(value, "false") == 0 || std::strcmp(value, "0") == 0 || std::strcmp(value, "no") == 0) {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+const char* inject_sample_name(InjectPromptSample sample)
+{
+    return sample == InjectPromptSample::Tts ? "tts" : "short";
+}
+
+bool select_prompt_wav(InjectPromptSample requested, WavPcmView& wav, const EmbeddedPromptWav*& selected)
+{
+    const EmbeddedPromptWav short_sample = {"short", "assets/dev_serial/celebration-short-16k-mono-s16.wav",
+                                            prompt_short_wav_start, prompt_short_wav_end};
+    const EmbeddedPromptWav tts_sample = {"tts", "assets/dev_serial/celebration-tts-16k-mono-s16-approx3s.wav",
+                                          prompt_tts_wav_start, prompt_tts_wav_end};
+
+    const EmbeddedPromptWav* candidates[2] = {};
+    size_t candidate_count = 0;
+    if (requested == InjectPromptSample::Tts) {
+        candidates[candidate_count++] = &tts_sample;
+    } else {
+        candidates[candidate_count++] = &short_sample;
+        candidates[candidate_count++] = &tts_sample;
+    }
+
+    for (size_t i = 0; i < candidate_count; ++i) {
+        WavPcmView parsed;
+        const EmbeddedPromptWav* candidate = candidates[i];
+        if (local_parse_wav_pcm16_mono_16k(candidate->start, candidate->end - candidate->start, parsed)) {
+            wav = parsed;
+            selected = candidate;
+            return true;
+        }
+        ESP_LOGW(TAG, "inject_prompt: embedded WAV rejected: sample_name=%s path=%s",
+                 candidate->name, candidate->repo_path);
+    }
+    selected = nullptr;
+    return false;
+}
+
 void inject_prompt_task(void*)
 {
     if (!hal_bridge::is_xiaozhi_ready()) {
@@ -496,9 +584,9 @@ void inject_prompt_task(void*)
     }
 
     WavPcmView wav;
-    if (!local_parse_wav_pcm16_mono_16k(prompt_wav_start,
-                                         static_cast<size_t>(prompt_wav_end - prompt_wav_start), wav)) {
-        ESP_LOGE(TAG, "inject_prompt: failed to parse embedded WAV");
+    const EmbeddedPromptWav* selected = nullptr;
+    if (!select_prompt_wav(g_inject_request.sample, wav, selected)) {
+        ESP_LOGE(TAG, "inject_prompt: failed to select embedded WAV");
         g_inject_active.store(false);
         vTaskDelete(nullptr);
         return;
@@ -508,10 +596,13 @@ void inject_prompt_task(void*)
     const size_t prompt_frames = (total_samples + kPcmFrameSamples - 1) / kPcmFrameSamples;
 
     auto& app = Application::GetInstance();
-    ESP_LOGW(TAG, "inject_prompt: starting injection, frames=%u", static_cast<unsigned>(prompt_frames));
+    ESP_LOGW(TAG, "inject_prompt: starting injection sample_name=%s data_bytes=%u frames=%u free_heap=%u",
+             selected->name,
+             static_cast<unsigned>(wav.bytes),
+             static_cast<unsigned>(prompt_frames),
+             static_cast<unsigned>(xPortGetFreeHeapSize()));
     app.StartListeningDefaultMode();
 
-    // Wait for listening state
     {
         const int step_ms = 50;
         bool listening = false;
@@ -528,29 +619,54 @@ void inject_prompt_task(void*)
     }
 
     auto& audio_service = app.GetAudioService();
-    size_t injected_frames = 0;
+    size_t attempted_frames = 0;
+    size_t accepted_frames = 0;
+    size_t rejected_frames = 0;
     for (size_t pos = 0; pos < total_samples; pos += kPcmFrameSamples) {
         const size_t samples = std::min(kPcmFrameSamples, total_samples - pos);
         std::vector<int16_t> frame(kPcmFrameSamples, 0);
         for (size_t i = 0; i < samples; ++i) {
             frame[i] = static_cast<int16_t>(local_read_le16(wav.data + (pos + i) * sizeof(int16_t)));
         }
-        audio_service.InjectPcmFrameToSendQueue(std::move(frame));
-        ++injected_frames;
+        const bool accepted = audio_service.InjectPcmFrameToSendQueue(std::move(frame));
+        if (accepted) {
+            ++accepted_frames;
+        } else {
+            ++rejected_frames;
+            ESP_LOGW(TAG, "inject_prompt: frame rejected index=%u free_heap=%u",
+                     static_cast<unsigned>(attempted_frames),
+                     static_cast<unsigned>(xPortGetFreeHeapSize()));
+        }
+        ++attempted_frames;
         vTaskDelay(kFrameDelayTicks);
     }
 
     for (int i = 0; i < kTrailingSilentFrames; ++i) {
         std::vector<int16_t> silence(kPcmFrameSamples, 0);
-        audio_service.InjectPcmFrameToSendQueue(std::move(silence));
-        ++injected_frames;
+        const bool accepted = audio_service.InjectPcmFrameToSendQueue(std::move(silence));
+        if (accepted) {
+            ++accepted_frames;
+        } else {
+            ++rejected_frames;
+            ESP_LOGW(TAG, "inject_prompt: frame rejected index=%u free_heap=%u",
+                     static_cast<unsigned>(attempted_frames),
+                     static_cast<unsigned>(xPortGetFreeHeapSize()));
+        }
+        ++attempted_frames;
         vTaskDelay(kFrameDelayTicks);
     }
 
-    ESP_LOGI(TAG, "inject_prompt: injected %u frames, waiting %d ms for VAD",
-             static_cast<unsigned>(injected_frames), kPostInjectVadWaitMs);
+    ESP_LOGI(TAG, "inject_prompt: done sample_name=%s accepted=%u rejected=%u waiting_vad_ms=%d",
+             selected->name,
+             static_cast<unsigned>(accepted_frames),
+             static_cast<unsigned>(rejected_frames),
+             kPostInjectVadWaitMs);
     vTaskDelay(pdMS_TO_TICKS(kPostInjectVadWaitMs));
-    ESP_LOGI(TAG, "inject_prompt: done");
+    ESP_LOGI(TAG, "inject_prompt: finished sample_name=%s total_attempted=%u accepted=%u rejected=%u",
+             selected->name,
+             static_cast<unsigned>(attempted_frames),
+             static_cast<unsigned>(accepted_frames),
+             static_cast<unsigned>(rejected_frames));
 
     g_inject_active.store(false);
     vTaskDelete(nullptr);
@@ -568,10 +684,58 @@ esp_err_t inject_prompt_handler(httpd_req_t* req)
         return ESP_OK;
     }
 
+    InjectPromptRequest request;
+
+    if (req->content_len > kMaxBodyBytes) {
+        send_error(req, 413, "body_too_large");
+        return ESP_OK;
+    }
+
+    std::string body;
+    body.resize(req->content_len);
+    int received = 0;
+    while (received < req->content_len) {
+        int ret = httpd_req_recv(req, body.data() + received, req->content_len - received);
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            send_error(req, 400, "body_read_failed");
+            return ESP_OK;
+        }
+        received += ret;
+    }
+
+    if (!body.empty()) {
+        ArduinoJson::JsonDocument doc;
+        auto err = ArduinoJson::deserializeJson(doc, body);
+        if (err) {
+            send_error(req, 400, "invalid_json");
+            return ESP_OK;
+        }
+
+        if (doc["sample"].is<std::string>()) {
+            const std::string sample_name = doc["sample"].as<std::string>();
+            if (sample_name == "tts") {
+                request.sample = InjectPromptSample::Tts;
+            } else if (sample_name == "short") {
+                request.sample = InjectPromptSample::Short;
+            } else {
+                send_error(req, 400, "invalid_sample");
+                return ESP_OK;
+            }
+        }
+        if (doc["explicit_stop"].is<bool>()) {
+            request.explicit_stop = doc["explicit_stop"].as<bool>();
+        }
+    }
+
     if (g_inject_active.exchange(true)) {
         send_error(req, 409, "inject_already_active");
         return ESP_OK;
     }
+
+    g_inject_request = request;
 
     ESP_LOGW(TAG, "inject_prompt: free_heap=%u, internal=%u, attempting xTaskCreate",
              (unsigned)xPortGetFreeHeapSize(),
