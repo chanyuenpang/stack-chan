@@ -1,6 +1,7 @@
 import { buildRuntimeReplayReport } from "./runtime-replay-reporter.mjs";
 import {
   buildRuntimeProviderAdapterContractContext,
+  buildRuntimeProviderSelection,
   RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
   RUNTIME_PROVIDER_ADAPTER_KEYS,
 } from "./runtime-provider-adapter-contract.mjs";
@@ -8,6 +9,7 @@ import {
   buildRuntimeRunnerContractContext,
   buildRuntimeTranscriptArtifactRef,
 } from "./runtime-runner-contract.mjs";
+import { mapProviderResultToObservedRuntime } from "./runtime-observed-mapper.mjs";
 import { buildRuntimeSandboxBoundaryFromSources } from "./runtime-sandbox-contract.mjs";
 import { buildRuntimeTranscriptArtifact } from "./runtime-transcript-contract.mjs";
 import { selectRuntimeCase } from "./runtime-case-selector.mjs";
@@ -44,23 +46,6 @@ function buildProviderAdapterUnimplementedReason() {
     message:
       "provider-backed runtime adapter slot is reserved but intentionally unimplemented in this phase",
     blockingCheckIds: [],
-  };
-}
-
-function buildObservedStub({ mode, caseRecord }) {
-  return {
-    kind: "runtime-observed-stub",
-    mode,
-    evidence: mode === "provider-backed" ? "provider-slot-reserved" : "not-executed",
-    providerCall: false,
-    transcriptCaptured: false,
-    sideEffectsPerformed: false,
-    providerEvidenceAvailable: false,
-    persistedEvidenceAvailable: false,
-    note:
-      mode === "provider-backed"
-        ? `runtime runner skeleton reserved provider-backed adapter slot but did not execute provider for case ${caseRecord?.id ?? "<unknown>"}`
-        : `runtime runner skeleton did not execute provider for case ${caseRecord?.id ?? "<unknown>"}`,
   };
 }
 
@@ -221,7 +206,7 @@ function runBuiltinProviderAdapter({ mode, caseRecord, providerAdapterContract, 
   return providerAdapterContract.buildResult({
     caseId: caseRecord.id,
     status: pickStatusForMode(mode, { preflightBlocked }),
-    observed: buildObservedStub({ mode, caseRecord }),
+    observed: null,
     transcriptRef: null,
     note: preflightBlocked
       ? "provider adapter output remained blocked because preflight did not pass"
@@ -396,43 +381,52 @@ export function runRuntimeCaseSkeleton({
     throw new RangeError(`Runtime runner skeleton produced forbidden status: ${adapterResult.status}`);
   }
 
+  const mappedRuntime = mapProviderResultToObservedRuntime({
+    adapterResult,
+    providerSelection: buildRuntimeProviderSelection({
+      mode,
+      providerKey: providerAdapterContract.input.provider.providerKey,
+      providerSlot: providerAdapterContract.input.provider.providerSlot,
+      builtin: providerAdapterContract.input.provider.builtin,
+      implemented: providerSelection.implemented,
+      providerBacked: providerSelection.providerBacked,
+    }),
+    caseContext: caseRecord,
+  });
+
   const failureReason = buildFailureReason({ mode, preflightReport });
-  const blocked = adapterResult.status === "blocked";
+  const blocked = mappedRuntime.status === "blocked";
 
   const result = effectiveRunnerContract.buildResult({
     caseId: caseRecord.id,
-    status: adapterResult.status,
-    observed: adapterResult.observed,
+    status: mappedRuntime.status,
+    observed: mappedRuntime.observed,
     transcriptRef: null,
     failureReason,
     runnerMetadata: {
       implementation: "single-case-dry-null-runner-skeleton",
       runnerVersion: DRY_RUNNER_VERSION,
       mode,
-      executed: false,
-      providerCall: false,
+      executed: mappedRuntime.providerExecution.executed,
+      providerCall: mappedRuntime.providerExecution.providerCall,
       transcriptEngineUsed: false,
       sandboxEnforced: false,
-      evidenceProduced: false,
-      transcriptPersistence: "in-report-only",
+      evidenceProduced:
+        mappedRuntime.observed.providerEvidenceAvailable ||
+        mappedRuntime.observed.persistedEvidenceAvailable,
+      transcriptPersistence: mappedRuntime.transcriptAvailability.persistence,
       caseType: caseRecord?.type ?? null,
       providerAdapter: {
-        key: providerAdapterContract.input.provider.providerKey,
-        slot: providerAdapterContract.input.provider.providerSlot,
-        builtin: providerAdapterContract.input.provider.builtin,
-        implemented: providerSelection.implemented,
-        providerBacked: providerSelection.providerBacked,
-        status: adapterResult.status,
-        executionId: null,
-        providerRunId: null,
-        providerStatus: null,
-        futureRequiredFields: [
-          "providerAdapter.executionId",
-          "providerAdapter.providerRunId",
-          "providerAdapter.providerStatus",
-          "providerAdapter.providerBacked=true",
-          "providerAdapter.status=passed",
-        ],
+        key: mappedRuntime.providerExecution.providerKey,
+        slot: mappedRuntime.providerExecution.providerSlot,
+        builtin: mappedRuntime.providerExecution.builtin,
+        implemented: mappedRuntime.providerExecution.implemented,
+        providerBacked: mappedRuntime.providerExecution.providerBacked,
+        status: mappedRuntime.providerExecution.status,
+        executionId: mappedRuntime.providerExecution.executionId,
+        providerRunId: mappedRuntime.providerExecution.providerRunId,
+        providerStatus: mappedRuntime.providerExecution.providerStatus,
+        futureRequiredFields: [...mappedRuntime.providerExecution.futureRequiredFields],
       },
       note: blocked
         ? "runner remained blocked because preflight did not pass"
@@ -441,7 +435,7 @@ export function runRuntimeCaseSkeleton({
           : mode === "null-runner"
             ? "runner selected null runner adapter and reserved contract shape without execution"
             : "runner selected dry-run adapter and reserved contract shape without provider execution",
-      pendingCapabilities: adapterResult.providerMetadata?.pendingCapabilities,
+      pendingCapabilities: mappedRuntime.providerExecution.pendingCapabilities,
     },
   });
 
@@ -463,9 +457,9 @@ export function runRuntimeCaseSkeleton({
     runnerMetadata: result.runnerMetadata,
     outcome: {
       status: result.status,
-      observedKind: adapterResult.observed.kind,
-      observedEvidence: adapterResult.observed.evidence,
-      observed: adapterResult.observed,
+      observedKind: mappedRuntime.observed.kind,
+      observedEvidence: mappedRuntime.observed.evidence,
+      observed: mappedRuntime.observed,
       failureReason,
     },
     events: buildTranscriptEvents({
@@ -553,6 +547,8 @@ export function runRuntimeCaseSkeleton({
         providerStatus: null,
         currentState: "reserved-unimplemented",
       },
+      providerExecution: mappedRuntime.providerExecution,
+      transcriptAvailability: mappedRuntime.transcriptAvailability,
       statusTaxonomy: {
         reportStatuses: ["draft", "blocked"],
         caseStatuses: ["blocked", "error", "dry-run", "not-executed"],
@@ -568,6 +564,8 @@ export function runRuntimeCaseSkeleton({
         status: result.status,
         expectedBehavior: caseRecord.expectedBehavior ?? null,
         observed: result.observed,
+        providerExecution: mappedRuntime.providerExecution,
+        transcriptAvailability: mappedRuntime.transcriptAvailability,
         transcriptRef: resultWithTranscriptRef.transcriptRef,
         failureReason: result.failureReason,
         transcript: transcriptArtifact,

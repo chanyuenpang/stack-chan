@@ -22,6 +22,8 @@ const DEFAULT_PENDING_CAPABILITIES = Object.freeze([
   "scoring-engine",
 ]);
 
+const PROVIDER_SELECTION_VERSION = "runtime-provider-selection-draft-1";
+
 const RESERVED_PROVIDER_BACKED_STATUS_SET = Object.freeze([
   "blocked",
   "error",
@@ -265,6 +267,31 @@ export function buildRuntimeProviderAdapterResult({
   };
 }
 
+export function buildRuntimeProviderSelection({
+  mode = null,
+  providerKey = null,
+  providerSlot = DEFAULT_PROVIDER_ADAPTER_SLOT,
+  builtin = null,
+  implemented = null,
+  providerBacked = null,
+} = {}) {
+  const adapterKey = providerKey ?? mode ?? null;
+  if (!BUILTIN_PROVIDER_ADAPTER_KEYS.includes(adapterKey)) {
+    throw new RangeError(`Unsupported runtime provider adapter key: ${adapterKey}`);
+  }
+
+  return {
+    kind: "runtime-provider-selection",
+    version: PROVIDER_SELECTION_VERSION,
+    adapterKey,
+    providerKey: adapterKey,
+    providerSlot,
+    builtin: builtin == null ? BUILTIN_PROVIDER_ADAPTER_KEYS.includes(adapterKey) : builtin === true,
+    implemented: implemented == null ? adapterKey !== "provider-backed" : implemented === true,
+    providerBacked: providerBacked == null ? adapterKey === "provider-backed" : providerBacked === true,
+  };
+}
+
 export function buildRuntimeProviderAdapterContractContext({
   fixtureDir = null,
   loadedFixture = null,
@@ -304,11 +331,13 @@ export const RUNTIME_PROVIDER_ADAPTER_KEYS = [...BUILTIN_PROVIDER_ADAPTER_KEYS];
 export const RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT = DEFAULT_PROVIDER_ADAPTER_SLOT;
 export const RUNTIME_PROVIDER_ADAPTER_RESERVED_STATUS_SET = [...RESERVED_PROVIDER_BACKED_STATUS_SET];
 export const RUNTIME_PROVIDER_ADAPTER_FUTURE_REQUIRED_FIELDS = [...FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS];
+export const RUNTIME_PROVIDER_SELECTION_VERSION = PROVIDER_SELECTION_VERSION;
 
 export default {
   buildRuntimeProviderAdapterInput,
   buildRuntimeProviderAdapterResult,
   buildRuntimeProviderAdapterContractContext,
+  buildRuntimeProviderSelection,
   buildRuntimeProviderTranscriptRef,
   RUNTIME_PROVIDER_ADAPTER_INPUT_VERSION: PROVIDER_ADAPTER_INPUT_VERSION,
   RUNTIME_PROVIDER_ADAPTER_OUTPUT_VERSION: PROVIDER_ADAPTER_OUTPUT_VERSION,
@@ -319,4 +348,5 @@ export default {
   RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT: DEFAULT_PROVIDER_ADAPTER_SLOT,
   RUNTIME_PROVIDER_ADAPTER_RESERVED_STATUS_SET: [...RESERVED_PROVIDER_BACKED_STATUS_SET],
   RUNTIME_PROVIDER_ADAPTER_FUTURE_REQUIRED_FIELDS: [...FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS],
+  RUNTIME_PROVIDER_SELECTION_VERSION: PROVIDER_SELECTION_VERSION,
 };

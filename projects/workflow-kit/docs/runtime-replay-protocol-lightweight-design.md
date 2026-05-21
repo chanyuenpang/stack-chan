@@ -410,7 +410,7 @@ pendingCapabilities: []
 1. 顶层 `status` 在当前 draft mode 只诚实落在 `draft | blocked`，不再伪装成 `passed | failed` 执行结论；
 2. `summary.passed` 固定为 `false`，直到真实 provider + transcript + scoring evidence 存在；
 3. `cases[].status` 当前合同只保留 `blocked | error | dry-run | not-executed`；其中目前面向用户可达的诚实结果仍应落在 `blocked | dry-run | not-executed`，`error` 只是保留给 orchestration/runtime skeleton 错误报告的 slot；preflight 未通过时也应在 runtime 层收口为 `blocked`；
-4. `observed` 必须保持 stub，`transcriptRef` 必须默认为 `null`；
+4. `observed` 必须保持 stub-shaped truth mapping output，不是 provider transcript，也不是 scoring evidence；当前 `cases[].observed`、`providerExecution`、`transcriptAvailability` 只是共用同一条 observed mapping seam 的三种视图，三者同源，但都不能被解读成 provider integration、transcript persistence 或正式 runtime pass 证据；
 5. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
 6. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；与 provider-backed slot 对应的 execution metadata、provider transcript、persistence、provider evidence flags 也都必须继续保持 `false` / `null` / reserved；
 7. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
@@ -538,6 +538,7 @@ output = {
 - 只允许单 selected case 的 in-report draft transcript artifact ref；
 - `transcriptRef` 语义是“runtime draft report 内的草案级 transcript artifact ref”，不是持久化存储句柄；
 - 必须显式保持 `providerTranscript=false`；
+- `cases[].observed`、`providerExecution`、`transcriptAvailability` 现在由同一个 observed mapping seam 同源产出：这是为了统一 truth channel，不是为了宣称 provider-backed execution / provider transcript / persistence 已经接通；
 - 不支持 provider transcript、transcript persistence、multi-case aggregate transcript artifact。
 
 ## 7.1.1 Sandbox boundary contract（已冻结的最小声明面）

@@ -21,22 +21,50 @@ const DEFAULT_PENDING_CAPABILITIES = [
 const DEFAULT_METADATA_NOTE =
   "runtime draft artifact only: no provider execution, no transcript evidence, no scoring result, no runtime pass evidence";
 
-const PROVIDER_BACKED_RESERVED_FIELDS = Object.freeze({
-  runtimeCaseStatuses: ["blocked", "error", "dry-run", "not-executed"],
+const DEFAULT_PROVIDER_EXECUTION_FRAGMENT = Object.freeze({
+  adapterKey: "dry-run",
+  providerKey: "dry-run",
+  providerSlot: null,
+  builtin: false,
+  implemented: false,
+  providerBacked: false,
+  status: "not-executed",
+  executionId: null,
+  providerRunId: null,
+  providerStatus: null,
+  executed: false,
+  providerCall: false,
   providerEvidenceAvailable: false,
-  transcriptPersistence: "none",
-  runtimePassedAvailable: false,
+  transcriptCaptured: false,
+  transcriptPersistence: false,
+  persistence: "none",
+  implementationState: null,
+  reservedStatusSet: ["blocked", "error", "dry-run", "not-executed"],
+  futureRequiredFields: [
+    "cases[].status=passed",
+    "cases[].observed.providerCall=true",
+    "cases[].observed.providerEvidenceAvailable=true",
+    "cases[].transcriptRef.available=true",
+    "cases[].transcriptRef.providerTranscript=true",
+    "metadata.providerExecution.executionId",
+    "metadata.providerExecution.providerStatus",
+  ],
+  pendingCapabilities: [],
+  note: null,
 });
 
-const FUTURE_PROVIDER_BACKED_REQUIRED_OUTPUTS = Object.freeze([
-  "cases[].status=passed",
-  "cases[].observed.providerCall=true",
-  "cases[].observed.providerEvidenceAvailable=true",
-  "cases[].transcriptRef.available=true",
-  "cases[].transcriptRef.providerTranscript=true",
-  "metadata.providerExecution.executionId",
-  "metadata.providerExecution.providerStatus",
-]);
+const DEFAULT_TRANSCRIPT_AVAILABILITY_SKELETON = Object.freeze({
+  available: false,
+  providerManaged: false,
+  handle: null,
+  location: null,
+  providerBacked: false,
+  transcriptCaptured: false,
+  transcriptPersistence: false,
+  persistence: "none",
+  note:
+    "runtime observed mapper transcript availability skeleton only; transcript capture/persistence remains intentionally unimplemented in this phase",
+});
 
 function safeFixturePath(fixtureDir) {
   if (!fixtureDir) return null;
@@ -60,6 +88,8 @@ function normalizeObserved(observed, status) {
     providerCall: false,
     transcriptCaptured: false,
     sideEffectsPerformed: false,
+    providerEvidenceAvailable: false,
+    persistedEvidenceAvailable: false,
     note: `runtime draft reserved observed stub for status ${status}`,
   };
 
@@ -69,9 +99,11 @@ function normalizeObserved(observed, status) {
     ...observed,
     kind: observed?.kind ?? fallback.kind,
     evidence: observed?.evidence ?? "not-executed",
-    providerCall: false,
-    transcriptCaptured: false,
-    sideEffectsPerformed: false,
+    providerCall: observed?.providerCall === true,
+    transcriptCaptured: observed?.transcriptCaptured === true,
+    sideEffectsPerformed: observed?.sideEffectsPerformed === true,
+    providerEvidenceAvailable: observed?.providerEvidenceAvailable === true,
+    persistedEvidenceAvailable: observed?.persistedEvidenceAvailable === true,
     note: observed?.note ?? fallback.note,
   };
 }
@@ -90,14 +122,79 @@ function normalizeTranscriptRef(transcriptRef, runtimeCase) {
   };
 }
 
+function normalizeProviderExecution(providerExecution) {
+  if (!providerExecution || typeof providerExecution !== "object" || Array.isArray(providerExecution)) {
+    return { ...DEFAULT_PROVIDER_EXECUTION_FRAGMENT };
+  }
+
+  return {
+    ...providerExecution,
+    adapterKey: providerExecution?.adapterKey ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.adapterKey,
+    providerKey: providerExecution?.providerKey ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.providerKey,
+    providerSlot: providerExecution?.providerSlot ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.providerSlot,
+    builtin: providerExecution?.builtin === true,
+    implemented: providerExecution?.implemented === true,
+    providerBacked: providerExecution?.providerBacked === true,
+    status: providerExecution?.status ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.status,
+    executionId: providerExecution?.executionId ?? null,
+    providerRunId: providerExecution?.providerRunId ?? null,
+    providerStatus: providerExecution?.providerStatus ?? null,
+    executed: providerExecution?.executed === true,
+    providerCall: providerExecution?.providerCall === true,
+    providerEvidenceAvailable: providerExecution?.providerEvidenceAvailable === true,
+    transcriptCaptured: providerExecution?.transcriptCaptured === true,
+    transcriptPersistence: providerExecution?.transcriptPersistence === true,
+    persistence: providerExecution?.persistence ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.persistence,
+    implementationState: providerExecution?.implementationState ?? null,
+    reservedStatusSet: Array.isArray(providerExecution?.reservedStatusSet)
+      ? [...providerExecution.reservedStatusSet]
+      : [...DEFAULT_PROVIDER_EXECUTION_FRAGMENT.reservedStatusSet],
+    futureRequiredFields: Array.isArray(providerExecution?.futureRequiredFields)
+      ? [...providerExecution.futureRequiredFields]
+      : [...DEFAULT_PROVIDER_EXECUTION_FRAGMENT.futureRequiredFields],
+    pendingCapabilities: Array.isArray(providerExecution?.pendingCapabilities)
+      ? [...providerExecution.pendingCapabilities]
+      : [],
+    note: providerExecution?.note ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.note,
+  };
+}
+
+function normalizeTranscriptAvailability(transcriptAvailability) {
+  if (!transcriptAvailability || typeof transcriptAvailability !== "object" || Array.isArray(transcriptAvailability)) {
+    return { ...DEFAULT_TRANSCRIPT_AVAILABILITY_SKELETON };
+  }
+
+  return {
+    ...transcriptAvailability,
+    available: transcriptAvailability?.available === true,
+    providerManaged: transcriptAvailability?.providerManaged === true,
+    handle: transcriptAvailability?.handle ?? null,
+    location:
+      transcriptAvailability?.location &&
+      typeof transcriptAvailability.location === "object" &&
+      !Array.isArray(transcriptAvailability.location)
+        ? { ...transcriptAvailability.location }
+        : null,
+    providerBacked: transcriptAvailability?.providerBacked === true,
+    transcriptCaptured: transcriptAvailability?.transcriptCaptured === true,
+    transcriptPersistence: transcriptAvailability?.transcriptPersistence === true,
+    persistence: transcriptAvailability?.persistence ?? DEFAULT_TRANSCRIPT_AVAILABILITY_SKELETON.persistence,
+    note: transcriptAvailability?.note ?? DEFAULT_TRANSCRIPT_AVAILABILITY_SKELETON.note,
+  };
+}
+
 function normalizeRuntimeCase(runtimeCase) {
   const status = normalizeCaseStatus(runtimeCase?.status);
+  const transcriptAvailability = normalizeTranscriptAvailability(runtimeCase?.transcriptAvailability);
+
   return {
     id: runtimeCase?.id ?? null,
     type: runtimeCase?.type ?? null,
     status,
     expectedBehavior: runtimeCase?.expectedBehavior ?? null,
     observed: normalizeObserved(runtimeCase?.observed, status),
+    providerExecution: normalizeProviderExecution(runtimeCase?.providerExecution),
+    transcriptAvailability,
     transcriptRef: normalizeTranscriptRef(runtimeCase?.transcriptRef, runtimeCase),
     transcript: runtimeCase?.transcript ?? null,
     failureReason: runtimeCase?.failureReason ?? null,
@@ -157,6 +254,12 @@ export function buildRuntimeReplayReport({
   const normalizedErrors = errors.map(normalizeError);
   const summary = buildSummary(normalizedCases, normalizedChecks, normalizedErrors);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const reportProviderExecution = normalizeProviderExecution(
+    runtime?.providerExecution ?? normalizedCases[0]?.providerExecution,
+  );
+  const reportTranscriptAvailability = normalizeTranscriptAvailability(
+    runtime?.transcriptAvailability ?? normalizedCases[0]?.transcriptAvailability,
+  );
 
   return {
     kind: RUNTIME_REPLAY_KIND,
@@ -186,10 +289,17 @@ export function buildRuntimeReplayReport({
         passedReserved: true,
         providerReadyPassPathImplemented: false,
       },
+      providerExecution: reportProviderExecution,
+      transcriptAvailability: reportTranscriptAvailability,
       providerBackedContract: {
-        currentState: "reserved-unimplemented",
-        reservedFields: { ...PROVIDER_BACKED_RESERVED_FIELDS },
-        futureRequiredOutputs: [...FUTURE_PROVIDER_BACKED_REQUIRED_OUTPUTS],
+        currentState: reportProviderExecution.implementationState ?? "reserved-unimplemented",
+        reservedFields: {
+          runtimeCaseStatuses: [...reportProviderExecution.reservedStatusSet],
+          providerEvidenceAvailable: reportProviderExecution.providerEvidenceAvailable,
+          transcriptPersistence: reportProviderExecution.persistence,
+          runtimePassedAvailable: false,
+        },
+        futureRequiredOutputs: [...reportProviderExecution.futureRequiredFields],
       },
       lineage: {
         static: {

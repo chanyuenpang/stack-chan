@@ -28,6 +28,8 @@ runtime draft CLI
 
 这一步的目标不是“让真实 runtime 跑起来”，而是把已经存在的 preflight / runtime skeleton / provider adapter seam 零件接成一个**独立、诚实、单 case、草案级**执行入口，并允许在 report 内有限表达 provider-less transcript evidence，作为后续 provider / transcript / sandbox enforcement 实装前的承载面。
 
+当前还要额外钉死一个容易被误读的边界：observed mapping seam 只是 truth mapping 通道。它把单一 adapter result 归一化到 `cases[].observed`、`providerExecution`、`transcriptAvailability` 这三个同源槽位，但这不代表真实 provider execution、provider transcript、transcript persistence 或 scoring 已完成。
+
 一句话版：
 
 ```text
@@ -230,7 +232,8 @@ runtime draft CLI
 
 - `summary.passed` 在 draft mode 下通常应为 `false`，在当前可达路径中应固定保持 `false`；
 - `cases[].status` 当前合同只应落在 `blocked | error | dry-run | not-executed`；其中面向用户的正常诚实结果仍以 `blocked | dry-run | not-executed` 为主，`error` 只是 reserved runtime skeleton/orchestration error slot；preflight 未通过时应收口为 `blocked`；
-- `observed` 是 skeleton stub，不是 provider transcript evidence；
+- `observed` 是 skeleton stub-shaped truth mapping output，不是 provider transcript evidence，也不是 scoring result；
+- `cases[].observed`、`providerExecution`、`transcriptAvailability` 必须明确是 observed mapping seam 的同源视图，共用一条 truth channel，不能各自夸大成独立 provider/runtime capability；
 - `transcriptRef` 若出现，只能表示 in-report draft transcript artifact ref；
 - `providerTranscript=false` 必须保持显式；
 - provider-backed mode slot 必须继续保持 reserved/unimplemented，且 CLI 不暴露该模式；
@@ -310,6 +313,7 @@ runtime draft CLI
 - provider adapter seam 当前只是 contract-first 接缝；CLI 仍不暴露 provider-backed mode；
 - provider / provider transcript / transcript persistence / sandbox enforcement / multi-case aggregate 仍未实现；
 - runtime draft 不接入 `validate:all` / `validate:contracts` / `validate:preflight` 默认路径。
+- `cases[].observed` / `providerExecution` / `transcriptAvailability` 当前虽然同源，但只能回写为 truth mapping seam 已打通，不能回写成 provider integration / transcript persistence / scoring 已完成。
 - `docs/phase-3-provider-backed-slot-contract-checklist.md` 只作为 implementation-prep checklist 引用，不得被写成 provider integration 已完成证据。
 
 **最小验收口径**
