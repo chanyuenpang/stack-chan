@@ -19,7 +19,7 @@ const DEFAULT_PENDING_CAPABILITIES = [
   "scoring-engine",
 ];
 const DEFAULT_METADATA_NOTE =
-  "runtime draft artifact only: no provider execution, no transcript evidence, no scoring result, no runtime pass evidence";
+  "runtime draft artifact only: no provider execution, no transcript evidence, no raw-response payload evidence, no scoring result, no runtime pass evidence";
 
 const DEFAULT_PROVIDER_EXECUTION_FRAGMENT = Object.freeze({
   selection: null,
@@ -62,7 +62,7 @@ const DEFAULT_TRANSCRIPT_AVAILABILITY_SKELETON = Object.freeze({
   transcriptPersistence: false,
   persistence: "none",
   note:
-    "runtime observed mapper transcript availability skeleton only; transcript capture/persistence remains intentionally unimplemented in this phase",
+    "runtime observed mapper transcript availability skeleton only; handle semantics are same-source only and do not imply raw-response/provider-handle reuse in this phase",
 });
 
 function safeFixturePath(fixtureDir) {
@@ -151,6 +151,8 @@ function normalizeProviderExecution(providerExecution) {
   const builtin = normalizedSelection?.builtin === true || providerExecution?.builtin === true;
   const implemented = normalizedSelection?.implemented === true || providerExecution?.implemented === true;
   const providerBacked = normalizedSelection?.providerBacked === true || providerExecution?.providerBacked === true;
+  const transcriptAvailable = providerExecution?.transcriptAvailable === true;
+  const rawResponseAvailable = providerExecution?.rawResponseAvailable === true;
 
   return {
     ...providerExecution,
@@ -168,15 +170,15 @@ function normalizeProviderExecution(providerExecution) {
     executed: providerExecution?.executed === true,
     providerCall: providerExecution?.providerCall === true,
     providerEvidenceAvailable: providerExecution?.providerEvidenceAvailable === true,
-    transcriptAvailable: providerExecution?.transcriptAvailable === true,
+    transcriptAvailable,
     transcriptCaptured: providerExecution?.transcriptCaptured === true,
     transcriptPersistence: providerExecution?.transcriptPersistence === true,
     persistence: providerExecution?.persistence ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.persistence,
-    rawResponseAvailable: providerExecution?.rawResponseAvailable === true,
-    rawResponseSummary: providerExecution?.rawResponseSummary ?? null,
-    rawResponseHandle: providerExecution?.rawResponseHandle ?? null,
-    transcriptHandle: providerExecution?.transcriptHandle ?? null,
-    transcriptProviderManaged: providerExecution?.transcriptProviderManaged === true,
+    rawResponseAvailable,
+    rawResponseSummary: rawResponseAvailable ? providerExecution?.rawResponseSummary ?? null : null,
+    rawResponseHandle: rawResponseAvailable ? providerExecution?.rawResponseHandle ?? null : null,
+    transcriptHandle: transcriptAvailable ? providerExecution?.transcriptHandle ?? null : null,
+    transcriptProviderManaged: transcriptAvailable && providerExecution?.transcriptProviderManaged === true,
     implementationState: providerExecution?.implementationState ?? null,
     reservedStatusSet: Array.isArray(providerExecution?.reservedStatusSet)
       ? [...providerExecution.reservedStatusSet]
@@ -196,12 +198,15 @@ function normalizeTranscriptAvailability(transcriptAvailability) {
     return { ...DEFAULT_TRANSCRIPT_AVAILABILITY_SKELETON };
   }
 
+  const available = transcriptAvailability?.available === true;
+
   return {
     ...transcriptAvailability,
-    available: transcriptAvailability?.available === true,
-    providerManaged: transcriptAvailability?.providerManaged === true,
-    handle: transcriptAvailability?.handle ?? null,
+    available,
+    providerManaged: available && transcriptAvailability?.providerManaged === true,
+    handle: available ? transcriptAvailability?.handle ?? null : null,
     location:
+      available &&
       transcriptAvailability?.location &&
       typeof transcriptAvailability.location === "object" &&
       !Array.isArray(transcriptAvailability.location)

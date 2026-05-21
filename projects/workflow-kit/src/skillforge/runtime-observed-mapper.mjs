@@ -128,6 +128,17 @@ function buildProviderExecution({ adapterResult, providerSelection }) {
   const evidence = adapterResult.evidence;
   const rawResponse = adapterResult.rawResponse;
   const transcriptRef = adapterResult.transcriptRef;
+  const providerEvidenceAvailable =
+    evidence?.providerEvidenceAvailable === true || adapterResult.providerMetadata?.providerEvidenceAvailable === true;
+  const transcriptAvailable =
+    evidence?.transcriptAvailable === true || adapterResult.providerMetadata?.transcriptAvailable === true;
+  const rawResponseAvailable =
+    providerSelection.providerBacked === true &&
+    execution?.executed === true &&
+    execution?.providerCall === true &&
+    providerEvidenceAvailable === true &&
+    transcriptAvailable === true &&
+    rawResponse?.available === true;
 
   return {
     selection: { ...providerSelection },
@@ -143,20 +154,18 @@ function buildProviderExecution({ adapterResult, providerSelection }) {
     providerStatus: execution?.providerStatus ?? adapterResult.providerMetadata?.providerStatus ?? null,
     executed: execution?.executed === true || adapterResult.providerMetadata?.executed === true,
     providerCall: execution?.providerCall === true || adapterResult.providerMetadata?.providerCall === true,
-    providerEvidenceAvailable:
-      evidence?.providerEvidenceAvailable === true || adapterResult.providerMetadata?.providerEvidenceAvailable === true,
-    transcriptAvailable:
-      evidence?.transcriptAvailable === true || adapterResult.providerMetadata?.transcriptAvailable === true,
+    providerEvidenceAvailable,
+    transcriptAvailable,
     transcriptCaptured:
       evidence?.transcriptCaptured === true || adapterResult.providerMetadata?.transcriptCaptured === true,
     transcriptPersistence:
       evidence?.transcriptPersistence ?? adapterResult.providerMetadata?.transcriptPersistence ?? false,
     persistence: evidence?.persistence ?? adapterResult.providerMetadata?.persistence ?? "none",
-    rawResponseAvailable: rawResponse?.available === true,
-    rawResponseSummary: rawResponse?.summary ?? null,
-    rawResponseHandle: rawResponse?.handle ?? transcriptRef?.handle ?? null,
-    transcriptHandle: transcriptRef?.handle ?? rawResponse?.handle ?? null,
-    transcriptProviderManaged: transcriptRef?.providerManaged === true,
+    rawResponseAvailable,
+    rawResponseSummary: rawResponseAvailable ? rawResponse?.summary ?? null : null,
+    rawResponseHandle: rawResponseAvailable ? rawResponse?.handle ?? null : null,
+    transcriptHandle: transcriptAvailable ? transcriptRef?.handle ?? null : null,
+    transcriptProviderManaged: transcriptAvailable && transcriptRef?.providerManaged === true,
     implementationState: adapterResult.providerMetadata?.implementationState ?? null,
     reservedStatusSet: cloneArray(adapterResult.providerMetadata?.reservedStatusSet),
     futureRequiredFields: cloneArray(adapterResult.providerMetadata?.futureRequiredFields),
@@ -168,13 +177,17 @@ function buildProviderExecution({ adapterResult, providerSelection }) {
 function buildTranscriptAvailability({ adapterResult, providerSelection }) {
   const transcriptRef = adapterResult.transcriptRef;
   const evidence = adapterResult.evidence;
-  const rawResponse = adapterResult.rawResponse;
+  const transcriptAvailable =
+    providerSelection.providerBacked === true &&
+    (transcriptRef?.available === true || evidence?.transcriptAvailable === true) &&
+    (evidence?.transcriptAvailable === true || adapterResult.providerMetadata?.transcriptAvailable === true);
 
   return {
-    available: transcriptRef?.available === true || evidence?.transcriptAvailable === true,
-    providerManaged: transcriptRef?.providerManaged === true,
-    handle: transcriptRef?.handle ?? rawResponse?.handle ?? null,
+    available: transcriptAvailable,
+    providerManaged: transcriptAvailable && transcriptRef?.providerManaged === true,
+    handle: transcriptAvailable ? transcriptRef?.handle ?? null : null,
     location:
+      transcriptAvailable &&
       transcriptRef?.location && typeof transcriptRef.location === "object" && !Array.isArray(transcriptRef.location)
         ? { ...transcriptRef.location }
         : null,
@@ -184,7 +197,7 @@ function buildTranscriptAvailability({ adapterResult, providerSelection }) {
     persistence: evidence?.persistence ?? adapterResult.providerMetadata?.persistence ?? "none",
     note:
       transcriptRef?.note ??
-      "runtime observed mapper transcript availability skeleton only; transcript capture/persistence remains intentionally unimplemented in this phase",
+      "runtime observed mapper transcript availability skeleton only; handle semantics are same-source only and do not imply raw-response/provider-handle reuse in this phase",
   };
 }
 

@@ -27,7 +27,7 @@
 
 同时，当前 provider seam 也只是 adapter-facing contract-first seam：它冻结了未来 provider adapter 的输入/输出边界，但并没有把 provider-backed mode 变成可执行能力。CLI 仍不暴露 provider-backed mode；provider-backed slot 目前只是 reserved/unimplemented。
 
-补充同步本轮真实边界：当前 adapter result 已收紧为**更真实的中间 truth payload**。这意味着 `rawResponse`、`providerExecution`、`transcriptAvailability` 现在只是从同一个 adapter result 同源透传出来的草案视图；它们共享同一事实来源，但这仍然**不代表真实 provider call 已发生**，也不代表 provider transcript、transcript persistence、scoring 或正式 gate 已完成。
+补充同步本轮真实边界：当前 adapter result 已收紧为**更真实的中间 truth payload**。这意味着 `rawResponse`、`providerExecution`、`transcriptAvailability` 现在只是从同一个 adapter result 同源透传出来的草案视图；它们共享同一事实来源。但这里的 `rawResponse` 只应被理解为**最小 skeleton / truth payload slot**：不是完整 provider payload capture，不是 transcript，也不是 persistence handle。并且 `rawResponse` 与 transcript handle 当前不再允许混源 fallback。这仍然**不代表真实 provider call 已发生**，也不代表 provider transcript、transcript persistence、scoring 或正式 gate 已完成。
 
 补充收紧边界：当前 provider-backed reserved slot 相关字段也只能维持诚实占位语义——provider execution metadata、provider transcript bits、persistence handles、provider evidence availability、以及任何 provider-backed success/passed path，都必须继续落在 `false` / `null` / `"none"` / reserved 状态，不能因为 adapter seam 或 draft transcript ref 的存在而被误读成 provider integration 已完成。
 
@@ -415,7 +415,7 @@ pendingCapabilities: []
 1. 顶层 `status` 在当前 draft mode 只诚实落在 `draft | blocked`，不再伪装成 `passed | failed` 执行结论；
 2. `summary.passed` 固定为 `false`，直到真实 provider + transcript + scoring evidence 存在；
 3. `cases[].status` 当前合同只保留 `blocked | error | dry-run | not-executed`；其中目前面向用户可达的诚实结果仍应落在 `blocked | dry-run | not-executed`，`error` 只是保留给 orchestration/runtime skeleton 错误报告的 slot；preflight 未通过时也应在 runtime 层收口为 `blocked`；
-4. `observed` 必须保持 stub-shaped truth mapping output，不是 provider transcript，也不是 scoring evidence；当前 adapter result 只是更真实的中间 truth payload，`cases[].observed`、`providerExecution`、`transcriptAvailability` 与 `rawResponse` 只是共用同一来源的草案视图，四者同源，但都不能被解读成 provider integration、真实 provider call、transcript persistence 或正式 runtime pass 证据；
+4. `observed` 必须保持 stub-shaped truth mapping output，不是 provider transcript，也不是 scoring evidence；当前 adapter result 只是更真实的中间 truth payload，`cases[].observed`、`providerExecution`、`transcriptAvailability` 与 `rawResponse` 只是共用同一来源的草案视图，四者同源，但都不能被解读成 provider integration、真实 provider call、transcript persistence 或正式 runtime pass 证据；其中 `rawResponse` 只表示最小 skeleton / truth payload slot，`rawResponse.summary` 也只表示摘要位，不表示完整 provider payload，而 `rawResponse` / rawResponse handle 也都不是 transcript/persistence handle；
 5. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
 6. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；与 provider-backed slot 对应的 execution metadata、provider transcript、persistence、provider evidence flags 也都必须继续保持 `false` / `null` / reserved；
 7. 当前可达的 selection lineage 只是在内部沿 `adapter -> runner -> observed mapper -> report` 单一路径透传，不能被解读成 provider mode 已开放，也不能替代未来真实 provider integration 所需的 request/response/transcript/persistence contract；
@@ -544,6 +544,8 @@ output = {
 - 只允许单 selected case 的 in-report draft transcript artifact ref；
 - `transcriptRef` 语义是“runtime draft report 内的草案级 transcript artifact ref”，不是持久化存储句柄；
 - 必须显式保持 `providerTranscript=false`；
+- `rawResponse` 语义是最小 skeleton / truth payload slot；若出现 `rawResponse.summary`，它也只是摘要位，不是完整 provider payload capture；
+- `rawResponse` / rawResponse handle 不是 transcript/persistence handle，且当前不再允许与 `transcriptRef.handle` 做混源 fallback；
 - `cases[].observed`、`providerExecution`、`transcriptAvailability` 现在由同一个 observed mapping seam 同源产出，并且 selection 只允许沿 `adapter -> runner -> observed mapper -> report` 这一内部单一路径传播：这是为了统一 truth channel，不是为了宣称 provider-backed execution / provider transcript / persistence 已经接通；
 - 不支持 provider transcript、transcript persistence、multi-case aggregate transcript artifact。
 
@@ -611,6 +613,8 @@ Milestone D / 当前 Phase 3 虽然已经有独立 runtime draft CLI 与 preflig
 当前 draft artifact 也不应把 `passedCases > 0` 解读成 runtime 已通过；这些计数字段仅保留同构 shape，为后续 provider 子计划承接留接口。
 
 同理，当前若存在 `transcriptRef`，也不能把它解读成 transcript 系统已经打通。它只表示：当前 report 内部存在一个 provider-less draft transcript evidence 引用位，用于单 case 证据表达与合同诚实性约束。
+
+同理，当前若存在 `rawResponse`，也不能把它解读成完整 provider payload capture、transcript 记录或持久化检索句柄。它只是最小 skeleton / truth payload slot；它与 transcript handle 当前不再混源 fallback。
 
 ---
 

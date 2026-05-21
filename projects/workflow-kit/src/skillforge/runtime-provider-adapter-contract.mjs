@@ -72,11 +72,26 @@ const FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS = Object.freeze([
   "evidence.transcriptAvailable",
   "evidence.transcriptCaptured",
   "evidence.transcriptPersistence",
+  "rawResponse.available=true",
+  "rawResponse.kind=runtime-provider-raw-response",
+  "rawResponse.version",
   "rawResponse.summary",
   "transcriptRef.available=true",
   "transcriptRef.providerManaged=true",
   "transcriptRef.handle",
 ]);
+
+const RAW_RESPONSE_KIND = "runtime-provider-raw-response";
+const RAW_RESPONSE_VERSION = "runtime-provider-raw-response-draft-1";
+const RAW_RESPONSE_CAPTURE_MODES = Object.freeze(["none", "summary-only"]);
+
+function canExposeProviderBackedRawResponse({ selection, execution } = {}) {
+  return (
+    selection?.providerBacked === true &&
+    execution?.executed === true &&
+    execution?.providerCall === true
+  );
+}
 
 function cloneArray(value) {
   return Array.isArray(value) ? [...value] : [];
@@ -270,9 +285,14 @@ export function buildRuntimeProviderAdapterResult({
   };
 
   const normalizedRawResponse = {
+    kind: RAW_RESPONSE_KIND,
+    version: RAW_RESPONSE_VERSION,
     available: false,
+    captureMode: "none",
     summary: null,
     handle: null,
+    note:
+      "reserved provider-backed raw response evidence slot only; no provider payload capture, transcript capture, or persistence is implemented in this phase",
     ...cloneObject(rawResponse),
   };
 
@@ -315,8 +335,24 @@ export function buildRuntimeProviderAdapterResult({
     normalizedEvidence.persistence = normalizedEvidence.persistence ?? "none";
   }
 
-  if (normalizedRawResponse.available !== true || normalizedSelection.providerBacked !== true) {
+  const rawResponseExposureAllowed = canExposeProviderBackedRawResponse({
+    selection: normalizedSelection,
+    execution: normalizedExecution,
+  });
+
+  normalizedRawResponse.available = normalizedRawResponse.available === true;
+  normalizedRawResponse.captureMode = RAW_RESPONSE_CAPTURE_MODES.includes(normalizedRawResponse.captureMode)
+    ? normalizedRawResponse.captureMode
+    : "none";
+  normalizedRawResponse.kind = RAW_RESPONSE_KIND;
+  normalizedRawResponse.version = normalizedRawResponse.version ?? RAW_RESPONSE_VERSION;
+  normalizedRawResponse.summary = normalizedRawResponse.summary ?? null;
+  normalizedRawResponse.handle = normalizedRawResponse.handle ?? null;
+  normalizedRawResponse.note = normalizedRawResponse.note ?? null;
+
+  if (rawResponseExposureAllowed !== true || normalizedRawResponse.available !== true) {
     normalizedRawResponse.available = false;
+    normalizedRawResponse.captureMode = "none";
     normalizedRawResponse.summary = null;
     normalizedRawResponse.handle = null;
   }
@@ -351,6 +387,13 @@ export function buildRuntimeProviderAdapterResult({
     normalizedMetadata.providerStatus = null;
   }
 
+  if (normalizedMetadata.executed !== true || normalizedMetadata.providerCall !== true) {
+    normalizedRawResponse.available = false;
+    normalizedRawResponse.captureMode = "none";
+    normalizedRawResponse.summary = null;
+    normalizedRawResponse.handle = null;
+  }
+
   const normalizedTranscriptRef =
     transcriptRef && typeof transcriptRef === "object" && !Array.isArray(transcriptRef)
       ? {
@@ -361,6 +404,13 @@ export function buildRuntimeProviderAdapterResult({
       : null;
 
   if (normalizedMetadata.providerBacked !== true && normalizedTranscriptRef) {
+    normalizedTranscriptRef.available = false;
+    normalizedTranscriptRef.providerManaged = false;
+    normalizedTranscriptRef.handle = null;
+    normalizedTranscriptRef.location = null;
+  }
+
+  if (normalizedTranscriptRef && rawResponseExposureAllowed !== true) {
     normalizedTranscriptRef.available = false;
     normalizedTranscriptRef.providerManaged = false;
     normalizedTranscriptRef.handle = null;
@@ -445,6 +495,9 @@ export const RUNTIME_PROVIDER_ADAPTER_OUTPUT_VERSION = PROVIDER_ADAPTER_OUTPUT_V
 export const RUNTIME_PROVIDER_ADAPTER_ALLOWED_STATUSES = [...DEFAULT_ALLOWED_PROVIDER_STATUSES];
 export const RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND = PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND;
 export const RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION = PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION;
+export const RUNTIME_PROVIDER_RAW_RESPONSE_KIND = RAW_RESPONSE_KIND;
+export const RUNTIME_PROVIDER_RAW_RESPONSE_VERSION = RAW_RESPONSE_VERSION;
+export const RUNTIME_PROVIDER_RAW_RESPONSE_CAPTURE_MODES = [...RAW_RESPONSE_CAPTURE_MODES];
 export const RUNTIME_PROVIDER_ADAPTER_KEYS = [...BUILTIN_PROVIDER_ADAPTER_KEYS];
 export const RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT = DEFAULT_PROVIDER_ADAPTER_SLOT;
 export const RUNTIME_PROVIDER_ADAPTER_RESERVED_STATUS_SET = [...RESERVED_PROVIDER_BACKED_STATUS_SET];
@@ -467,6 +520,9 @@ export default {
   RUNTIME_PROVIDER_ADAPTER_ALLOWED_STATUSES: [...DEFAULT_ALLOWED_PROVIDER_STATUSES],
   RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND: PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND,
   RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION: PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION,
+  RUNTIME_PROVIDER_RAW_RESPONSE_KIND: RAW_RESPONSE_KIND,
+  RUNTIME_PROVIDER_RAW_RESPONSE_VERSION: RAW_RESPONSE_VERSION,
+  RUNTIME_PROVIDER_RAW_RESPONSE_CAPTURE_MODES: [...RAW_RESPONSE_CAPTURE_MODES],
   RUNTIME_PROVIDER_ADAPTER_KEYS: [...BUILTIN_PROVIDER_ADAPTER_KEYS],
   RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT: DEFAULT_PROVIDER_ADAPTER_SLOT,
   RUNTIME_PROVIDER_ADAPTER_RESERVED_STATUS_SET: [...RESERVED_PROVIDER_BACKED_STATUS_SET],

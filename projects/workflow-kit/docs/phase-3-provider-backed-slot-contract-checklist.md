@@ -4,7 +4,7 @@
 > 目的：在真实 provider 子计划开始前，先把 provider-backed reserved slot 必须补齐的字段、路径、保留约束与接线顺序钉死。  
 > 重要边界：本文不是 provider integration 实现说明；不代表真实 provider、transcript persistence、sandbox enforcement、passed path、tests、默认 validate 链路或文档全量同步已完成。
 >
-> 当前文档同步口径补充：provider adapter output 现在只是**更真实的中间 truth payload**，用于把单一 adapter result 同源透传到 runtime draft artifact 的 `cases[].observed`、`providerExecution`、`transcriptAvailability` 等槽位；这仍然只是 reserved/unimplemented 的 provider-backed contract 准备面，不代表真实 provider call、provider transcript、transcript persistence、scoring 或正式 gate 已完成。
+> 当前文档同步口径补充：provider adapter output 现在只是**更真实的中间 truth payload**，用于把单一 adapter result 同源透传到 runtime draft artifact 的 `cases[].observed`、`rawResponse`、`providerExecution`、`transcriptAvailability` 等槽位；这里的 `rawResponse` 也只是**最小 skeleton / truth payload slot**，不是完整 provider payload capture，不是 transcript，不是 persistence handle。这仍然只是 reserved/unimplemented 的 provider-backed contract 准备面，不代表真实 provider call、provider transcript、transcript persistence、scoring 或正式 gate 已完成。
 
 ## 1. 使用方式
 
@@ -62,18 +62,27 @@
 
 ### 3.2 Raw response capture
 
+> 当前收紧后的口径：`rawResponse` 只是 runtime draft/report contract 中的**最小 skeleton / truth payload slot**，用于承载单一 adapter result 的同源最小真值位；它不是完整 provider payload dump，不是 transcript，也不是 persistence / retrieval handle。
+>
+> `rawResponse.summary` 若存在，也只应被解释为摘要位；不能把摘要位写成完整 provider payload capture 已存在。
+>
+> 同时，`rawResponse` 与 transcript handle 现在不再允许混源 fallback：不能再用 transcript ref 冒充 raw response handle，也不能用 raw response slot 冒充 transcript/persistence 句柄。
+
 - [ ] 定义 provider 原始响应的最小捕获对象
-- [ ] 明确原始响应是内存暂存、report 内摘要，还是外部持久化句柄
+- [ ] 明确原始响应是内存暂存、report 内最小 skeleton/summary，还是外部持久化句柄
 - [ ] 明确 `providerMetadata.providerEvidenceAvailable` 的置真条件
 - [ ] 未捕获 raw response 时，不得把 evidence 写成可用
 - [ ] raw response capture 与 transcript capture 必须区分，不得混为同一字段
+- [ ] 明确 `rawResponse.summary` 只是摘要位，不代表完整 provider payload
+- [ ] 明确 raw response handle 不是 transcript/persistence handle，且不再与 transcript handle 混源 fallback
 
 **最低落地要求**
 
 - 至少要有一个稳定承载位能说明：
-  - provider 返回过什么原始结果
+  - provider 返回过什么最小 skeleton / truth payload
   - 是否真的可追溯
-  - 该证据是否只是摘要、还是可回捞实体
+  - 该证据只是摘要、还是可回捞实体
+  - 它是否与 transcript / persistence 明确分槽而非共用句柄
 
 ---
 
@@ -96,12 +105,15 @@
 
 ### 3.4 Provider transcript handle
 
+> 当前文档边界要求：transcript handle 是 transcript 侧引用位，不是 raw response slot；raw response handle 也不是 transcript/persistence handle。二者当前不再允许混源 fallback。
+
 - [ ] 明确 transcript handle 的生成时机
 - [ ] 明确 `transcriptRef.available=true` 的置真条件
 - [ ] 明确 `transcriptRef.providerManaged=true` / `providerTranscript=true` 的含义边界
 - [ ] 明确 `transcriptRef.handle` 的稳定格式或最小 identity 规则
 - [ ] 明确 transcript handle 与 raw response handle 是否允许复用；若复用必须显式声明
 - [ ] 未有真实 transcript 时，不得保留 draft-only transcript ref 语义冒充 provider transcript
+- [ ] 未有真实 transcript 时，不得把 rawResponse slot / handle fallback 成 transcript handle
 
 **最低落地要求**
 
@@ -212,9 +224,12 @@
 | transcript captured flag | `providerMetadata.transcriptCaptured` | `false` | must be `true` only when transcript exists | adapter result |
 | transcript persistence flag | `providerMetadata.transcriptPersistence` | `false` | must express actual persistence availability/state | adapter result |
 | persistence mode | `providerMetadata.persistence` | `"none"` | must declare real persistence mode | adapter result |
+| raw response slot | `rawResponse` | same-source minimal skeleton/truth payload slot only; not full payload, transcript, or persistence handle | may expand only after true provider/raw payload capture contract lands | adapter/runner/report case |
+| raw response summary | `rawResponse.summary` | summary-only when present | must remain summary-only unless explicit raw payload capture contract exists | adapter/runner/report case |
+| raw response handle semantics | `rawResponse.handle` / equivalent raw-response identity slot | unavailable / reserved unless future contract adds one | must not be treated as transcript handle or persistence handle | adapter/runner/report case |
 | transcript availability | `transcriptRef.available` | `false` unless draft non-provider transcript stub | provider-backed transcript requires `true` | adapter/report case |
 | transcript ownership | `transcriptRef.providerManaged` | `false` | required `true` for provider-managed transcript handle | adapter/report case |
-| transcript handle | `transcriptRef.handle` | `null` | required stable transcript handle | adapter/report case |
+| transcript handle | `transcriptRef.handle` | `null` | required stable transcript handle; must not fallback from rawResponse slot | adapter/report case |
 | transcript provider bit | `transcriptRef.providerTranscript` | `false` | required `true` only for real provider transcript | runner/report case |
 | observed provider call | `cases[].observed.providerCall` | `false` | must be `true` only on real provider call | runtime report case |
 | observed evidence flag | `cases[].observed.providerEvidenceAvailable` | reserved/implicit false today | must be explicit and truthful after mapping | runtime report case |

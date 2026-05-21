@@ -536,9 +536,14 @@ function testProviderAdapterOutputSkeletonStaysConservative() {
     persistence: "none",
   });
   assert.deepEqual(adapterResult.rawResponse, {
+    kind: "runtime-provider-raw-response",
+    version: "runtime-provider-raw-response-draft-1",
     available: false,
+    captureMode: "none",
     summary: null,
     handle: null,
+    note:
+      "reserved provider-backed raw response evidence slot only; no provider payload capture, transcript capture, or persistence is implemented in this phase",
   });
   assert.equal(adapterResult.providerMetadata.providerBacked, false);
   assert.equal(adapterResult.providerMetadata.executed, false);
@@ -853,6 +858,290 @@ function testRawResponseSummaryAndHandleStayReservedAcrossRuntimeModes() {
     assert.equal(runtimeCase.transcriptAvailability.handle, null);
     assert.equal(run.result.runnerMetadata.providerAdapter.rawResponseAvailable, false);
   }
+
+  const blockedRun = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport: createPreflightReport("failed"),
+    options: { mode: "dry-run" },
+  });
+
+  const blockedCase = blockedRun.runtimeReport.cases[0];
+  assert.equal(blockedCase.providerExecution.rawResponseAvailable, false);
+  assert.equal(blockedCase.providerExecution.rawResponseSummary, null);
+  assert.equal(blockedCase.providerExecution.rawResponseHandle, null);
+  assert.equal(blockedCase.providerExecution.transcriptHandle, null);
+  assert.equal(blockedCase.transcriptAvailability.handle, null);
+  assert.equal(blockedRun.result.runnerMetadata.providerAdapter.rawResponseAvailable, false);
+}
+
+function testRawResponseSkeletonContractShapeStaysStable() {
+  const normalizedFixture = createNormalizedFixture();
+  const caseRecord = selectRuntimeCase({ normalizedFixture });
+
+  const seamCases = [
+    {
+      label: "dry-run",
+      adapterResult: {
+        caseId: caseRecord.id,
+        status: "dry-run",
+        providerMetadata: {
+          implementationState: "builtin-skeleton-adapter",
+          executed: false,
+          providerCall: false,
+          providerEvidenceAvailable: false,
+          transcriptAvailable: false,
+          transcriptCaptured: false,
+          transcriptPersistence: false,
+          persistence: "none",
+        },
+      },
+      providerSelection: {
+        adapterKey: "dry-run",
+        providerKey: "dry-run",
+        providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        builtin: true,
+        implemented: true,
+        providerBacked: false,
+      },
+      expectedStatus: "dry-run",
+    },
+    {
+      label: "null-runner",
+      adapterResult: {
+        caseId: caseRecord.id,
+        status: "not-executed",
+        providerMetadata: {
+          implementationState: "builtin-skeleton-adapter",
+          executed: false,
+          providerCall: false,
+          providerEvidenceAvailable: false,
+          transcriptAvailable: false,
+          transcriptCaptured: false,
+          transcriptPersistence: false,
+          persistence: "none",
+        },
+      },
+      providerSelection: {
+        adapterKey: "null-runner",
+        providerKey: "null-runner",
+        providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        builtin: true,
+        implemented: true,
+        providerBacked: false,
+      },
+      expectedStatus: "not-executed",
+    },
+    {
+      label: "provider-backed-reserved",
+      adapterResult: {
+        caseId: caseRecord.id,
+        status: "error",
+        selection: {
+          adapterKey: "provider-backed",
+          providerKey: "provider-backed",
+          providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+          builtin: true,
+          implemented: false,
+          providerBacked: true,
+        },
+        execution: {
+          executed: false,
+          providerCall: false,
+          executionId: null,
+          providerRunId: null,
+          providerStatus: null,
+        },
+        evidence: {
+          providerEvidenceAvailable: false,
+          transcriptAvailable: false,
+          transcriptCaptured: false,
+          transcriptPersistence: false,
+          persistence: "none",
+        },
+        rawResponse: {
+          available: true,
+          captureMode: "summary-only",
+          summary: "should-be-scrubbed",
+          handle: "raw-handle-should-be-scrubbed",
+        },
+        transcriptRef: {
+          available: true,
+          providerManaged: true,
+          handle: "transcript-handle-should-be-scrubbed",
+          location: {
+            kind: "provider-artifact",
+            path: ["remote", "artifact"],
+          },
+        },
+        providerMetadata: {
+          implementationState: "reserved-unimplemented-provider-slot",
+          executed: false,
+          providerCall: false,
+          providerEvidenceAvailable: false,
+          transcriptAvailable: false,
+          transcriptCaptured: false,
+          transcriptPersistence: false,
+          persistence: "none",
+        },
+      },
+      providerSelection: {
+        adapterKey: "provider-backed",
+        providerKey: "provider-backed",
+        providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        builtin: true,
+        implemented: false,
+        providerBacked: true,
+      },
+      expectedStatus: "error",
+    },
+    {
+      label: "preflight-blocked",
+      adapterResult: {
+        caseId: caseRecord.id,
+        status: "blocked",
+        rawResponse: {
+          available: true,
+          captureMode: "summary-only",
+          summary: "blocked-summary-should-be-scrubbed",
+          handle: "blocked-handle-should-be-scrubbed",
+        },
+        transcriptRef: {
+          available: true,
+          providerManaged: true,
+          handle: "blocked-transcript-handle-should-be-scrubbed",
+          location: {
+            kind: "provider-artifact",
+            path: ["blocked"],
+          },
+        },
+        providerMetadata: {
+          implementationState: "preflight-blocked",
+          executed: false,
+          providerCall: false,
+          providerEvidenceAvailable: false,
+          transcriptAvailable: false,
+          transcriptCaptured: false,
+          transcriptPersistence: false,
+          persistence: "none",
+        },
+      },
+      providerSelection: {
+        adapterKey: "dry-run",
+        providerKey: "dry-run",
+        providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        builtin: true,
+        implemented: true,
+        providerBacked: false,
+      },
+      expectedStatus: "blocked",
+    },
+  ];
+
+  for (const seamCase of seamCases) {
+    const mapped = mapProviderResultToObservedRuntime({
+      adapterResult: seamCase.adapterResult,
+      providerSelection: seamCase.providerSelection,
+      caseContext: caseRecord,
+    });
+
+    assert.equal(mapped.status, seamCase.expectedStatus);
+    assert.equal(mapped.providerExecution.rawResponseAvailable, false);
+    assert.equal(mapped.providerExecution.rawResponseSummary, null);
+    assert.equal(mapped.providerExecution.rawResponseHandle, null);
+    assert.equal(mapped.providerExecution.transcriptHandle, null);
+    assert.equal(mapped.transcriptAvailability.available, false);
+    assert.equal(mapped.transcriptAvailability.handle, null);
+    assert.equal(mapped.transcriptAvailability.location, null);
+    assert.equal(mapped.transcriptAvailability.providerManaged, false);
+  }
+}
+
+function testRawResponseCannotUpgradeCapabilityOnItsOwn() {
+  const normalizedFixture = createNormalizedFixture();
+  const caseRecord = selectRuntimeCase({ normalizedFixture });
+
+  const mapped = mapProviderResultToObservedRuntime({
+    adapterResult: {
+      caseId: caseRecord.id,
+      status: "error",
+      selection: {
+        adapterKey: "provider-backed",
+        providerKey: "provider-backed",
+        providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+        builtin: true,
+        implemented: false,
+        providerBacked: true,
+      },
+      execution: {
+        executed: false,
+        providerCall: false,
+        executionId: null,
+        providerRunId: null,
+        providerStatus: null,
+      },
+      evidence: {
+        providerEvidenceAvailable: false,
+        transcriptAvailable: false,
+        transcriptCaptured: false,
+        transcriptPersistence: false,
+        persistence: "none",
+      },
+      rawResponse: {
+        available: true,
+        captureMode: "summary-only",
+        summary: "attempted-raw-summary",
+        handle: "attempted-raw-handle",
+      },
+      transcriptRef: {
+        available: true,
+        providerManaged: true,
+        handle: "attempted-transcript-handle",
+        location: {
+          kind: "provider-artifact",
+          path: ["provider", "transcript"],
+        },
+      },
+      providerMetadata: {
+        implementationState: "reserved-unimplemented-provider-slot",
+        executed: false,
+        providerCall: false,
+        providerEvidenceAvailable: false,
+        transcriptAvailable: false,
+        transcriptCaptured: false,
+        transcriptPersistence: false,
+        persistence: "none",
+      },
+    },
+    providerSelection: {
+      adapterKey: "provider-backed",
+      providerKey: "provider-backed",
+      providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+      builtin: true,
+      implemented: false,
+      providerBacked: true,
+    },
+    caseContext: caseRecord,
+  });
+
+  assert.equal(mapped.status, "error");
+  assert.equal(mapped.observed.providerEvidenceAvailable, false);
+  assert.equal(mapped.observed.transcriptCaptured, false);
+  assert.equal(mapped.observed.persistedEvidenceAvailable, false);
+  assert.equal(mapped.providerExecution.executed, false);
+  assert.equal(mapped.providerExecution.providerCall, false);
+  assert.equal(mapped.providerExecution.providerEvidenceAvailable, false);
+  assert.equal(mapped.providerExecution.transcriptAvailable, false);
+  assert.equal(mapped.providerExecution.transcriptCaptured, false);
+  assert.equal(mapped.providerExecution.transcriptPersistence, false);
+  assert.equal(mapped.providerExecution.rawResponseAvailable, false);
+  assert.equal(mapped.providerExecution.rawResponseSummary, null);
+  assert.equal(mapped.providerExecution.rawResponseHandle, null);
+  assert.equal(mapped.providerExecution.transcriptHandle, null);
+  assert.equal(mapped.transcriptAvailability.available, false);
+  assert.equal(mapped.transcriptAvailability.handle, null);
+  assert.equal(mapped.transcriptAvailability.providerManaged, false);
 }
 
 function testObservedMappingMetadataStaysConsistentWithCaseArtifacts() {
@@ -1342,6 +1631,8 @@ const tests = [
   ["transcript ref presence never upgrades draft statuses to passed", testTranscriptRefDoesNotUpgradeDraftStatuses],
   ["observed mapping seam contract stays stable across dry/null/provider-reserved/preflight-blocked paths", testObservedMappingSeamContractAcrossReservedModes],
   ["raw response summary/handle stay reserved across runtime modes", testRawResponseSummaryAndHandleStayReservedAcrossRuntimeModes],
+  ["raw response skeleton contract shape stays stable across reserved seams", testRawResponseSkeletonContractShapeStaysStable],
+  ["raw response cannot upgrade capability on its own", testRawResponseCannotUpgradeCapabilityOnItsOwn],
   ["observed mapping metadata stays consistent with per-case artifacts", testObservedMappingMetadataStaysConsistentWithCaseArtifacts],
   ["provider selection shape and lineage stay stable across runner/mapper/report", testProviderSelectionShapeAndLineageStayStableAcrossRunnerMapperAndReport],
   ["provider-backed selection never leaks execution/evidence/transcript capabilities", testProviderBackedSelectionNeverLeaksExecutionEvidenceOrTranscriptCapabilities],
