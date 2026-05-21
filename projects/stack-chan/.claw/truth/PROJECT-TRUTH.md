@@ -9,6 +9,7 @@
 
 - [`features/ota-release-workflow.md`](features/ota-release-workflow.md)：StackChan OTA 发布、远程重启触发升级、实机状态验收链路。
 - [`features/celebrate-servo-bus-health.md`](features/celebrate-servo-bus-health.md)：`celebrate` 触发不等于完成；正常完成必须同时满足 `expected_end_ms`、`min_finish_ms`、`step_index >= kMotionFrameCount`；`duration_complete` / `preflight_bus_dead` / `bus_dead` / `timeout` 的完成/中止语义边界，收尾日志中 `finish_type`、`bus_dead`、`transient_io_error`、`hardware_failure` 的长期语义边界，`ERR_NO_REPLY` 后 ACK missing transient cooldown / 异步单轴 probe 规则，以及 yaw/pitch 双轴 `WritePos` 错峰诊断入口。
+- [`features/voice-injection-celebrate-e2e.md`](features/voice-injection-celebrate-e2e.md)：语音注入庆祝完整链路的黄金入口是 `tools/remote_control/remote_control.py inject-prompt` / `POST /dev/inject_prompt`；它通过内嵌 prompt 注入 XiaoZhi 上行音频触发 `self.robot.celebrate`，不是 `/dev/celebrate`、不是 `/dev/mcp/call`、不是 `/dev/wake`，也不需要用户现场人工说话。
 
 ## 迁移补充的项目级长期规则（2026-05-21）
 
