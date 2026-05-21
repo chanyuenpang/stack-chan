@@ -1,6 +1,12 @@
-# SkillForge Roadmap：从静态 MVP 到最终形态
+# SkillForge Owner Master Plan：从静态 MVP 到最终形态
 
-> 本路线图用于指导 SkillForge 后续任务拆分。当前仓库目录仍为 `workflow-kit`，对外产品名优先使用 `SkillForge`。
+> 本文是 SkillForge 的 owner master plan。主 Agent 以 SkillForge 研发负责人身份维护长期核心目标、阶段边界和证据口径；短期小计划只能推进本文中的阶段目标，不能替代本文成为事实来源。
+>
+> 回写机制：每个小计划完成后，必须把实际完成状态回写到 `docs/roadmap.md`、必要的 `docs/static-mvp-validation-report.md` 与 `README.md`；未完成、未验证或仅设计中的能力必须继续标记为 `PENDING` / 风险项，不能写成 done。
+>
+> 当前活跃阶段：**Phase 1 收敛 / Phase 2 准入准备中**。Phase 1 已完成 evidence 去重、checklist 聚合语义同步、本地正反例矩阵入口；Phase 2 仍处于入口条件准备阶段，尚未完成。
+>
+> 当前验证入口：`pnpm --silent validate` 输出正例 fixture 的 JSON artifact；`pnpm --silent validate:all` 运行本地静态正反例矩阵，作为当前 6/6 static validation gate。二者都只代表 static validation，不代表 runtime replay、跨平台或跨模型验证通过。
 >
 > 重要边界：当前“静态 MVP 通过”只表示单 fixture 与静态 validator 在当前环境下验证通过；**不等于真实模型回放通过，不等于跨平台/跨模型兼容通过，也不等于完整产品 PASS**。
 
@@ -14,7 +20,8 @@
 | 10 轮优化分析 | 已完成 | `docs/optimization/round-10.md` 汇总 round-01 至 round-10，形成 Go/No-Go 与边界收敛 |
 | 文档/设计验收 | 已完成，结论为 `PASS_WITH_RISK` | `docs/acceptance-result.md` |
 | 单 fixture 静态 MVP | 已完成 | `fixtures/meeting-summary-assistant/**` 作为正例 fixture |
-| JSON validator | 已完成最小静态校验器 | `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json` 可输出稳定 JSON |
+| JSON validator | 已完成最小静态校验器 | `pnpm --silent validate`（等价于 `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json`）可输出正例 JSON artifact |
+| 本地静态矩阵 gate | Phase 1 已完成，需防回归 | `pnpm --silent validate:all`（等价于 `pnpm --silent validate:fixture:matrix`）当前 6/6 通过；输出 human-readable matrix summary |
 | 正例静态验证 | 通过 | `docs/static-mvp-validation-report.md` 记录 exit `0`、15 条规则全 pass、P0/P1/P2=`5/8/2` |
 | 关键反例静态验证 | 已有证据 | 缺 description、secret/private path、伪 replay、缺 7 维 checklist 等反例均能失败并输出合法 JSON |
 
@@ -25,12 +32,13 @@
 | 运行时模型回放 | PENDING | 目前只有静态 replay 诚实性检查，没有真实模型 transcript、observed 输出和人工/自动评分 |
 | 跨平台兼容 | PENDING | 当前证据来自 Linux + 当前 Node/pnpm 环境，未覆盖 macOS/Windows 路径、shell、换行与权限差异 |
 | 跨模型兼容 | PENDING | 未验证不同模型对同一 skill 的触发、边界遵循、输出稳定性 |
-| 隐私 evidence 去重 | Phase 1 已完成 | 同文件、同脱敏 detail、同 pattern kind 的 privacy evidence 已去重，且 secret/private path 反例仍阻断 |
-| checklist 多来源聚合语义说明 | Phase 1 已完成 | 规则说明与 README 已明确多来源聚合覆盖七维，不是单文件 exactly once |
+| 隐私 evidence 去重 | Phase 1 已完成，需防回归 | 同文件、同脱敏 detail、同 pattern kind 的 privacy evidence 已去重，且 secret/private path 反例仍阻断；后续只跟踪回归与覆盖扩展 |
+| checklist 多来源聚合语义说明 | Phase 1 已完成，需防回归 | 规则说明与 README 已明确多来源聚合覆盖七维，不是单文件 exactly once；后续只跟踪回归与多 fixture 泛化 |
+| 本地正反例矩阵脚本 | Phase 1 已完成，需防回归 | `pnpm --silent validate:all` 已作为本地静态矩阵入口；当前覆盖正例 baseline 与 5 类代表性反例，最新口径为 6/6 gate |
 | 完整生成器 | PENDING | 还不能从任意 workflow 自动生成完整 skill 文件树 |
 | UI | PENDING | 尚无可视化录入、审核、回放、发布界面 |
-| CI | PENDING | validator 尚未接入 PR/发布门禁 |
-| 自动化验收矩阵 | Phase 1 局部完成 | 已有本地单 fixture 正反例矩阵；多 fixture、多平台、多模型系统矩阵仍属 Phase 2+ |
+| CI | PENDING | validator 尚未接入 PR/发布门禁；当前 `validate:all` 是本地 gate，不等于 CI 已完成 |
+| 多 fixture / 多平台 / 多模型系统矩阵 | PENDING | 当前仅有本地单 fixture 正反例矩阵；多 fixture、多平台、多模型系统矩阵仍属 Phase 2+ |
 
 ### 1.3 当前边界判定
 
@@ -204,6 +212,20 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 - schema 过严导致真实 skill 难以接入；过松又失去质量门禁。
 - CI 只覆盖 Linux，跨平台问题继续隐藏。
 
+**Phase 2 入口条件（准备中，不代表已完成）**
+
+- Phase 1 的 `pnpm --silent validate` 与 `pnpm --silent validate:all` 在本地继续通过，且最新结果已回写验证报告。
+- owner master plan、static report、README、validator contract 对验证入口和 static-only 边界保持一致。
+- evidence 去重、checklist 聚合语义、本地反例矩阵均有防回归口径，不再被列为未完成能力。
+- 进入 Phase 2 前的小计划必须明确：新增 fixture 范围、schema 草案边界、CI 入口是否只是规划还是已落地。
+
+**首批小计划建议**
+
+1. 多 fixture 扩展小计划：新增 2 个 simple fixture 与 1 个 standard fixture，只宣称静态通过。
+2. Schema/contract 小计划：抽象 fixture schema 与 report schema，保持 `validate` JSON artifact 兼容。
+3. CI gate 小计划：把 `validate:all` 接入 PR/发布前检查；完成前 CI 继续保持 `PENDING`。
+4. Snapshot/contract test 小计划：固定关键 JSON 字段，避免 runtime metadata（如 `generatedAt`）导致脆弱测试。
+
 **退出条件**
 
 - 多 fixture 证明规则非单样例过拟合。
@@ -361,12 +383,12 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 | 能力缺口 | 当前缺什么 | 为什么重要 | 优先级 | 依赖 |
 |---|---|---|---|---|
 | Validator 契约稳定性 | 规则清单、report schema、退出码说明仍需固化 | 后续 CI、生成器、UI 都依赖稳定输出 | P0 | Phase 1 |
-| evidence 去重 | 脱敏已有，重复 evidence 仍会制造噪音 | 降低误判和报告阅读成本 | P1 | Phase 1 |
-| checklist 聚合语义说明 | 多来源聚合逻辑未充分文档化 | 避免测试和用户误解“删除单一来源为何不失败” | P1 | Phase 1 |
+| evidence 去重防回归 | Phase 1 已完成；需在后续规则扩展中保持去重与脱敏一致 | 降低误判和报告阅读成本 | P1 | Phase 1 防回归 |
+| checklist 聚合语义防回归 | Phase 1 已文档化多来源聚合逻辑；需在多 fixture 扩展中保持一致 | 避免测试和用户误解“删除单一来源为何不失败” | P1 | Phase 1 防回归 / Phase 2 泛化 |
 | 多 fixture 覆盖 | 当前只有单正例 fixture | 防止规则过拟合，验证 schema 通用性 | P0 | Phase 2 |
 | Schema | fixture/report 缺正式机器可读约束 | CI、生成器、UI 需要共同契约 | P0 | Phase 2 |
 | CI 门禁 | 还未自动在 PR/发布前运行 | 防止静态质量回退 | P0 | Phase 2 |
-| 自动化反例矩阵 | 反例证据已有，但需持续自动跑 | 确保隐私、伪 replay、缺字段等高风险不回归 | P0 | Phase 2 |
+| 本地反例矩阵防回归 / CI 接入 | 本地矩阵脚本与 `validate:all` 已完成；CI 自动运行仍 pending | 确保隐私、伪 replay、缺字段等高风险不回归 | P0 | Phase 1 防回归 / Phase 2 CI |
 | 运行时模型回放 | 缺 runner、transcript、observed、评分 | 证明 skill 真实可用，而非只满足静态格式 | P0 | Phase 3 |
 | 跨模型评估 | 缺多模型对照 | skill 触发与边界遵循高度依赖模型行为 | P1 | Phase 3 |
 | 跨平台评估 | 缺 macOS/Windows 实测 | 路径、shell、权限、换行可能导致失败 | P1 | Phase 2/3 |
@@ -381,7 +403,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 ### 5.1 隐私风险
 
 - token、secret、账号、私有路径、内部 IP、不可公开业务细节不得进入可发布产物。
-- evidence 必须脱敏；后续还要去重，避免重复暴露上下文。
+- evidence 必须脱敏且保持 Phase 1 已完成的去重语义，避免重复暴露上下文。
 - 生成器阶段必须先做输入隐私分级，再生成公开内容。
 - registry 发布前必须有 P0 隐私门禁。
 
@@ -427,7 +449,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 ## 7. 建议下一步 Top 5
 
 1. **固化 validator 契约与规则清单**：把现有 15 条规则整理成可维护规则表，明确 ID、dimension、severity、scope、失败条件和修复建议。
-2. **优化 evidence 与 checklist 诊断**：完成 evidence 去重，并文档化七维 checklist 多来源聚合语义。
+2. **Phase 1 防回归复核**：持续运行 `validate` / `validate:all`，确保 evidence 去重、七维 checklist 多来源聚合语义和本地矩阵不回退。
 3. **新增第二、第三个 simple fixture**：选择非会议场景，验证规则通用性，防止单 fixture 过拟合。
 4. **引入 schema 与 CI 门禁**：先让所有正例 fixture 和关键反例矩阵在 CI 中稳定运行。
 5. **设计 runtime replay 最小协议**：先不追求全自动平台，先定义 transcript、observed、passed、评分 rubric 和人工复核格式。
@@ -438,7 +460,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 |---|---|---|
 | M0 文档闭环 | 核心文档、验收、10 轮优化完成 | 已完成 |
 | M1 静态 MVP | 单 fixture + JSON validator + 正例静态通过 | 已完成 |
-| M2 稳定静态工具 | 规则清单、schema 草案、去重、诊断、开发指南 | 下一步 |
+| M2 稳定静态工具 | 规则清单、schema 草案、去重、诊断、开发指南 | Phase 1 收敛中；去重/聚合/本地矩阵已完成，schema/CI 仍 pending |
 | M3 多 fixture + CI | 多 fixture、反例矩阵、CI 门禁 | 未开始 |
 | M4 真实模型回放 | transcript + observed + 评分 + 验收记录 | 未开始 |
 | M5 生成器 | workflow 输入生成 skill 并通过验证 | 未开始 |

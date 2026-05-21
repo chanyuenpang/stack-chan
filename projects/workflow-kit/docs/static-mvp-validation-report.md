@@ -52,7 +52,9 @@ pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 
 ## 3. Phase 1 反例矩阵摘要
 
-Phase 1 已新增 `pnpm --silent validate:fixture:matrix`，使用 `/tmp` 临时副本运行正例与代表性反例，并在退出前清理临时 fixture。矩阵断言 exit code、stdout JSON 可解析、目标规则 ID 命中；不 snapshot `generatedAt`。
+Phase 1 已新增 `pnpm --silent validate:fixture:matrix`，当前 package alias 为 `pnpm --silent validate:all`。该 alias 调用矩阵脚本，使用 `/tmp` 临时副本运行正例与代表性反例，并在退出前清理临时 fixture。矩阵断言 exit code、stdout JSON 可解析、目标规则 ID 命中；不 snapshot `generatedAt`。最新复核结果为 6/6 通过，exit `0`。
+
+Artifact 语义区分：`pnpm --silent validate` 输出单个正例 fixture 的 JSON validation artifact；`pnpm --silent validate:all` 输出 human-readable matrix summary。后者会内部解析各 case 的 JSON stdout，但自身 stdout 不是 JSON artifact。
 
 | 反例类别 | 修改点 | exit code | stdout JSON | summary.passed | 命中规则 ID | evidence 脱敏 |
 |---|---|---:|---|---|---|---|
