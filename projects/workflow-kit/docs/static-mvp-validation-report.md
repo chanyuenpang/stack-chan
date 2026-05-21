@@ -12,7 +12,7 @@
 - 静态规则集：`skillforge-static-mvp-0.1.0`
 - 验证维度：structure、trigger、boundary、dependency、replay、privacy、compatibility
 
-边界说明：本报告只证明**静态 fixture 与静态校验器**当前通过，并补充说明最小 Linux GitHub Actions static validation gate 已添加；不证明模型运行时回放通过，不证明跨平台/跨模型兼容已完成，也不证明 schema engine 或完整产品验收 PASS。
+边界说明：本报告只证明**静态 fixture 与静态校验器**当前通过，并补充说明最小 Linux GitHub Actions static validation gate 已添加，以及 Milestone C 已落地 lightweight schema design + minimal prototype；不证明模型运行时回放通过，不证明跨平台/跨模型兼容已完成，也不证明完整 schema engine 或完整产品验收 PASS。
 
 ## 2. Baseline 正例证据（最新重新运行）
 
@@ -31,9 +31,9 @@
 | fixture.entry | `skill/SKILL.md` |
 | status | `passed` |
 | summary.passed | `true` |
-| summary.total | `15` |
-| summary.byStatus | `pass: 15` |
-| summary.bySeverity | `P0: 5, P1: 8, P2: 2` |
+| summary.total | `17` |
+| summary.byStatus | `pass: 17` |
+| summary.bySeverity | `P0: 5, P1: 10, P2: 2` |
 | summary.blockingFailures | `0` |
 | summary.warnings | `0` |
 | summary.errors | `0` |
@@ -51,7 +51,7 @@ pnpm --version
 pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 ```
 
-正例摘要：15 条规则全部通过，其中 P0 5 条、P1 8 条、P2 2 条；`blockingFailures=0`、`warnings=0`、`errors=0`。
+正例摘要：17 条规则全部通过，其中 P0 5 条、P1 10 条、P2 2 条；新增 2 条 lightweight schema P1 gate（manifest / replay-cases）后，`blockingFailures=0`、`warnings=0`、`errors=0`。
 
 ## 2A. Phase 2A / 2D 多 fixture 静态证据（最新重新运行）
 
@@ -59,14 +59,14 @@ pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 
 | 命令 | exit code | 关键结果 |
 |---|---:|---|
-| `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json` | `0` | `status=passed`，`summary.passed=true`，`summary.total=15`，`blockingFailures=0`，`warnings=0`，`errors=0` |
-| `pnpm --silent validate:fixture fixtures/study-card-assistant --format json` | `0` | `status=passed`，`summary.passed=true`，`summary.total=15`，`blockingFailures=0`，`warnings=0`，`errors=0` |
-| `pnpm --silent validate:fixture fixtures/release-notes-assistant --format json` | `0` | `status=passed`，`fixture.id=release-notes-assistant`，`fixture.profile=standard`，`summary.total=15`，`blockingFailures=0`，`warnings=0`，`errors=0` |
-| `pnpm --silent validate:fixtures` | `0` | `kind=multi-fixture-validation-report`，`status=passed`，`summary.totalFixtures=3`，`passedFixtures=3`，`failedFixtures=0`，`totalChecks=45`，`bySeverity=P0:15/P1:24/P2:6`；profiles: `meeting-summary-assistant:null`、`release-notes-assistant:standard`、`study-card-assistant:simple` |
+| `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json` | `0` | `status=passed`，`summary.passed=true`，`summary.total=17`，`blockingFailures=0`，`warnings=0`，`errors=0` |
+| `pnpm --silent validate:fixture fixtures/study-card-assistant --format json` | `0` | `status=passed`，`summary.passed=true`，`summary.total=17`，`blockingFailures=0`，`warnings=0`，`errors=0` |
+| `pnpm --silent validate:fixture fixtures/release-notes-assistant --format json` | `0` | `status=passed`，`fixture.id=release-notes-assistant`，`fixture.profile=standard`，`summary.total=17`，`blockingFailures=0`，`warnings=0`，`errors=0` |
+| `pnpm --silent validate:fixtures` | `0` | `kind=multi-fixture-validation-report`，`status=passed`，`summary.totalFixtures=3`，`passedFixtures=3`，`failedFixtures=0`，`totalChecks=51`，`bySeverity=P0:15/P1:30/P2:6`；profiles: `meeting-summary-assistant:null`、`release-notes-assistant:standard`、`study-card-assistant:simple` |
 | `pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant fixtures/release-notes-assistant --format json` | `0` | 显式路径模式通过；`totalFixtures=3`，`passedFixtures=3`，`failedFixtures=0` |
 | `pnpm --silent validate` | `0` | 仍只验证 baseline fixture `fixtures/meeting-summary-assistant`，输出单 fixture JSON artifact |
 | `pnpm --silent validate:fixture:matrix` | `0` | 独立本地正反例矩阵 gate，输出 `Fixture matrix passed: 6/6 cases.` |
-| `pnpm --silent validate:all` | `0` | Phase 2B+2D 本地总入口通过；先打印 `validate:fixtures` compact summary（`fixtures passed 3/3`、`totalChecks=45`、`blockingFailures=0`、`warnings=0`、`errors=0`），再运行 matrix 并输出 `Fixture matrix passed: 6/6 cases.` |
+| `pnpm --silent validate:all` | `0` | Phase 2B+2D + Milestone C lightweight schema prototype 本地总入口通过；先打印 `validate:fixtures` compact summary（`fixtures passed 3/3`、`totalChecks=51`、`blockingFailures=0`、`warnings=0`、`errors=0`），再运行 matrix 并输出 `Fixture matrix passed: 6/6 cases.` |
 | `pnpm --silent validate:contracts` | `0` | Phase 2E 最小 contract tests 通过；断言 3 个 single-fixture JSON report、1 个 multi-fixture JSON report、`validate:all` 关键 stdout markers，以及独立 matrix 的 6 个 case 行与 `Fixture matrix passed: 6/6 cases.` |
 | `.github/workflows/ci-minimal-gate.yml` | N/A（workflow file） | Phase 2F 最小 Linux GitHub Actions gate 已添加：`pull_request` + `push to main`，单 job `ubuntu-latest`，执行 `pnpm install`、`pnpm --silent validate:all` 与 `pnpm --silent validate:contracts`；该 gate 仅代表 static validation，不代表 runtime replay / cross-platform / cross-model / schema engine 完成 |
 
@@ -146,6 +146,6 @@ Phase 2B+2D 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本�
 
 ## 7. 结论
 
-当前静态 MVP、Phase 2A 最小多 fixture 证据、Phase 2B 本地总入口证据、Phase 2E 最小 contract test 证据与 Phase 2F 最小 CI gate 说明可复现：两个 simple 正例 fixture 与一个 standard 正例 fixture 在当前环境下均 exit 0、各 15 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`；`validate:fixture:matrix` 证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力；`validate:all` 已把两者编排为本地总入口并通过；`validate:contracts` 则把这些 JSON/stdout 关键 contract 固定为可重复执行的最小脚本化检查；`.github/workflows/ci-minimal-gate.yml` 已把这些静态检查接入最小 Linux GitHub Actions gate。
+当前静态 MVP、Phase 2A 最小多 fixture 证据、Phase 2B 本地总入口证据、Phase 2E 最小 contract test 证据、Phase 2F 最小 CI gate 说明，以及 Milestone C lightweight schema design + minimal prototype 证据可复现：两个 simple 正例 fixture 与一个 standard 正例 fixture 在当前环境下均 exit 0、各 17 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`、`totalChecks=51`；`validate:fixture:matrix` 证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力；`validate:all` 已把两者编排为本地总入口并通过；`validate:contracts` 则把这些 JSON/stdout 关键 contract 固定为可重复执行的最小脚本化检查；`.github/workflows/ci-minimal-gate.yml` 已把这些静态检查接入最小 Linux GitHub Actions gate。
 
 结论限定为：**SkillForge 静态 MVP、Phase 2A/2D 多正例静态入口、Phase 2B 本地总入口、Phase 2E 最小 contract tests 与 Phase 2F 最小 CI gate 已落地（3 fixture、3 profile 值），可作为后续 schema engine、runtime replay、跨平台/跨模型兼容和完整产品验收的基础证据。**

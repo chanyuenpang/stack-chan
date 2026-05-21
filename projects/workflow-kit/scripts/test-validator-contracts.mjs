@@ -10,8 +10,8 @@ const repoRoot = path.resolve(__dirname, "..");
 const REPORT_VERSION = "0.1.0";
 const RULE_SET_VERSION = "skillforge-static-mvp-0.1.0";
 const VALIDATOR_NAME = "skillforge-static-mvp";
-const CURRENT_CHECK_BASELINE = 15;
-const CURRENT_TOTAL_CHECK_BASELINE = 45;
+const CURRENT_CHECK_BASELINE = 17;
+const CURRENT_TOTAL_CHECK_BASELINE = 51;
 const MATRIX_SUCCESS_LINE = "Fixture matrix passed: 6/6 cases.";
 const EXPECTED_MATRIX_CASE_LINES = [
   "✓ positive baseline:",
@@ -179,7 +179,7 @@ function main() {
       "exit=0",
       "status=passed",
       "fixtures passed 3/3",
-      "totalChecks=45",
+      "totalChecks=51",
       "blockingFailures=0",
       "warnings=0",
       "errors=0",

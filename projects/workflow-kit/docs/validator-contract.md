@@ -96,14 +96,15 @@ Current scope:
 - reruns the three documented positive single-fixture JSON commands;
 - reruns `validate:fixtures` and asserts the current multi-fixture JSON contract;
 - reruns `validate:all` and asserts only stable aggregate stdout markers;
-- reruns `validate:fixture:matrix` and asserts only stable case-summary markers.
+- reruns `validate:fixture:matrix` and asserts only stable case-summary markers;
+- locks the current lightweight schema-gate baseline for `skill-manifest.yaml` and `replay-cases.yaml` via the increased positive check counts.
 
 Intentional limits:
 
 - no full JSON snapshotting;
 - no assertion on `generatedAt` values;
 - no assertion on object key order, whitespace, or full stdout layout;
-- current `15` checks per positive fixture and `45` total checks are treated as static MVP baselines, so if the validator contract intentionally evolves those constants should be updated together with the docs.
+- current `17` checks per positive fixture and `51` total checks are treated as the lightweight-schema prototype baseline, so if the validator contract intentionally evolves those constants should be updated together with the docs.
 
 ### Positive fixture profiles
 
@@ -114,6 +115,8 @@ The current default positive fixture scan covers three complete fixture roots an
 | `fixtures/meeting-summary-assistant` | `null` | Legacy baseline; no profile declaration. |
 | `fixtures/study-card-assistant` | `simple` | Required files only; no attached resources. |
 | `fixtures/release-notes-assistant` | `standard` | Includes `templates/` and `examples/` attachments while remaining static-only and side-effect-free. |
+
+These profile values are still passthrough-compatible fields. The lightweight schema prototype only performs a compatibility enum check for `simple | standard | advanced-reserved` and does not add a blocking profile rule.
 
 A passing `validate:fixtures` report should currently have `summary.totalFixtures=3` and `summary.passedFixtures=3`. This still does not imply runtime replay, cross-platform, cross-model, or CI success.
 
@@ -152,7 +155,7 @@ A passing `validate:fixtures` report should currently have `summary.totalFixture
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `passed` | boolean | Yes | True only when there are no `errors` and no blocking `P0`/`P1` checks with `fail` or `error` status. |
-| `total` | number | Yes | Number of entries in `checks`. |
+| `total` | number | Yes | Number of entries in `checks`. Current positive baseline is `17` after adding two lightweight schema P1 checks for manifest/replay-cases. |
 | `byStatus` | object | Yes | Count map keyed by check status, for example `pass`, `fail`, `warn`, `error`. |
 | `bySeverity` | object | Yes | Count map keyed by severity, for example `P0`, `P1`, `P2`. |
 | `blockingFailures` | number | Yes | Count of `P0`/`P1` checks with `fail` or `error` status. |
@@ -165,7 +168,7 @@ Each check is a rule result enriched with the rule registry metadata.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `id` | string | Yes | Stable rule id from the registry. |
+| `id` | string | Yes | Stable rule id from the registry. Current set now includes `SF-P1-STRUCTURE-MANIFEST-SCHEMA-MINIMAL` and `SF-P1-STRUCTURE-REPLAY-CASES-SCHEMA-MINIMAL`. |
 | `dimension` | string | Yes | One of `structure`, `trigger`, `boundary`, `dependency`, `replay`, `privacy`, `compatibility`. |
 | `severity` | string | Yes | `P0`, `P1`, or `P2`. |
 | `status` | string | Yes | Current statuses include `pass`, `fail`, `warn`, and `error`. |
@@ -292,9 +295,9 @@ Redaction is a report-safety measure, not a guarantee that arbitrary sensitive d
   "status": "passed",
   "summary": {
     "passed": true,
-    "total": 15,
-    "byStatus": { "pass": 15 },
-    "bySeverity": { "P0": 5, "P1": 8, "P2": 2 },
+    "total": 17,
+    "byStatus": { "pass": 17 },
+    "bySeverity": { "P0": 5, "P1": 10, "P2": 2 },
     "blockingFailures": 0,
     "warnings": 0,
     "errors": 0
@@ -320,7 +323,7 @@ Redaction is a report-safety measure, not a guarantee that arbitrary sensitive d
       "findingFields": ["id", "severity", "dimension", "message", "evidence", "closeCondition"]
     }
   },
-  "rules": { "total": 15, "P0": 5, "P1": 8, "P2": 2 },
+  "rules": { "total": 17, "P0": 5, "P1": 10, "P2": 2 },
   "findings": [],
   "generatedAt": "2026-05-21T04:40:00.000Z"
 }
@@ -341,9 +344,9 @@ Redaction is a report-safety measure, not a guarantee that arbitrary sensitive d
   "status": "failed",
   "summary": {
     "passed": false,
-    "total": 15,
-    "byStatus": { "pass": 14, "fail": 1 },
-    "bySeverity": { "P0": 5, "P1": 8, "P2": 2 },
+    "total": 17,
+    "byStatus": { "pass": 16, "fail": 1 },
+    "bySeverity": { "P0": 5, "P1": 10, "P2": 2 },
     "blockingFailures": 1,
     "warnings": 0,
     "errors": 0
@@ -362,7 +365,7 @@ Redaction is a report-safety measure, not a guarantee that arbitrary sensitive d
     }
   ],
   "errors": [],
-  "rules": { "total": 15, "P0": 5, "P1": 8, "P2": 2 },
+  "rules": { "total": 17, "P0": 5, "P1": 10, "P2": 2 },
   "findings": [
     {
       "id": "SF-P0-PRIVACY-HIGH-CONFIDENCE-LEAK",

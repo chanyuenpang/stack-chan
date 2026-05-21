@@ -4,6 +4,7 @@ import path from "node:path";
 import { loadFixture } from "./loader.mjs";
 import { normalizeFixture } from "./normalize.mjs";
 import { DIMENSIONS, JSON_REPORT_CONTRACT, RULES } from "./rules.mjs";
+import { validateSchema } from "./schema.mjs";
 import { buildReport } from "./reporter.mjs";
 
 const REQUIRED_FILES = Object.freeze([
@@ -133,6 +134,32 @@ function hasConservativeBoundary(normalized) {
 
 function validateNormalized(normalized, loaded) {
   const checks = [];
+
+  const manifestSchema = validateSchema("skill-manifest", loaded.skillManifest);
+  const manifestSchemaErrors = manifestSchema.errors.filter((item) => item.severity !== "warn");
+  checks.push(
+    manifestSchema.valid
+      ? check("SF-P1-STRUCTURE-MANIFEST-SCHEMA-MINIMAL", "pass", "skill-manifest.yaml satisfies the lightweight schema gate.", [evidence("skill-manifest.yaml", "required manifest structure present")])
+      : check(
+          "SF-P1-STRUCTURE-MANIFEST-SCHEMA-MINIMAL",
+          "fail",
+          `skill-manifest.yaml failed lightweight schema validation: ${manifestSchemaErrors.map((item) => `${item.field} ${item.message}`).join("; ")}`,
+          manifestSchemaErrors.map((item) => evidence("skill-manifest.yaml", `${item.field} ${item.message}`)),
+        ),
+  );
+
+  const replaySchema = validateSchema("replay-cases", loaded.replayCases);
+  const replaySchemaErrors = replaySchema.errors.filter((item) => item.severity !== "warn");
+  checks.push(
+    replaySchema.valid
+      ? check("SF-P1-STRUCTURE-REPLAY-CASES-SCHEMA-MINIMAL", "pass", "replay-cases.yaml satisfies the lightweight schema gate.", [evidence("replay-cases.yaml", "required replay case structure present")])
+      : check(
+          "SF-P1-STRUCTURE-REPLAY-CASES-SCHEMA-MINIMAL",
+          "fail",
+          `replay-cases.yaml failed lightweight schema validation: ${replaySchemaErrors.map((item) => `${item.field} ${item.message}`).join("; ")}`,
+          replaySchemaErrors.map((item) => evidence("replay-cases.yaml", `${item.field} ${item.message}`)),
+        ),
+  );
 
   const entry = normalized.entryPath;
   checks.push(

@@ -102,6 +102,21 @@ export const RULES = Object.freeze([
       "Add the required files at the expected relative paths with parseable text content.",
   },
   {
+    id: "SF-P1-STRUCTURE-MANIFEST-SCHEMA-MINIMAL",
+    dimension: "structure",
+    severity: "P1",
+    scope: "skill-manifest.yaml",
+    description:
+      "skill-manifest.yaml must satisfy the current lightweight structural gate before semantic validation runs.",
+    evidence: [
+      "fixtureId/fixtureVersion/kind/skills is missing or malformed",
+      "skills[0] is missing id/name/version/entry/description",
+      "permissions exists but does not expose the expected boolean fields",
+    ],
+    closeCondition:
+      "Provide a parseable manifest with the required top-level fields and the minimal first-skill structure expected by the MVP schema gate.",
+  },
+  {
     id: "SF-P1-STRUCTURE-ENTRYPOINT-SKILL-MD",
     dimension: "structure",
     severity: "P1",
@@ -205,6 +220,21 @@ export const RULES = Object.freeze([
     ],
     closeCondition:
       "Emit valid JSON with stable top-level fields and per-finding rule metadata matching this rules catalog.",
+  },
+  {
+    id: "SF-P1-STRUCTURE-REPLAY-CASES-SCHEMA-MINIMAL",
+    dimension: "structure",
+    severity: "P1",
+    scope: "replay-cases.yaml",
+    description:
+      "replay-cases.yaml must satisfy the current lightweight structural gate before replay honesty and quality rules run.",
+    evidence: [
+      "fixtureId/kind/cases is missing or malformed",
+      "a case is missing id/type/intent/expectedBehavior",
+      "case.type is outside positive|negative|edge or observed/passed has an invalid type",
+    ],
+    closeCondition:
+      "Provide a parseable replay-cases file with minimally structured cases and MVP-compatible field types.",
   },
   {
     id: "SF-P2-REPLAY-QUALITY-TRANSCRIPT-MINIMAL",
