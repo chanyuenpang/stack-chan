@@ -466,7 +466,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 2. **Phase 1 防回归复核**：持续运行 `validate` / `validate:all`，确保 evidence 去重、七维 checklist 多来源聚合语义和本地矩阵不回退。
 3. **新增更多 simple/advanced fixture**：选择非会议场景，验证规则通用性，防止单 fixture 过拟合。
 4. **引入 schema 与 CI 门禁**：先让所有正例 fixture 和关键反例矩阵在 CI 中稳定运行。
-5. **设计 runtime replay 最小协议**：先不追求全自动平台，先定义 transcript、observed、passed、评分 rubric 和人工复核格式。
+5. **设计 runtime replay 最小协议**：先不追求全自动平台，先定义 transcript、observed、passed、评分 rubric 和人工复核格式。（Milestone D 轻量协议草案见 `docs/runtime-replay-protocol-lightweight-design.md`；当前仍仅为文档设计，不代表 runner、sandbox、模型接入或 transcript engine 已实现。）
 
 ## 8. 里程碑判定摘要
 
@@ -476,6 +476,6 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 | M1 静态 MVP | 单 fixture + JSON validator + 正例静态通过 | 已完成 |
 | M2 稳定静态工具 | 规则清单、schema 草案、去重、诊断、开发指南 | Phase 1 收敛中；去重/聚合/本地矩阵已完成，Phase 2A schema/profile 文档契约固化中，schema engine 仍 pending |
 | M3 多 fixture + CI | 多 fixture、反例矩阵、CI 门禁 | 多 fixture 静态部分已具备 3 个正例，最小 Linux GitHub Actions CI gate 已落地；schema engine、runtime replay、cross-platform/cross-model 仍 pending |
-| M4 真实模型回放 | transcript + observed + 评分 + 验收记录 | 未开始 |
+| M4 真实模型回放 | transcript + observed + 评分 + 验收记录 | 协议草案已产出，执行能力未开始 |
 | M5 生成器 | workflow 输入生成 skill 并通过验证 | 未开始 |
 | M6 发布协作 | registry、UI、团队评审、回滚、反馈优化 | 远期 |
