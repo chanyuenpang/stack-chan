@@ -5,7 +5,7 @@
  */
 #include "hal.h"
 #include "hal_celebrate.h"
-#include "hal_dev_local_control.h"
+#include "hal_device_control.h"
 #include "hal_stackchan_performance.h"
 #include <mooncake_log.h>
 #include <mcp_server.h>
@@ -27,6 +27,8 @@ using namespace stackchan;
 static const std::string_view _tag = "HAL-MCP";
 
 namespace {
+
+bool stackchan_mcp_dispatch_tool(const std::string& tool_name, const cJSON* arguments, std::string& out_result);
 
 int g_celebrate_dance_modifier_id = -1;
 Modifier* g_celebrate_dance_modifier_ptr = nullptr;
@@ -285,81 +287,164 @@ static int clampInt(int value, int minValue, int maxValue)
     return value;
 }
 
-struct SystemRebootContext {
-    int delay_ms = 1500;
-    char reason[65] = "remote_mcp";
-};
-
-static void copySafeRebootReason(char* dest, size_t destSize, const std::string& reason)
-{
-    if (destSize == 0) {
-        return;
-    }
-
-    const std::string& source = reason.empty() ? std::string("remote_mcp") : reason;
-    size_t pos = 0;
-    for (; pos + 1 < destSize && pos < source.size(); ++pos) {
-        const unsigned char ch = static_cast<unsigned char>(source[pos]);
-        dest[pos] = (ch >= 32 && ch <= 126) ? static_cast<char>(ch) : '_';
-    }
-    dest[pos] = '\0';
-}
-
-static std::string jsonEscape(const char* value)
-{
-    std::string escaped;
-    if (!value) {
-        return escaped;
-    }
-    for (const char* p = value; *p; ++p) {
-        if (*p == '\\' || *p == '"') {
-            escaped.push_back('\\');
-        }
-        escaped.push_back(*p);
-    }
-    return escaped;
-}
-
-static void systemRebootTask(void* arg)
-{
-    auto* ctx = static_cast<SystemRebootContext*>(arg);
-    mclog::tagWarn(_tag, "mcp_reboot scheduled: delay_ms={} reason={}", ctx->delay_ms, ctx->reason);
-    vTaskDelay(pdMS_TO_TICKS(ctx->delay_ms));
-    mclog::tagWarn(_tag, "mcp_reboot now: reason={}", ctx->reason);
-    delete ctx;
-    esp_restart();
-}
-
-static bool scheduleSystemReboot(int delayMs, const std::string& reason, int* scheduledDelayMs = nullptr)
-{
-    delayMs = clampInt(delayMs, 500, 10000);
-    if (scheduledDelayMs) {
-        *scheduledDelayMs = delayMs;
-    }
-
-    auto* ctx = new (std::nothrow) SystemRebootContext{};
-    if (!ctx) {
-        mclog::tagError(_tag, "mcp_reboot schedule failed: alloc_failed delay_ms={}", delayMs);
-        return false;
-    }
-
-    ctx->delay_ms = delayMs;
-    copySafeRebootReason(ctx->reason, sizeof(ctx->reason), reason);
-
-    BaseType_t rc = xTaskCreate(systemRebootTask, "mcp_reboot", 4096, ctx, tskIDLE_PRIORITY + 1, nullptr);
-    if (rc != pdPASS) {
-        mclog::tagError(_tag, "mcp_reboot schedule failed: task_create_failed delay_ms={} reason={}",
-                        ctx->delay_ms, ctx->reason);
-        delete ctx;
-        return false;
-    }
-
-    mclog::tagWarn(_tag, "mcp_reboot accepted: delay_ms={} reason={}", ctx->delay_ms, ctx->reason);
-    return true;
-}
-
-
 }  // namespace
+
+bool stackchan_mcp_dispatch_tool(const std::string& tool_name, const cJSON* arguments, std::string& out_result)
+{
+    if (tool_name == "self.robot.get_head_angles") {
+        LvglLockGuard lock;
+        auto& motion      = GetStackChan().motion();
+        int current_yaw   = motion.yawServo().getCurrentAngle() / 10;
+        int current_pitch  = motion.pitchServo().getCurrentAngle() / 10;
+        out_result = fmt::format(R"({{"yaw": {}, "pitch": {}}})", current_yaw, current_pitch);
+        return true;
+    }
+
+    if (tool_name == "self.robot.set_head_angles") {
+        int yaw = -9999, pitch = -9999, speed = 180;
+        auto* v = cJSON_GetObjectItem(arguments, "yaw");
+        if (v && cJSON_IsNumber(v)) yaw = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "pitch");
+        if (v && cJSON_IsNumber(v)) pitch = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "speed");
+        if (v && cJSON_IsNumber(v)) speed = v->valueint;
+        mclog::tagInfo(_tag, "http dispatch set_head_angles: yaw={} pitch={} speed={}", yaw, pitch, speed);
+        LvglLockGuard lock;
+        submitHeadMotion(yaw != -9999, yaw * 10, pitch != -9999, pitch * 10, speed);
+        out_result = "ok";
+        return true;
+    }
+
+    if (tool_name == "self.robot.set_head_targets") {
+        int yaw_target = -9999, pitch_target = -9999, speed = 180;
+        auto* v = cJSON_GetObjectItem(arguments, "yaw_target");
+        if (v && cJSON_IsNumber(v)) yaw_target = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "pitch_target");
+        if (v && cJSON_IsNumber(v)) pitch_target = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "speed");
+        if (v && cJSON_IsNumber(v)) speed = v->valueint;
+        mclog::tagInfo(_tag, "http dispatch set_head_targets: yaw_target={} pitch_target={} speed={}", yaw_target, pitch_target, speed);
+        LvglLockGuard lock;
+        submitHeadMotion(yaw_target != -9999, yaw_target, pitch_target != -9999, pitch_target, speed);
+        out_result = "ok";
+        return true;
+    }
+
+    if (tool_name == "self.robot.set_led_color") {
+        int r = 0, g = 0, b = 0;
+        auto* v = cJSON_GetObjectItem(arguments, "red");
+        if (v && cJSON_IsNumber(v)) r = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "green");
+        if (v && cJSON_IsNumber(v)) g = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "blue");
+        if (v && cJSON_IsNumber(v)) b = v->valueint;
+        mclog::tagInfo(_tag, "http dispatch set_led_color: r={} g={} b={}", r, g, b);
+        LvglLockGuard lock;
+        GetStackChan().leftNeonLight().setColor(r, g, b);
+        GetStackChan().rightNeonLight().setColor(r, g, b);
+        out_result = "ok";
+        return true;
+    }
+
+    if (tool_name == "self.robot.celebrate") {
+        std::string style = "cheer";
+        int duration_ms = 4000, intensity = 2;
+        bool sound = false;
+        auto* v = cJSON_GetObjectItem(arguments, "style");
+        if (v && cJSON_IsString(v)) style = v->valuestring;
+        v = cJSON_GetObjectItem(arguments, "duration_ms");
+        if (v && cJSON_IsNumber(v)) duration_ms = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "intensity");
+        if (v && cJSON_IsNumber(v)) intensity = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "sound");
+        if (v && cJSON_IsBool(v)) sound = cJSON_IsTrue(v);
+        mclog::tagInfo(_tag, "http dispatch celebrate: style={} duration_ms={} intensity={}", style, duration_ms, intensity);
+        std::string error;
+        if (!start_celebrate_modifier(style, duration_ms, intensity, sound, &error)) {
+            out_result = error.empty() ? "celebrate_failed" : error;
+        } else {
+            out_result = "ok";
+        }
+        return true;
+    }
+
+    if (tool_name == "self.robot.create_reminder") {
+        int duration_seconds = 60;
+        std::string message = "Time's up!";
+        bool repeat = false;
+        auto* v = cJSON_GetObjectItem(arguments, "duration_seconds");
+        if (v && cJSON_IsNumber(v)) duration_seconds = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "message");
+        if (v && cJSON_IsString(v)) message = v->valuestring;
+        v = cJSON_GetObjectItem(arguments, "repeat");
+        if (v && cJSON_IsBool(v)) repeat = cJSON_IsTrue(v);
+        mclog::tagInfo(_tag, "http dispatch create_reminder: duration={}s message={}", duration_seconds, message);
+        int id = tools::create_reminder(duration_seconds * 1000, message, repeat);
+        out_result = std::to_string(id);
+        return true;
+    }
+
+    if (tool_name == "self.robot.get_reminders") {
+        auto reminders = tools::get_active_reminders();
+        std::string result_json = "[";
+        for (size_t i = 0; i < reminders.size(); ++i) {
+            const auto& r = reminders[i];
+            result_json += fmt::format(R"({{"id": {}, "duration_ms": {}, "message": "{}", "repeat": {}}})",
+                                       r.id, r.durationMs, r.message, r.repeat ? "true" : "false");
+            if (i < reminders.size() - 1) result_json += ", ";
+        }
+        result_json += "]";
+        out_result = result_json;
+        return true;
+    }
+
+    if (tool_name == "self.robot.stop_reminder") {
+        int id = -1;
+        auto* v = cJSON_GetObjectItem(arguments, "id");
+        if (v && cJSON_IsNumber(v)) id = v->valueint;
+        mclog::tagInfo(_tag, "http dispatch stop_reminder: id={}", id);
+        tools::stop_reminder(id);
+        out_result = "ok";
+        return true;
+    }
+
+    if (tool_name == "self.system.reboot") {
+        bool confirm = false;
+        int delay_ms = 1500;
+        std::string reason = "remote_mcp";
+        auto* v = cJSON_GetObjectItem(arguments, "confirm");
+        if (v && cJSON_IsBool(v)) confirm = cJSON_IsTrue(v);
+        v = cJSON_GetObjectItem(arguments, "delay_ms");
+        if (v && cJSON_IsNumber(v)) delay_ms = v->valueint;
+        v = cJSON_GetObjectItem(arguments, "reason");
+        if (v && cJSON_IsString(v)) reason = v->valuestring;
+
+        char scheduled_reason[65];
+        copy_safe_reboot_reason(scheduled_reason, sizeof(scheduled_reason), reason);
+        const int scheduled_delay_ms = clampInt(delay_ms, 500, 10000);
+
+        const std::string escaped_reason = json_escape(scheduled_reason);
+        if (!confirm) {
+            mclog::tagWarn(_tag, "http dispatch system_reboot rejected: confirm_required");
+            out_result = fmt::format(R"({{"accepted":false,"error":"confirm_required","delay_ms":{},"reason":"{}"}})",
+                                     scheduled_delay_ms, escaped_reason);
+            return true;
+        }
+
+        int actual_delay_ms = scheduled_delay_ms;
+        if (!schedule_system_reboot(delay_ms, scheduled_reason, &actual_delay_ms)) {
+            out_result = fmt::format(R"({{"accepted":false,"error":"schedule_failed","delay_ms":{},"reason":"{}"}})",
+                                     actual_delay_ms, escaped_reason);
+            return true;
+        }
+
+        out_result = fmt::format(R"({{"accepted":true,"delay_ms":{},"reason":"{}"}})",
+                                 actual_delay_ms, escaped_reason);
+        return true;
+    }
+
+    return false;
+}
 
 bool stackchan_celebrate_active()
 {
@@ -646,18 +731,14 @@ void Hal::xiaozhi_mcp_init()
                                return std::string(R"({"accepted":false,"error":"confirm_required"})");
                            }
 
-                           char scheduled_reason[65];
-                           copySafeRebootReason(scheduled_reason, sizeof(scheduled_reason), reason);
-
-                           int scheduled_delay_ms = 1500;
-                           const std::string escaped_reason = jsonEscape(scheduled_reason);
-                           if (!scheduleSystemReboot(delay_ms, scheduled_reason, &scheduled_delay_ms)) {
-                               return fmt::format(R"({{"accepted":false,"error":"schedule_failed","delay_ms":{},"reason":"{}"}})",
-                                                  scheduled_delay_ms, escaped_reason);
+                           DeviceControlResult reboot_result = dispatch_device_control(
+                               "reboot",
+                               fmt::format(R"({{"confirm":true,"delay_ms":{},"reason":"{}"}})", delay_ms, reason).c_str());
+                           if (!reboot_result.success) {
+                               return fmt::format(R"({{"accepted":false,"error":"{}"}})", reboot_result.error_message);
                            }
 
-                           return fmt::format(R"({{"accepted":true,"delay_ms":{},"reason":"{}"}})",
-                                              scheduled_delay_ms, escaped_reason);
+                           return reboot_result.result_json;
                        });
 }
 
@@ -667,159 +748,3 @@ void Hal::xiaozhi_mcp_init()
  * Returns true if the tool was found; out_result receives a short status.
  * Returns false if tool_name is unknown.
  * -------------------------------------------------------------------------*/
-bool stackchan_mcp_dispatch_tool(const std::string& tool_name, const cJSON* arguments, std::string& out_result)
-{
-    if (tool_name == "self.robot.get_head_angles") {
-        LvglLockGuard lock;
-        auto& motion      = GetStackChan().motion();
-        int current_yaw   = motion.yawServo().getCurrentAngle() / 10;
-        int current_pitch  = motion.pitchServo().getCurrentAngle() / 10;
-        out_result = fmt::format(R"({{"yaw": {}, "pitch": {}}})", current_yaw, current_pitch);
-        return true;
-    }
-
-    if (tool_name == "self.robot.set_head_angles") {
-        int yaw = -9999, pitch = -9999, speed = 180;
-        auto* v = cJSON_GetObjectItem(arguments, "yaw");
-        if (v && cJSON_IsNumber(v)) yaw = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "pitch");
-        if (v && cJSON_IsNumber(v)) pitch = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "speed");
-        if (v && cJSON_IsNumber(v)) speed = v->valueint;
-        mclog::tagInfo(_tag, "http dispatch set_head_angles: yaw={} pitch={} speed={}", yaw, pitch, speed);
-        LvglLockGuard lock;
-        submitHeadMotion(yaw != -9999, yaw * 10, pitch != -9999, pitch * 10, speed);
-        out_result = "ok";
-        return true;
-    }
-
-    if (tool_name == "self.robot.set_head_targets") {
-        int yaw_target = -9999, pitch_target = -9999, speed = 180;
-        auto* v = cJSON_GetObjectItem(arguments, "yaw_target");
-        if (v && cJSON_IsNumber(v)) yaw_target = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "pitch_target");
-        if (v && cJSON_IsNumber(v)) pitch_target = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "speed");
-        if (v && cJSON_IsNumber(v)) speed = v->valueint;
-        mclog::tagInfo(_tag, "http dispatch set_head_targets: yaw_target={} pitch_target={} speed={}", yaw_target, pitch_target, speed);
-        LvglLockGuard lock;
-        submitHeadMotion(yaw_target != -9999, yaw_target, pitch_target != -9999, pitch_target, speed);
-        out_result = "ok";
-        return true;
-    }
-
-    if (tool_name == "self.robot.set_led_color") {
-        int r = 0, g = 0, b = 0;
-        auto* v = cJSON_GetObjectItem(arguments, "red");
-        if (v && cJSON_IsNumber(v)) r = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "green");
-        if (v && cJSON_IsNumber(v)) g = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "blue");
-        if (v && cJSON_IsNumber(v)) b = v->valueint;
-        mclog::tagInfo(_tag, "http dispatch set_led_color: r={} g={} b={}", r, g, b);
-        LvglLockGuard lock;
-        GetStackChan().leftNeonLight().setColor(r, g, b);
-        GetStackChan().rightNeonLight().setColor(r, g, b);
-        out_result = "ok";
-        return true;
-    }
-
-    if (tool_name == "self.robot.celebrate") {
-        std::string style = "cheer";
-        int duration_ms = 4000, intensity = 2;
-        bool sound = false;
-        auto* v = cJSON_GetObjectItem(arguments, "style");
-        if (v && cJSON_IsString(v)) style = v->valuestring;
-        v = cJSON_GetObjectItem(arguments, "duration_ms");
-        if (v && cJSON_IsNumber(v)) duration_ms = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "intensity");
-        if (v && cJSON_IsNumber(v)) intensity = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "sound");
-        if (v && cJSON_IsBool(v)) sound = cJSON_IsTrue(v);
-        mclog::tagInfo(_tag, "http dispatch celebrate: style={} duration_ms={} intensity={}", style, duration_ms, intensity);
-        std::string error;
-        if (!start_celebrate_modifier(style, duration_ms, intensity, sound, &error)) {
-            out_result = error.empty() ? "celebrate_failed" : error;
-        } else {
-            out_result = "ok";
-        }
-        return true;
-    }
-
-    if (tool_name == "self.robot.create_reminder") {
-        int duration_seconds = 60;
-        std::string message = "Time's up!";
-        bool repeat = false;
-        auto* v = cJSON_GetObjectItem(arguments, "duration_seconds");
-        if (v && cJSON_IsNumber(v)) duration_seconds = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "message");
-        if (v && cJSON_IsString(v)) message = v->valuestring;
-        v = cJSON_GetObjectItem(arguments, "repeat");
-        if (v && cJSON_IsBool(v)) repeat = cJSON_IsTrue(v);
-        mclog::tagInfo(_tag, "http dispatch create_reminder: duration={}s message={}", duration_seconds, message);
-        int id = tools::create_reminder(duration_seconds * 1000, message, repeat);
-        out_result = std::to_string(id);
-        return true;
-    }
-
-    if (tool_name == "self.robot.get_reminders") {
-        auto reminders = tools::get_active_reminders();
-        std::string result_json = "[";
-        for (size_t i = 0; i < reminders.size(); ++i) {
-            const auto& r = reminders[i];
-            result_json += fmt::format(R"({{"id": {}, "duration_ms": {}, "message": "{}", "repeat": {}}})",
-                                       r.id, r.durationMs, r.message, r.repeat ? "true" : "false");
-            if (i < reminders.size() - 1) result_json += ", ";
-        }
-        result_json += "]";
-        out_result = result_json;
-        return true;
-    }
-
-    if (tool_name == "self.robot.stop_reminder") {
-        int id = -1;
-        auto* v = cJSON_GetObjectItem(arguments, "id");
-        if (v && cJSON_IsNumber(v)) id = v->valueint;
-        mclog::tagInfo(_tag, "http dispatch stop_reminder: id={}", id);
-        tools::stop_reminder(id);
-        out_result = "ok";
-        return true;
-    }
-
-    if (tool_name == "self.system.reboot") {
-        bool confirm = false;
-        int delay_ms = 1500;
-        std::string reason = "remote_mcp";
-        auto* v = cJSON_GetObjectItem(arguments, "confirm");
-        if (v && cJSON_IsBool(v)) confirm = cJSON_IsTrue(v);
-        v = cJSON_GetObjectItem(arguments, "delay_ms");
-        if (v && cJSON_IsNumber(v)) delay_ms = v->valueint;
-        v = cJSON_GetObjectItem(arguments, "reason");
-        if (v && cJSON_IsString(v)) reason = v->valuestring;
-
-        char scheduled_reason[65];
-        copySafeRebootReason(scheduled_reason, sizeof(scheduled_reason), reason);
-        const int scheduled_delay_ms = clampInt(delay_ms, 500, 10000);
-
-        const std::string escaped_reason = jsonEscape(scheduled_reason);
-        if (!confirm) {
-            mclog::tagWarn(_tag, "http dispatch system_reboot rejected: confirm_required");
-            out_result = fmt::format(R"({{"accepted":false,"error":"confirm_required","delay_ms":{},"reason":"{}"}})",
-                                     scheduled_delay_ms, escaped_reason);
-            return true;
-        }
-
-        int actual_delay_ms = scheduled_delay_ms;
-        if (!scheduleSystemReboot(delay_ms, scheduled_reason, &actual_delay_ms)) {
-            out_result = fmt::format(R"({{"accepted":false,"error":"schedule_failed","delay_ms":{},"reason":"{}"}})",
-                                     actual_delay_ms, escaped_reason);
-            return true;
-        }
-
-        out_result = fmt::format(R"({{"accepted":true,"delay_ms":{},"reason":"{}"}})",
-                                 actual_delay_ms, escaped_reason);
-        return true;
-    }
-
-    return false;
-}

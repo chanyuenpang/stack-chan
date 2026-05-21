@@ -14,6 +14,7 @@ file(GLOB_RECURSE STACK_CHAN_SOURCES
     "stackchan/*.c"
     "stackchan/*.cc"
     "stackchan/*.cpp"
+    hal/hal_device_control.cpp
 )
 set(STACK_CHAN_INCLUDE_DIRS 
     "."
@@ -265,15 +266,17 @@ file(GLOB COMMON_SOUNDS
 
 set(DEV_SERIAL_EMBED_FILES)
 set(DEV_SERIAL_PRIV_REQUIRES)
-if(STACKCHAN_ENABLE_DEV_SERIAL_WAKE_STOP)
+if(STACKCHAN_ENABLE_DEV_SERIAL_WAKE_STOP OR STACKCHAN_ENABLE_DEV_LOCAL_HTTP_CONTROL)
     list(APPEND DEV_SERIAL_EMBED_FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/assets/dev_serial/celebration-short-16k-mono-s16.wav
         ${CMAKE_CURRENT_SOURCE_DIR}/assets/dev_serial/celebration-tts-16k-mono-s16-approx3s.wav
     )
+endif()
+if(STACKCHAN_ENABLE_DEV_SERIAL_WAKE_STOP)
     list(APPEND DEV_SERIAL_PRIV_REQUIRES esp_driver_usb_serial_jtag)
-    if(STACKCHAN_ENABLE_DEV_LOCAL_HTTP_CONTROL)
-        list(APPEND DEV_SERIAL_PRIV_REQUIRES esp_http_server)
-    endif()
+endif()
+if(STACKCHAN_ENABLE_DEV_LOCAL_HTTP_CONTROL)
+    list(APPEND DEV_SERIAL_PRIV_REQUIRES esp_http_server)
 endif()
 
 # If target chip is ESP32, exclude specific files to avoid build errors
