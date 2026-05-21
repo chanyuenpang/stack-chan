@@ -396,6 +396,8 @@ export function runRuntimeCaseSkeleton({
 
   const failureReason = buildFailureReason({ mode, preflightReport });
   const blocked = mappedRuntime.status === "blocked";
+  const providerExecution = mappedRuntime.providerExecution;
+  const transcriptAvailability = mappedRuntime.transcriptAvailability;
 
   const result = effectiveRunnerContract.buildResult({
     caseId: caseRecord.id,
@@ -407,26 +409,29 @@ export function runRuntimeCaseSkeleton({
       implementation: "single-case-dry-null-runner-skeleton",
       runnerVersion: DRY_RUNNER_VERSION,
       mode,
-      executed: mappedRuntime.providerExecution.executed,
-      providerCall: mappedRuntime.providerExecution.providerCall,
+      providerBacked: providerExecution.providerBacked,
+      executed: providerExecution.executed,
+      providerCall: providerExecution.providerCall,
+      transcriptCaptured: transcriptAvailability.transcriptCaptured,
       transcriptEngineUsed: false,
       sandboxEnforced: false,
       evidenceProduced:
-        mappedRuntime.observed.providerEvidenceAvailable ||
-        mappedRuntime.observed.persistedEvidenceAvailable,
-      transcriptPersistence: mappedRuntime.transcriptAvailability.persistence,
+        providerExecution.providerEvidenceAvailable || transcriptAvailability.transcriptPersistence,
+      transcriptPersistence: transcriptAvailability.persistence,
       caseType: caseRecord?.type ?? null,
       providerAdapter: {
-        key: mappedRuntime.providerExecution.providerKey,
-        slot: mappedRuntime.providerExecution.providerSlot,
-        builtin: mappedRuntime.providerExecution.builtin,
-        implemented: mappedRuntime.providerExecution.implemented,
-        providerBacked: mappedRuntime.providerExecution.providerBacked,
-        status: mappedRuntime.providerExecution.status,
-        executionId: mappedRuntime.providerExecution.executionId,
-        providerRunId: mappedRuntime.providerExecution.providerRunId,
-        providerStatus: mappedRuntime.providerExecution.providerStatus,
-        futureRequiredFields: [...mappedRuntime.providerExecution.futureRequiredFields],
+        key: providerExecution.providerKey,
+        slot: providerExecution.providerSlot,
+        builtin: providerExecution.builtin,
+        implemented: providerExecution.implemented,
+        providerBacked: providerExecution.providerBacked,
+        status: providerExecution.status,
+        executionId: providerExecution.executionId,
+        providerRunId: providerExecution.providerRunId,
+        providerStatus: providerExecution.providerStatus,
+        transcriptAvailable: providerExecution.transcriptAvailable,
+        rawResponseAvailable: providerExecution.rawResponseAvailable,
+        futureRequiredFields: [...providerExecution.futureRequiredFields],
       },
       note: blocked
         ? "runner remained blocked because preflight did not pass"
@@ -435,7 +440,7 @@ export function runRuntimeCaseSkeleton({
           : mode === "null-runner"
             ? "runner selected null runner adapter and reserved contract shape without execution"
             : "runner selected dry-run adapter and reserved contract shape without provider execution",
-      pendingCapabilities: mappedRuntime.providerExecution.pendingCapabilities,
+      pendingCapabilities: [...providerExecution.pendingCapabilities],
     },
   });
 
@@ -538,17 +543,17 @@ export function runRuntimeCaseSkeleton({
       },
       mode,
       providerAdapter: {
-        key: providerSelection.adapterKey,
-        slot: providerSelection.providerSlot,
-        implemented: providerSelection.implemented,
-        providerBacked: providerSelection.providerBacked,
-        executionId: null,
-        providerRunId: null,
-        providerStatus: null,
-        currentState: "reserved-unimplemented",
+        key: providerExecution.providerKey,
+        slot: providerExecution.providerSlot,
+        implemented: providerExecution.implemented,
+        providerBacked: providerExecution.providerBacked,
+        executionId: providerExecution.executionId,
+        providerRunId: providerExecution.providerRunId,
+        providerStatus: providerExecution.providerStatus,
+        currentState: providerExecution.implementationState,
       },
-      providerExecution: mappedRuntime.providerExecution,
-      transcriptAvailability: mappedRuntime.transcriptAvailability,
+      providerExecution,
+      transcriptAvailability,
       statusTaxonomy: {
         reportStatuses: ["draft", "blocked"],
         caseStatuses: ["blocked", "error", "dry-run", "not-executed"],
@@ -564,8 +569,8 @@ export function runRuntimeCaseSkeleton({
         status: result.status,
         expectedBehavior: caseRecord.expectedBehavior ?? null,
         observed: result.observed,
-        providerExecution: mappedRuntime.providerExecution,
-        transcriptAvailability: mappedRuntime.transcriptAvailability,
+        providerExecution,
+        transcriptAvailability,
         transcriptRef: resultWithTranscriptRef.transcriptRef,
         failureReason: result.failureReason,
         transcript: transcriptArtifact,

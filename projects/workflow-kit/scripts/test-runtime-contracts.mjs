@@ -463,6 +463,107 @@ function testTranscriptRefDoesNotUpgradeDraftStatuses() {
   assert.equal(blockedRun.result.failureReason?.code, "RUNTIME_PREFLIGHT_BLOCKED");
 }
 
+function testProviderAdapterOutputSkeletonStaysConservative() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+  const sandboxContract = buildRuntimeSandboxBoundaryFromSources({
+    normalizedFixture,
+    preflightInput: preflightReport,
+  });
+  const caseRecord = selectRuntimeCase({ normalizedFixture });
+  const providerAdapterContract = buildRuntimeProviderAdapterContractContext({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    caseRecord,
+    boundary: {
+      permissions: sandboxContract.permissions,
+      toolBoundary: sandboxContract.toolBoundary,
+    },
+    options: {
+      mode: "provider-backed",
+      providerKey: "provider-backed",
+      providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+    },
+  });
+
+  const adapterResult = providerAdapterContract.buildResult({
+    caseId: caseRecord.id,
+    status: "error",
+    providerMetadata: {
+      implementationState: "reserved-unimplemented-provider-slot",
+      providerBacked: true,
+      providerKey: "provider-backed",
+      providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+    },
+  });
+
+  assert.equal(adapterResult.contract.kind, "runtime-provider-adapter-output");
+  assert.ok(adapterResult.contract.version);
+  assert.deepEqual(adapterResult.selection, {
+    adapterKey: null,
+    providerKey: null,
+    providerSlot: null,
+    builtin: false,
+    implemented: false,
+    providerBacked: false,
+  });
+  assert.deepEqual(adapterResult.execution, {
+    executionId: null,
+    providerRunId: null,
+    providerStatus: null,
+    executed: false,
+    providerCall: false,
+  });
+  assert.deepEqual(adapterResult.evidence, {
+    providerEvidenceAvailable: false,
+    transcriptAvailable: false,
+    transcriptCaptured: false,
+    transcriptPersistence: false,
+    persistence: "none",
+  });
+  assert.deepEqual(adapterResult.rawResponse, {
+    available: false,
+    summary: null,
+    handle: null,
+  });
+  assert.equal(adapterResult.providerMetadata.providerBacked, false);
+  assert.equal(adapterResult.providerMetadata.executed, false);
+  assert.equal(adapterResult.providerMetadata.providerCall, false);
+  assert.equal(adapterResult.providerMetadata.providerEvidenceAvailable, false);
+  assert.equal(adapterResult.providerMetadata.transcriptAvailable, false);
+  assert.equal(adapterResult.providerMetadata.transcriptCaptured, false);
+  assert.equal(adapterResult.providerMetadata.transcriptPersistence, false);
+  assert.equal(adapterResult.providerMetadata.persistence, "none");
+  assert.equal(adapterResult.providerMetadata.executionId, null);
+  assert.equal(adapterResult.providerMetadata.providerRunId, null);
+  assert.equal(adapterResult.providerMetadata.providerStatus, null);
+  assert.equal(adapterResult.providerMetadata.providerKey, null);
+  assert.equal(adapterResult.providerMetadata.providerSlot, null);
+  assert.equal(adapterResult.transcriptRef, null);
+
+  const providerBackedRun = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport,
+    options: { mode: "provider-backed" },
+  });
+
+  assert.equal(providerBackedRun.result.runnerMetadata.providerAdapter.providerBacked, true);
+  assert.equal(providerBackedRun.result.runnerMetadata.providerAdapter.implemented, false);
+  assert.equal(providerBackedRun.result.runnerMetadata.providerAdapter.executionId, null);
+  assert.equal(providerBackedRun.result.runnerMetadata.providerAdapter.providerRunId, null);
+  assert.equal(providerBackedRun.result.runnerMetadata.providerAdapter.providerStatus, null);
+  assert.equal(providerBackedRun.result.runnerMetadata.providerAdapter.rawResponseAvailable, false);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].providerExecution.providerBacked, true);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].providerExecution.transcriptAvailable, false);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].providerExecution.rawResponseAvailable, false);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].providerExecution.rawResponseSummary, null);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].providerExecution.rawResponseHandle, null);
+}
+
 function testObservedMappingSeamContractAcrossReservedModes() {
   const normalizedFixture = createNormalizedFixture();
   const caseRecord = selectRuntimeCase({ normalizedFixture });
@@ -534,6 +635,33 @@ function testObservedMappingSeamContractAcrossReservedModes() {
       adapterResult: {
         caseId: caseRecord.id,
         status: "error",
+        selection: {
+          adapterKey: "provider-backed",
+          providerKey: "provider-backed",
+          providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+          builtin: true,
+          implemented: false,
+          providerBacked: true,
+        },
+        execution: {
+          executed: false,
+          providerCall: false,
+          executionId: null,
+          providerRunId: null,
+          providerStatus: null,
+        },
+        evidence: {
+          providerEvidenceAvailable: false,
+          transcriptAvailable: false,
+          transcriptCaptured: false,
+          transcriptPersistence: false,
+          persistence: "none",
+        },
+        rawResponse: {
+          available: false,
+          summary: null,
+          handle: null,
+        },
         providerMetadata: {
           implementationState: "reserved-unimplemented-provider-slot",
           executed: false,
@@ -610,6 +738,35 @@ function testObservedMappingSeamContractAcrossReservedModes() {
     assert.equal(mapped.observed.persistedEvidenceAvailable, false);
     assert.equal(mapped.observed.sideEffectsPerformed, false);
 
+    assert.deepEqual(Object.keys(mapped.providerExecution).sort(), [
+      "adapterKey",
+      "builtin",
+      "executed",
+      "executionId",
+      "futureRequiredFields",
+      "implementationState",
+      "implemented",
+      "note",
+      "pendingCapabilities",
+      "persistence",
+      "providerBacked",
+      "providerCall",
+      "providerEvidenceAvailable",
+      "providerKey",
+      "providerRunId",
+      "providerSlot",
+      "providerStatus",
+      "rawResponseAvailable",
+      "rawResponseHandle",
+      "rawResponseSummary",
+      "reservedStatusSet",
+      "status",
+      "transcriptAvailable",
+      "transcriptCaptured",
+      "transcriptHandle",
+      "transcriptPersistence",
+      "transcriptProviderManaged",
+    ].sort());
     assert.equal(mapped.providerExecution.adapterKey, seamCase.providerSelection.adapterKey);
     assert.equal(mapped.providerExecution.providerKey, seamCase.providerSelection.providerKey);
     assert.equal(mapped.providerExecution.providerSlot, RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT);
@@ -620,9 +777,15 @@ function testObservedMappingSeamContractAcrossReservedModes() {
     assert.equal(mapped.providerExecution.executed, false);
     assert.equal(mapped.providerExecution.providerCall, false);
     assert.equal(mapped.providerExecution.providerEvidenceAvailable, false);
+    assert.equal(mapped.providerExecution.transcriptAvailable, false);
     assert.equal(mapped.providerExecution.transcriptCaptured, false);
     assert.equal(mapped.providerExecution.transcriptPersistence, false);
     assert.equal(mapped.providerExecution.persistence, "none");
+    assert.equal(mapped.providerExecution.rawResponseAvailable, false);
+    assert.equal(mapped.providerExecution.rawResponseSummary, null);
+    assert.equal(mapped.providerExecution.rawResponseHandle, null);
+    assert.equal(mapped.providerExecution.transcriptHandle, null);
+    assert.equal(mapped.providerExecution.transcriptProviderManaged, false);
     assert.equal(mapped.providerExecution.executionId, null);
     assert.equal(mapped.providerExecution.providerRunId, null);
     assert.equal(mapped.providerExecution.providerStatus, null);
@@ -635,6 +798,30 @@ function testObservedMappingSeamContractAcrossReservedModes() {
     assert.equal(mapped.transcriptAvailability.transcriptCaptured, false);
     assert.equal(mapped.transcriptAvailability.transcriptPersistence, false);
     assert.equal(mapped.transcriptAvailability.persistence, "none");
+  }
+}
+
+function testRawResponseSummaryAndHandleStayReservedAcrossRuntimeModes() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+
+  for (const mode of ["dry-run", "null-runner", "provider-backed"]) {
+    const run = runRuntimeCaseSkeleton({
+      fixtureDir: "/tmp/runtime-contract-fixture",
+      loadedFixture,
+      normalizedFixture,
+      preflightReport,
+      options: { mode },
+    });
+
+    const runtimeCase = run.runtimeReport.cases[0];
+    assert.equal(runtimeCase.providerExecution.rawResponseAvailable, false);
+    assert.equal(runtimeCase.providerExecution.rawResponseSummary, null);
+    assert.equal(runtimeCase.providerExecution.rawResponseHandle, null);
+    assert.equal(runtimeCase.providerExecution.transcriptHandle, null);
+    assert.equal(runtimeCase.transcriptAvailability.handle, null);
+    assert.equal(run.result.runnerMetadata.providerAdapter.rawResponseAvailable, false);
   }
 }
 
@@ -658,6 +845,7 @@ function testObservedMappingMetadataStaysConsistentWithCaseArtifacts() {
     assert.equal(runtimeCase.providerExecution.status, runtimeCase.status);
     assert.equal(runtimeCase.providerExecution.providerCall, runtimeCase.observed.providerCall);
     assert.equal(runtimeCase.providerExecution.providerEvidenceAvailable, runtimeCase.observed.providerEvidenceAvailable);
+    assert.equal(runtimeCase.providerExecution.transcriptAvailable, runtimeCase.transcriptAvailability.available);
     assert.equal(runtimeCase.providerExecution.transcriptCaptured, runtimeCase.observed.transcriptCaptured);
     assert.equal(runtimeCase.transcriptAvailability.transcriptCaptured, runtimeCase.observed.transcriptCaptured);
     assert.equal(runtimeCase.transcriptAvailability.providerBacked, runtimeCase.providerExecution.providerBacked);
@@ -970,12 +1158,14 @@ const tests = [
   ["runtime replay report skeleton top-level contract", testRuntimeReplayReportSkeleton],
   ["single-case selector default/caseId/caseIndex behavior", testCaseSelectorStability],
   ["provider adapter contract exposes builtin key/slot/default seam semantics", testProviderAdapterContractBuiltinSemantics],
+  ["provider adapter output skeleton fields stay conservative and reserved", testProviderAdapterOutputSkeletonStaysConservative],
   ["dry-run and null-runner never masquerade as passed runtime", testDryAndNullRunnerNeverPass],
   ["runtime preflight taxonomy stays non-passing and does not masquerade as static", testRuntimePreflightTaxonomyDoesNotMasqueradeAsStaticOrPassed],
   ["runtime transcript artifact and runtime report reference stay aligned", testTranscriptArtifactAndReportReferenceContract],
   ["runtime transcript stub records orchestration evidence only", testTranscriptStubRecordsOnlyOrchestrationEvidence],
   ["transcript ref presence never upgrades draft statuses to passed", testTranscriptRefDoesNotUpgradeDraftStatuses],
   ["observed mapping seam contract stays stable across dry/null/provider-reserved/preflight-blocked paths", testObservedMappingSeamContractAcrossReservedModes],
+  ["raw response summary/handle stay reserved across runtime modes", testRawResponseSummaryAndHandleStayReservedAcrossRuntimeModes],
   ["observed mapping metadata stays consistent with per-case artifacts", testObservedMappingMetadataStaysConsistentWithCaseArtifacts],
   ["provider-backed runtime stays honest and intentionally unimplemented", testProviderBackedRuntimeStaysHonestAndUnimplemented],
   ["non-provider-backed modes cannot forge provider transcript or provider execution metadata", testNonProviderBackedModesCannotForgeProviderTranscriptOrProviderExecution],

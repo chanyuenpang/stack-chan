@@ -3,6 +3,8 @@
 > 状态：implementation-prep draft  
 > 目的：在真实 provider 子计划开始前，先把 provider-backed reserved slot 必须补齐的字段、路径、保留约束与接线顺序钉死。  
 > 重要边界：本文不是 provider integration 实现说明；不代表真实 provider、transcript persistence、sandbox enforcement、passed path、tests、默认 validate 链路或文档全量同步已完成。
+>
+> 当前文档同步口径补充：provider adapter output 现在只是**更真实的中间 truth payload**，用于把单一 adapter result 同源透传到 runtime draft artifact 的 `cases[].observed`、`providerExecution`、`transcriptAvailability` 等槽位；这仍然只是 reserved/unimplemented 的 provider-backed contract 准备面，不代表真实 provider call、provider transcript、transcript persistence、scoring 或正式 gate 已完成。
 
 ## 1. 使用方式
 

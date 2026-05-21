@@ -3,6 +3,8 @@
 > 状态：设计草案（implementation subplan draft）  
 > 目的：为 Phase 3 下一份实施型 subplan 提供可直接拆分的原子任务、文件边界、禁区与最小验收口径。  
 > 重要边界：本文**不是实现交付**，不代表 runtime replay、runner、sandbox、transcript engine、provider integration、CI runtime gate 已实现。
+>
+> 口径补充：当前 provider adapter output 已被收紧为**更真实的中间 truth payload**，但它仍然只是 contract-first / reserved-unimplemented 的中间层，不代表真实 provider call 已发生。当前 `rawResponse`、`providerExecution`、`transcriptAvailability` 只是从同一 adapter result 同源透传的草案槽位；`summary.passed` 仍固定为 `false`；也仍不接入 `validate:all` / `validate:contracts` / `validate:preflight` 默认链路。
 
 ## 1. 子阶段定位
 

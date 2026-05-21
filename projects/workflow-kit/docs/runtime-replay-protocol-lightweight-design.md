@@ -25,6 +25,8 @@
 
 同时，当前 provider seam 也只是 adapter-facing contract-first seam：它冻结了未来 provider adapter 的输入/输出边界，但并没有把 provider-backed mode 变成可执行能力。CLI 仍不暴露 provider-backed mode；provider-backed slot 目前只是 reserved/unimplemented。
 
+补充同步本轮真实边界：当前 adapter result 已收紧为**更真实的中间 truth payload**。这意味着 `rawResponse`、`providerExecution`、`transcriptAvailability` 现在只是从同一个 adapter result 同源透传出来的草案视图；它们共享同一事实来源，但这仍然**不代表真实 provider call 已发生**，也不代表 provider transcript、transcript persistence、scoring 或正式 gate 已完成。
+
 补充收紧边界：当前 provider-backed reserved slot 相关字段也只能维持诚实占位语义——provider execution metadata、provider transcript bits、persistence handles、provider evidence availability、以及任何 provider-backed success/passed path，都必须继续落在 `false` / `null` / `"none"` / reserved 状态，不能因为 adapter seam 或 draft transcript ref 的存在而被误读成 provider integration 已完成。
 
 本文要回答的问题是：
@@ -410,7 +412,7 @@ pendingCapabilities: []
 1. 顶层 `status` 在当前 draft mode 只诚实落在 `draft | blocked`，不再伪装成 `passed | failed` 执行结论；
 2. `summary.passed` 固定为 `false`，直到真实 provider + transcript + scoring evidence 存在；
 3. `cases[].status` 当前合同只保留 `blocked | error | dry-run | not-executed`；其中目前面向用户可达的诚实结果仍应落在 `blocked | dry-run | not-executed`，`error` 只是保留给 orchestration/runtime skeleton 错误报告的 slot；preflight 未通过时也应在 runtime 层收口为 `blocked`；
-4. `observed` 必须保持 stub-shaped truth mapping output，不是 provider transcript，也不是 scoring evidence；当前 `cases[].observed`、`providerExecution`、`transcriptAvailability` 只是共用同一条 observed mapping seam 的三种视图，三者同源，但都不能被解读成 provider integration、transcript persistence 或正式 runtime pass 证据；
+4. `observed` 必须保持 stub-shaped truth mapping output，不是 provider transcript，也不是 scoring evidence；当前 adapter result 只是更真实的中间 truth payload，`cases[].observed`、`providerExecution`、`transcriptAvailability` 与 `rawResponse` 只是共用同一来源的草案视图，四者同源，但都不能被解读成 provider integration、真实 provider call、transcript persistence 或正式 runtime pass 证据；
 5. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
 6. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；与 provider-backed slot 对应的 execution metadata、provider transcript、persistence、provider evidence flags 也都必须继续保持 `false` / `null` / reserved；
 7. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。

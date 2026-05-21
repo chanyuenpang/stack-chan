@@ -22,8 +22,8 @@ const DEFAULT_METADATA_NOTE =
   "runtime draft artifact only: no provider execution, no transcript evidence, no scoring result, no runtime pass evidence";
 
 const DEFAULT_PROVIDER_EXECUTION_FRAGMENT = Object.freeze({
-  adapterKey: "dry-run",
-  providerKey: "dry-run",
+  adapterKey: null,
+  providerKey: null,
   providerSlot: null,
   builtin: false,
   implemented: false,
@@ -35,20 +35,18 @@ const DEFAULT_PROVIDER_EXECUTION_FRAGMENT = Object.freeze({
   executed: false,
   providerCall: false,
   providerEvidenceAvailable: false,
+  transcriptAvailable: false,
   transcriptCaptured: false,
   transcriptPersistence: false,
   persistence: "none",
+  rawResponseAvailable: false,
+  rawResponseSummary: null,
+  rawResponseHandle: null,
+  transcriptHandle: null,
+  transcriptProviderManaged: false,
   implementationState: null,
-  reservedStatusSet: ["blocked", "error", "dry-run", "not-executed"],
-  futureRequiredFields: [
-    "cases[].status=passed",
-    "cases[].observed.providerCall=true",
-    "cases[].observed.providerEvidenceAvailable=true",
-    "cases[].transcriptRef.available=true",
-    "cases[].transcriptRef.providerTranscript=true",
-    "metadata.providerExecution.executionId",
-    "metadata.providerExecution.providerStatus",
-  ],
+  reservedStatusSet: [],
+  futureRequiredFields: [],
   pendingCapabilities: [],
   note: null,
 });
@@ -142,9 +140,15 @@ function normalizeProviderExecution(providerExecution) {
     executed: providerExecution?.executed === true,
     providerCall: providerExecution?.providerCall === true,
     providerEvidenceAvailable: providerExecution?.providerEvidenceAvailable === true,
+    transcriptAvailable: providerExecution?.transcriptAvailable === true,
     transcriptCaptured: providerExecution?.transcriptCaptured === true,
     transcriptPersistence: providerExecution?.transcriptPersistence === true,
     persistence: providerExecution?.persistence ?? DEFAULT_PROVIDER_EXECUTION_FRAGMENT.persistence,
+    rawResponseAvailable: providerExecution?.rawResponseAvailable === true,
+    rawResponseSummary: providerExecution?.rawResponseSummary ?? null,
+    rawResponseHandle: providerExecution?.rawResponseHandle ?? null,
+    transcriptHandle: providerExecution?.transcriptHandle ?? null,
+    transcriptProviderManaged: providerExecution?.transcriptProviderManaged === true,
     implementationState: providerExecution?.implementationState ?? null,
     reservedStatusSet: Array.isArray(providerExecution?.reservedStatusSet)
       ? [...providerExecution.reservedStatusSet]
@@ -255,10 +259,10 @@ export function buildRuntimeReplayReport({
   const summary = buildSummary(normalizedCases, normalizedChecks, normalizedErrors);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const reportProviderExecution = normalizeProviderExecution(
-    runtime?.providerExecution ?? normalizedCases[0]?.providerExecution,
+    normalizedCases[0]?.providerExecution ?? runtime?.providerExecution,
   );
   const reportTranscriptAvailability = normalizeTranscriptAvailability(
-    runtime?.transcriptAvailability ?? normalizedCases[0]?.transcriptAvailability,
+    normalizedCases[0]?.transcriptAvailability ?? runtime?.transcriptAvailability,
   );
 
   return {
@@ -292,11 +296,13 @@ export function buildRuntimeReplayReport({
       providerExecution: reportProviderExecution,
       transcriptAvailability: reportTranscriptAvailability,
       providerBackedContract: {
-        currentState: reportProviderExecution.implementationState ?? "reserved-unimplemented",
+        currentState: reportProviderExecution.implementationState,
         reservedFields: {
           runtimeCaseStatuses: [...reportProviderExecution.reservedStatusSet],
           providerEvidenceAvailable: reportProviderExecution.providerEvidenceAvailable,
+          transcriptAvailable: reportProviderExecution.transcriptAvailable,
           transcriptPersistence: reportProviderExecution.persistence,
+          rawResponseAvailable: reportProviderExecution.rawResponseAvailable,
           runtimePassedAvailable: false,
         },
         futureRequiredOutputs: [...reportProviderExecution.futureRequiredFields],

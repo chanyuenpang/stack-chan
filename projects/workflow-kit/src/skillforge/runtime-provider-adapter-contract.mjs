@@ -32,17 +32,20 @@ const RESERVED_PROVIDER_BACKED_STATUS_SET = Object.freeze([
 ]);
 
 const FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS = Object.freeze([
-  "providerMetadata.providerKey",
-  "providerMetadata.providerSlot",
-  "providerMetadata.executionId",
-  "providerMetadata.providerRunId",
-  "providerMetadata.providerStatus",
-  "providerMetadata.providerBacked=true",
-  "providerMetadata.executed=true",
-  "providerMetadata.providerCall=true",
-  "providerMetadata.providerEvidenceAvailable",
-  "providerMetadata.transcriptCaptured",
-  "providerMetadata.transcriptPersistence",
+  "selection.adapterKey",
+  "selection.providerKey",
+  "selection.providerSlot",
+  "selection.providerBacked=true",
+  "execution.executionId",
+  "execution.providerRunId",
+  "execution.providerStatus",
+  "execution.executed=true",
+  "execution.providerCall=true",
+  "evidence.providerEvidenceAvailable",
+  "evidence.transcriptAvailable",
+  "evidence.transcriptCaptured",
+  "evidence.transcriptPersistence",
+  "rawResponse.summary",
   "transcriptRef.available=true",
   "transcriptRef.providerManaged=true",
   "transcriptRef.handle",
@@ -191,6 +194,10 @@ export function buildRuntimeProviderAdapterResult({
   status = "not-executed",
   observed = null,
   providerMetadata = {},
+  selection = {},
+  execution = {},
+  evidence = {},
+  rawResponse = {},
   transcriptRef = null,
   note = null,
   pendingCapabilities = DEFAULT_PENDING_CAPABILITIES,
@@ -201,6 +208,41 @@ export function buildRuntimeProviderAdapterResult({
     throw new RangeError(`Unsupported runtime provider adapter result status: ${normalizedStatus}`);
   }
 
+  const normalizedSelection = {
+    adapterKey: null,
+    providerKey: null,
+    providerSlot: null,
+    builtin: null,
+    implemented: false,
+    providerBacked: false,
+    ...cloneObject(selection),
+  };
+
+  const normalizedExecution = {
+    executionId: null,
+    providerRunId: null,
+    providerStatus: null,
+    executed: false,
+    providerCall: false,
+    ...cloneObject(execution),
+  };
+
+  const normalizedEvidence = {
+    providerEvidenceAvailable: false,
+    transcriptAvailable: false,
+    transcriptCaptured: false,
+    transcriptPersistence: false,
+    persistence: "none",
+    ...cloneObject(evidence),
+  };
+
+  const normalizedRawResponse = {
+    available: false,
+    summary: null,
+    handle: null,
+    ...cloneObject(rawResponse),
+  };
+
   const normalizedMetadata = {
     implementationState: "contract-first-unimplemented",
     providerBacked: false,
@@ -209,6 +251,7 @@ export function buildRuntimeProviderAdapterResult({
     executed: false,
     providerCall: false,
     providerEvidenceAvailable: false,
+    transcriptAvailable: false,
     transcriptCaptured: false,
     transcriptPersistence: false,
     persistence: "none",
@@ -226,10 +269,56 @@ export function buildRuntimeProviderAdapterResult({
     ...cloneObject(providerMetadata),
   };
 
+  if (normalizedSelection.providerBacked !== true) {
+    normalizedSelection.adapterKey = normalizedSelection.adapterKey ?? null;
+    normalizedSelection.providerKey = normalizedSelection.providerKey ?? null;
+    normalizedSelection.providerSlot = normalizedSelection.providerSlot ?? null;
+    normalizedSelection.builtin = normalizedSelection.builtin === true;
+    normalizedSelection.implemented = false;
+    normalizedSelection.providerBacked = false;
+  }
+
+  if (normalizedExecution.executed !== true || normalizedSelection.providerBacked !== true) {
+    normalizedExecution.executionId = null;
+    normalizedExecution.providerRunId = null;
+    normalizedExecution.providerStatus = null;
+    normalizedExecution.executed = false;
+    normalizedExecution.providerCall = false;
+  }
+
+  if (normalizedEvidence.providerEvidenceAvailable !== true || normalizedSelection.providerBacked !== true) {
+    normalizedEvidence.providerEvidenceAvailable = false;
+    normalizedEvidence.transcriptAvailable = false;
+    normalizedEvidence.transcriptCaptured = false;
+    normalizedEvidence.transcriptPersistence = false;
+    normalizedEvidence.persistence = normalizedEvidence.persistence ?? "none";
+  }
+
+  if (normalizedRawResponse.available !== true || normalizedSelection.providerBacked !== true) {
+    normalizedRawResponse.available = false;
+    normalizedRawResponse.summary = null;
+    normalizedRawResponse.handle = null;
+  }
+
+  normalizedMetadata.providerBacked = normalizedSelection.providerBacked === true;
+  normalizedMetadata.providerKey = normalizedSelection.providerKey ?? null;
+  normalizedMetadata.providerSlot = normalizedSelection.providerSlot ?? null;
+  normalizedMetadata.executed = normalizedExecution.executed === true;
+  normalizedMetadata.providerCall = normalizedExecution.providerCall === true;
+  normalizedMetadata.providerEvidenceAvailable = normalizedEvidence.providerEvidenceAvailable === true;
+  normalizedMetadata.transcriptAvailable = normalizedEvidence.transcriptAvailable === true;
+  normalizedMetadata.transcriptCaptured = normalizedEvidence.transcriptCaptured === true;
+  normalizedMetadata.transcriptPersistence = normalizedEvidence.transcriptPersistence === true;
+  normalizedMetadata.persistence = normalizedEvidence.persistence ?? normalizedMetadata.persistence ?? "none";
+  normalizedMetadata.executionId = normalizedExecution.executionId ?? null;
+  normalizedMetadata.providerRunId = normalizedExecution.providerRunId ?? null;
+  normalizedMetadata.providerStatus = normalizedExecution.providerStatus ?? null;
+
   if (normalizedMetadata.providerBacked !== true) {
     normalizedMetadata.executed = false;
     normalizedMetadata.providerCall = false;
     normalizedMetadata.providerEvidenceAvailable = false;
+    normalizedMetadata.transcriptAvailable = false;
     normalizedMetadata.transcriptCaptured = false;
     normalizedMetadata.transcriptPersistence = false;
     normalizedMetadata.persistence = normalizedMetadata.persistence ?? "none";
@@ -254,6 +343,13 @@ export function buildRuntimeProviderAdapterResult({
     normalizedTranscriptRef.location = null;
   }
 
+  if (normalizedTranscriptRef && normalizedEvidence.transcriptAvailable !== true) {
+    normalizedTranscriptRef.available = false;
+    normalizedTranscriptRef.providerManaged = false;
+    normalizedTranscriptRef.handle = null;
+    normalizedTranscriptRef.location = null;
+  }
+
   return {
     contract: {
       kind: "runtime-provider-adapter-output",
@@ -262,6 +358,10 @@ export function buildRuntimeProviderAdapterResult({
     caseId,
     status: normalizedStatus,
     observed,
+    selection: normalizedSelection,
+    execution: normalizedExecution,
+    evidence: normalizedEvidence,
+    rawResponse: normalizedRawResponse,
     transcriptRef: normalizedTranscriptRef,
     providerMetadata: normalizedMetadata,
   };
