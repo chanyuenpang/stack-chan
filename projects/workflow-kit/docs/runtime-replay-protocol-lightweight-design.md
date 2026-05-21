@@ -19,9 +19,11 @@
 
 因此，Milestone D 的目标不是“补完整 runtime 实现”，而是先把**runtime replay protocol 和 preflight contract 冻结成轻量文档**，让后续实现有明确边界，且不反向污染当前 static MVP。
 
-当前仓库内已经存在一个**独立 runtime draft CLI** 及其最小 orchestration 承载面，用于诚实地串起 `static validation -> preflight -> single-case dry/null runtime skeleton -> draft artifact`。这一步只代表 Phase 3 draft execution surface 已接通，不代表真实 runtime replay 已交付。
+当前仓库内已经存在一个**独立 runtime draft CLI** 及其最小 orchestration 承载面，用于诚实地串起 `static validation -> preflight -> single-case selection -> provider adapter seam -> dry/null runtime skeleton -> draft artifact`。这一步只代表 Phase 3 draft execution surface 与 provider adapter seam 的 contract-first 边界已接通，不代表真实 runtime replay 已交付。
 
 当前 transcript 相关能力也只到 very thin evidence layer：允许在单 case draft artifact 内表达 provider-less transcript evidence 的占位引用，但不能把它解释成 provider transcript、transcript engine 或 persistence 层已经存在。
+
+同时，当前 provider seam 也只是 adapter-facing contract-first seam：它冻结了未来 provider adapter 的输入/输出边界，但并没有把 provider-backed mode 变成可执行能力。CLI 仍不暴露 provider-backed mode；provider-backed slot 目前只是 reserved/unimplemented。
 
 本文要回答的问题是：
 
@@ -96,9 +98,10 @@ preflight 不负责执行模型，不负责生成 transcript，不做最终评�
 
 1. **Static pass 是 runtime 的前置条件，不是 runtime 的替代品。**
 2. **Preflight pass 只表示“可尝试执行”，不表示“执行通过”。**
-3. **Runtime replay report 只能建立在实际执行证据之上。**
-4. **任何 runtime 结果都不回写为伪造的 static pass。**
-5. **`validate:all` / `validate:contracts` 继续只代表 static validation，不混入 runtime。**
+3. **当前 provider seam 只是 contract-first adapter seam，不等于 provider-backed runtime replay 已实现。**
+4. **Runtime replay report 只能建立在实际执行证据之上。**
+5. **任何 runtime 结果都不回写为伪造的 static pass。**
+6. **`validate:all` / `validate:contracts` 继续只代表 static validation，不混入 runtime。**
 
 ---
 
@@ -354,6 +357,8 @@ preflight 不应承担以下职责：
 
 建议 runtime replay report 采用“同构字段 + 新 kind”的方式：
 
+> 当前 provider seam 真实边界：report 可以为未来 provider-backed mode 预留字段/slot，但这些 slot 仍然只能表达 reserved state，不能被解读成 provider execution 已接入。
+
 ```yaml
 kind: runtime-replay-report
 reportVersion: 0.1.0-draft
@@ -376,7 +381,7 @@ summary:
 cases:
   - id: ...
     type: positive|negative|edge
-    status: blocked|dry-run|not-executed
+    status: blocked|error|dry-run|not-executed
     expectedBehavior: ...
     observed: runtime-observed-stub
     transcriptRef: null
@@ -401,10 +406,11 @@ pendingCapabilities: []
 
 1. 顶层 `status` 在当前 draft mode 只诚实落在 `draft | blocked`，不再伪装成 `passed | failed` 执行结论；
 2. `summary.passed` 固定为 `false`，直到真实 provider + transcript + scoring evidence 存在；
-3. `cases[].status` 当前只允许 `blocked | dry-run | not-executed`；
+3. `cases[].status` 当前合同只保留 `blocked | error | dry-run | not-executed`；其中目前面向用户可达的诚实结果仍应落在 `blocked | dry-run | not-executed`，`error` 只是保留给 orchestration/runtime skeleton 错误报告的 slot；
 4. `observed` 必须保持 stub，`transcriptRef` 必须默认为 `null`；
 5. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
-6. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
+6. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；
+7. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
 
 ## 6.3 为什么不直接复用 validator report
 
@@ -481,6 +487,8 @@ Milestone D 最初只建议冻结**抽象接口层**、不实现 runner；当前
 
 当前已冻结的最小单 case contract 输入/输出面为：
 
+> 这里的 provider adapter seam 只保证“未来 provider adapter 应该吃什么、吐什么”这一层 contract，不保证 provider-backed mode 已可运行。
+
 ```ts
 input = {
   fixtureDir,
@@ -509,7 +517,8 @@ output = {
 
 - runner 读取的是 `normalize + preflight` 已经整理好的上游事实，而不是自己重造解析逻辑；
 - `boundary` 目前只是声明式消费面，不等于真实 sandbox enforcement；
-- `status` 可以是 `dry-run` / `not-executed` / `blocked`，因此 contract 本身不制造“已经执行成功”的幻觉。
+- `status` 可以是 `dry-run` / `not-executed` / `blocked`，并为 runtime skeleton/internal failure 保留 `error` slot，因此 contract 本身不制造“已经执行成功”的幻觉；
+- provider-backed status/path 仍未开放，相关 mode slot 只是 reserved/unimplemented。
 
 ### D. Transcript sink / artifact writer
 
@@ -573,6 +582,7 @@ Milestone D / 当前 Phase 3 虽然已经有独立 runtime draft CLI 与 preflig
 
 - 不接真实模型 provider；
 - 不做 transcript engine；
+- 不做 provider-backed runtime replay；
 - 不做 transcript persistence；
 - 不做 provider transcript；
 - 不做 sandbox implementation / sandbox enforcement；

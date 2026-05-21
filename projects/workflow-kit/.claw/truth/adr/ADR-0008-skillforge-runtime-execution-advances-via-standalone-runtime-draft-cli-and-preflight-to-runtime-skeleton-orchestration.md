@@ -25,6 +25,7 @@ accepted
 当前阶段的具体规则如下：
 
 - `runtime draft CLI` 必须保持独立入口，不污染 `validate`、`validate:all`、`validate:contracts`、`validate:preflight`、`validate:preflight:contracts` 的既有语义；其命令锚点为 `validate:runtime:draft`。
+- provider adapter seam 虽然已经落到 runner/orchestrator contract，但 CLI 对外仍只允许 `dry-run | null-runner`；`provider-backed` 只能保留为 runner 内部 reserved/unimplemented mode slot，不能被包装成可用执行能力。
 - CLI 成功语义固定为“成功生成 draft artifact”，而不是“runtime passed”；退出码固定为 `0=artifact generated`、`1=orchestration error with error artifact`、`2=usage error`，不得绑定 `summary.passed`。
 - `preflight→runtime` 串联必须通过 `src/skillforge/runtime-draft-orchestrator.mjs` 这一独立 orchestration 接缝完成，并复用既有 `loadFixture()`、`normalizeFixture()`、`validateFixture()`、`validatePreflight()`、`runRuntimeCaseSkeleton()` 栈，而不是重写解析或验证逻辑。
 - 当前 runtime draft artifact 必须显式继承 static / preflight lineage；`metadata` 中要保留 source versions、source statuses、fixture/profile/entry 与 `sourceLineage.static|preflight|replayCases`，确保 runtime draft 始终可追溯回上游静态与 preflight 产物。
@@ -47,9 +48,10 @@ accepted
 | `plans/subplan-4-subplan-4-subplan-5-phase-3-runtime-draft-cli-implementation.json` | 来源计划记录，提供已完成任务、review 与 retrospective 结论。 |
 | `scripts/run-runtime-draft.mjs` | 独立 runtime draft CLI 入口与退出码/stdout contract 锚点。 |
 | `src/skillforge/runtime-draft-orchestrator.mjs` | `preflight→runtime` 独立 orchestration 接缝。 |
-| `src/skillforge/runtime-runner.mjs` | 被 orchestrator 调用的 single-case dry/null runtime skeleton。 |
-| `src/skillforge/runtime-replay-reporter.mjs` | `runtime-replay-report` draft contract 与 metadata/summary/cases 锚点。 |
-| `scripts/test-runtime-contracts.mjs` | runtime draft CLI 与 orchestration 的独立 contract tests。 |
+| `src/skillforge/runtime-provider-adapter-contract.mjs` | provider adapter seam 的 contract-first 定义，冻结 builtin adapter keys、slot 与 provider-backed reserved 语义。 |
+| `src/skillforge/runtime-runner.mjs` | 被 orchestrator 调用的 single-case dry/null runtime skeleton，也是 `provider-backed` reserved/unimplemented slot 的真实执行边界。 |
+| `src/skillforge/runtime-replay-reporter.mjs` | `runtime-replay-report` draft contract 与 metadata/summary/cases/status taxonomy 锚点。 |
+| `scripts/test-runtime-contracts.mjs` | runtime draft CLI、orchestration、provider seam 与 honesty guardrail 的独立 contract tests。 |
 | `package.json` | `validate:runtime:draft` 与 `validate:runtime:contracts` 命令锚点。 |
 | `docs/validator-contract.md` | runtime draft CLI 合同说明同步锚点。 |
 | `docs/runtime-replay-protocol-lightweight-design.md` | runtime draft artifact / protocol 边界同步锚点。 |
@@ -62,10 +64,10 @@ accepted
 - 正向：以独立 `scripts/run-runtime-draft.mjs` 与 `src/skillforge/runtime-draft-orchestrator.mjs` 承载串联，保持 execution 路线与 static/preflight 默认验证族解耦，降低基线污染风险。
 - 正向：通过固定 lineage metadata，后续 provider/transcript/scoring 扩展必须沿既有 static/preflight 来源链路演进，减少 report 语义漂移。
 - 正向：通过把 CLI exit code 与 `summary.passed` 解耦，明确区分“artifact 已生成”和“runtime 真正通过”，避免把 draft 能力误当成正式 gate。
-- 正向：独立 `scripts/test-runtime-contracts.mjs` 让 runtime draft CLI、case selection、blocked/dry/null contract 有稳定回归锚点；来源计划记录其已通过 `10/10 cases`。
+- 正向：独立 `scripts/test-runtime-contracts.mjs` 让 runtime draft CLI、case selection、blocked/dry/null contract，以及 provider adapter seam / CLI 可见性边界都有稳定回归锚点；当前补齐收口后，来源完成记录确认已通过 `16/16 cases`。
 - 取舍：当前仍不支持真实 provider integration、transcript capture、sandbox enforcement、多 case / multi-fixture orchestration 或 scoring，功能上依然只是诚实的 draft skeleton。
 - 取舍：后续进入更真实 runtime execution 时，必须继续遵守已固定的 artifact contract、lineage 透传与独立 runtime 验证轨道，不能回退到模糊语义或混入 static/preflight 既有入口。
-- 验证锚点：来源完成记录确认 `validate:fixture` 仍为 `17 checks`、`validate:fixtures` 仍为 `51 totalChecks`、`validate:all` 仍为 `6/6`、`validate:contracts` / `validate:preflight` / `validate:preflight:contracts` 通过、`validate:runtime:contracts` 通过 `10/10`，且 `validate:runtime:draft` 能稳定输出合法 draft artifact，`status=draft`、`passed=false`。
+- 验证锚点：来源完成记录确认 `validate:fixture` 仍为 `17 checks`、`validate:fixtures` 仍为 `51 totalChecks`、`validate:all` 仍为 `6/6`、`validate:contracts` / `validate:preflight` / `validate:preflight:contracts` 通过、`validate:runtime:contracts` 已扩展并通过 `16/16`，且 `validate:runtime:draft` 能稳定输出合法 draft artifact，`status=draft`、`passed=false`；同时 `pnpm --silent validate:runtime:draft fixtures/meeting-summary-assistant --mode provider-backed` 必须以 usage error 拒绝，stderr 明确仅支持 `dry-run, null-runner`，退出码为 `2`。
 
 ## Search Terms
 

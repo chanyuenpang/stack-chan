@@ -2,6 +2,7 @@ const RUNTIME_TRANSCRIPT_ARTIFACT_VERSION = "runtime-transcript-artifact-draft-1
 const RUNTIME_TRANSCRIPT_KIND = "runtime-transcript-artifact";
 const RUNTIME_TRANSCRIPT_SCOPE = "single-case";
 const RUNTIME_TRANSCRIPT_EXECUTION_CLASS = "provider-less-draft-only";
+const RUNTIME_TRANSCRIPT_EVIDENCE_CLASS = "orchestration-stub";
 const RUNTIME_TRANSCRIPT_REF_SCHEME = "in-report-draft-artifact-ref";
 
 const DEFAULT_PENDING_CAPABILITIES = Object.freeze([
@@ -88,9 +89,11 @@ function normalizeOutcome(outcome = {}) {
   return {
     status: outcome?.status ?? null,
     observedKind: outcome?.observedKind ?? outcome?.observed?.kind ?? null,
+    observedEvidence: outcome?.observedEvidence ?? outcome?.observed?.evidence ?? null,
     failureReason: outcome?.failureReason ?? null,
     transcriptCaptured: false,
     providerResponseCaptured: false,
+    persistence: "in-report-only",
   };
 }
 
@@ -135,6 +138,7 @@ export function buildRuntimeTranscriptArtifact({
     refScheme: RUNTIME_TRANSCRIPT_REF_SCHEME,
     scope: RUNTIME_TRANSCRIPT_SCOPE,
     executionClass: RUNTIME_TRANSCRIPT_EXECUTION_CLASS,
+    evidenceClass: RUNTIME_TRANSCRIPT_EVIDENCE_CLASS,
     fixture: normalizedFixture,
     case: normalizedCase,
     executionMode: normalizedExecutionMode,
@@ -155,6 +159,7 @@ export const RUNTIME_TRANSCRIPT_DEFAULT_PENDING_CAPABILITIES = [...DEFAULT_PENDI
 export const RUNTIME_TRANSCRIPT_ARTIFACT_KIND = RUNTIME_TRANSCRIPT_KIND;
 export const RUNTIME_TRANSCRIPT_ARTIFACT_SCOPE = RUNTIME_TRANSCRIPT_SCOPE;
 export const RUNTIME_TRANSCRIPT_ARTIFACT_EXECUTION_CLASS = RUNTIME_TRANSCRIPT_EXECUTION_CLASS;
+export const RUNTIME_TRANSCRIPT_ARTIFACT_EVIDENCE_CLASS = RUNTIME_TRANSCRIPT_EVIDENCE_CLASS;
 export const RUNTIME_TRANSCRIPT_ARTIFACT_CONTRACT_VERSION = RUNTIME_TRANSCRIPT_ARTIFACT_VERSION;
 export const RUNTIME_TRANSCRIPT_ARTIFACT_REF_SCHEME = RUNTIME_TRANSCRIPT_REF_SCHEME;
 
@@ -164,6 +169,7 @@ export default {
   RUNTIME_TRANSCRIPT_ARTIFACT_KIND: RUNTIME_TRANSCRIPT_KIND,
   RUNTIME_TRANSCRIPT_ARTIFACT_SCOPE: RUNTIME_TRANSCRIPT_SCOPE,
   RUNTIME_TRANSCRIPT_ARTIFACT_EXECUTION_CLASS: RUNTIME_TRANSCRIPT_EXECUTION_CLASS,
+  RUNTIME_TRANSCRIPT_ARTIFACT_EVIDENCE_CLASS: RUNTIME_TRANSCRIPT_EVIDENCE_CLASS,
   RUNTIME_TRANSCRIPT_ARTIFACT_CONTRACT_VERSION: RUNTIME_TRANSCRIPT_ARTIFACT_VERSION,
   RUNTIME_TRANSCRIPT_ARTIFACT_REF_SCHEME: RUNTIME_TRANSCRIPT_REF_SCHEME,
 };

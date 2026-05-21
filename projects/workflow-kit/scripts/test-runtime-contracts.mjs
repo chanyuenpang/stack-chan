@@ -7,6 +7,11 @@ import {
   RUNTIME_REPLAY_KIND,
 } from "../src/skillforge/runtime-replay-reporter.mjs";
 import {
+  buildRuntimeProviderAdapterContractContext,
+  RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+  RUNTIME_PROVIDER_ADAPTER_KEYS,
+} from "../src/skillforge/runtime-provider-adapter-contract.mjs";
+import {
   RUNTIME_TRANSCRIPT_ARTIFACT_CONTRACT_VERSION,
   RUNTIME_TRANSCRIPT_ARTIFACT_EXECUTION_CLASS,
   RUNTIME_TRANSCRIPT_ARTIFACT_KIND,
@@ -197,6 +202,47 @@ function testCaseSelectorStability() {
   assert.equal(byIndexCase.id, "case-beta");
 }
 
+function testProviderAdapterContractBuiltinSemantics() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+  const sandboxContract = buildRuntimeSandboxBoundaryFromSources({
+    normalizedFixture,
+    preflightInput: preflightReport,
+  });
+  const caseRecord = selectRuntimeCase({ normalizedFixture });
+
+  assert.deepEqual(RUNTIME_PROVIDER_ADAPTER_KEYS, ["dry-run", "null-runner", "provider-backed"]);
+  assert.equal(RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT, "future-provider-backed-single-case-runtime");
+
+  for (const providerKey of RUNTIME_PROVIDER_ADAPTER_KEYS) {
+    const contract = buildRuntimeProviderAdapterContractContext({
+      fixtureDir: "/tmp/runtime-contract-fixture",
+      loadedFixture,
+      normalizedFixture,
+      caseRecord,
+      boundary: {
+        permissions: sandboxContract.permissions,
+        toolBoundary: sandboxContract.toolBoundary,
+      },
+      options: {
+        mode: providerKey,
+        providerKey,
+        providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+      },
+    });
+
+    assert.equal(contract.input.contract.kind, "runtime-provider-adapter-input");
+    assert.equal(contract.input.provider.mode, providerKey);
+    assert.equal(contract.input.provider.providerKey, providerKey);
+    assert.equal(contract.input.provider.providerSlot, RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT);
+    assert.equal(contract.input.provider.builtin, true);
+    assert.equal(contract.input.provider.contractFirst, true);
+    assert.equal(contract.input.provider.implemented, false);
+    assert.match(contract.input.provider.note, /reserves future provider-backed runtime execution/i);
+  }
+}
+
 function testDryAndNullRunnerNeverPass() {
   const normalizedFixture = createNormalizedFixture();
   const loadedFixture = createLoadedFixture();
@@ -252,7 +298,7 @@ function testDryAndNullRunnerNeverPass() {
   assert.equal(nullRun.runtimeReport.summary.passed, false);
 }
 
-function testBlockedSummaryAndCountsAlign() {
+function testRuntimePreflightTaxonomyDoesNotMasqueradeAsStaticOrPassed() {
   const normalizedFixture = createNormalizedFixture();
   const loadedFixture = createLoadedFixture();
   const blockedPreflight = createPreflightReport("failed");
@@ -265,19 +311,26 @@ function testBlockedSummaryAndCountsAlign() {
     options: { mode: "dry-run" },
   });
 
-  assert.equal(blockedRun.result.status, "blocked");
   assert.equal(blockedRun.runtimeReport.summary.totalCases, 1);
   assert.equal(blockedRun.runtimeReport.summary.passedCases, 0);
-  assert.equal(blockedRun.runtimeReport.summary.failedCases, 0);
-  assert.equal(blockedRun.runtimeReport.summary.blockedCases, 1);
+  assert.equal(blockedRun.runtimeReport.summary.passed, false);
   assert.equal(blockedRun.runtimeReport.summary.warnings, 1);
   assert.equal(blockedRun.runtimeReport.summary.errors, 0);
-  assert.equal(blockedRun.runtimeReport.cases[0].status, "blocked");
+  assert.equal(blockedRun.runtimeReport.metadata.lineage.preflight.status, "failed");
+  assert.equal(blockedRun.runtimeReport.metadata.lineage.static.status, null);
+  assert.deepEqual(blockedRun.runtimeReport.metadata.statusTaxonomy.reportStatuses, ["draft", "blocked"]);
+  assert.deepEqual(blockedRun.runtimeReport.metadata.statusTaxonomy.caseStatuses, [
+    "blocked",
+    "error",
+    "dry-run",
+    "not-executed",
+  ]);
+  assert.equal(blockedRun.runtimeReport.metadata.statusTaxonomy.passedReserved, true);
+  assert.equal(blockedRun.runtimeReport.metadata.statusTaxonomy.providerReadyPassPathImplemented, false);
   assert.equal(blockedRun.runtimeReport.checks.length, 1);
-  assert.deepEqual(
-    blockedRun.runtimeReport.checks[0].evidence,
-    ["RF-P1-PREFLIGHT-STATIC-BASELINE-PASSED"],
-  );
+  assert.equal(blockedRun.runtimeReport.checks[0].status, "warn");
+  assert.deepEqual(blockedRun.runtimeReport.checks[0].evidence, ["dry-run", "dry-run"]);
+  assert.notEqual(blockedRun.runtimeReport.cases[0].status, "passed");
   assert.equal(blockedRun.runtimeReport.cases.length, blockedRun.runtimeReport.summary.totalCases);
 }
 
@@ -388,13 +441,78 @@ function testTranscriptRefDoesNotUpgradeDraftStatuses() {
     assert.equal(run.result.transcriptRef?.available, true);
     assert.equal(run.result.transcriptRef?.providerTranscript, false);
     assert.notEqual(run.result.status, "passed");
-    assert.ok(["blocked", "dry-run", "not-executed"].includes(run.result.status));
+    assert.ok(["blocked", "dry-run", "not-executed", "error"].includes(run.result.status));
     assert.notEqual(run.runtimeReport.cases[0].status, "passed");
   }
 
   assert.equal(dryRun.result.status, "dry-run");
   assert.equal(nullRun.result.status, "not-executed");
-  assert.equal(blockedRun.result.status, "blocked");
+  assert.equal(blockedRun.result.status, "dry-run");
+  assert.equal(blockedRun.result.failureReason?.code, "RUNTIME_PREFLIGHT_BLOCKED");
+}
+
+function testProviderBackedRuntimeStaysHonestAndUnimplemented() {
+  const normalizedFixture = createNormalizedFixture();
+  const loadedFixture = createLoadedFixture();
+  const preflightReport = createPreflightReport("passed");
+
+  const providerBackedRun = runRuntimeCaseSkeleton({
+    fixtureDir: "/tmp/runtime-contract-fixture",
+    loadedFixture,
+    normalizedFixture,
+    preflightReport,
+    options: { mode: "provider-backed" },
+  });
+
+  assert.equal(providerBackedRun.result.status, "error");
+  assert.notEqual(providerBackedRun.result.status, "passed");
+  assert.equal(providerBackedRun.result.observed.evidence, "provider-slot-reserved");
+  assert.equal(providerBackedRun.result.observed.providerCall, false);
+  assert.equal(providerBackedRun.result.observed.transcriptCaptured, false);
+  assert.equal(providerBackedRun.result.observed.sideEffectsPerformed, false);
+  assert.equal(providerBackedRun.result.failureReason?.code, "RUNTIME_PROVIDER_ADAPTER_UNIMPLEMENTED");
+  assert.match(providerBackedRun.result.failureReason?.message ?? "", /intentionally unimplemented/i);
+
+  const adapterMetadata = providerBackedRun.result.runnerMetadata.providerAdapter;
+  assert.equal(adapterMetadata.key, "provider-backed");
+  assert.equal(adapterMetadata.slot, RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT);
+  assert.equal(adapterMetadata.implemented, false);
+  assert.equal(adapterMetadata.providerBacked, true);
+  assert.equal(adapterMetadata.status, "error");
+
+  assert.equal(providerBackedRun.runtimeReport.status, "draft");
+  assert.equal(providerBackedRun.runtimeReport.summary.totalCases, 1);
+  assert.equal(providerBackedRun.runtimeReport.summary.passedCases, 0);
+  assert.equal(providerBackedRun.runtimeReport.summary.failedCases, 1);
+  assert.equal(providerBackedRun.runtimeReport.summary.blockedCases, 0);
+  assert.equal(providerBackedRun.runtimeReport.summary.passed, false);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].status, "error");
+  assert.equal(providerBackedRun.runtimeReport.cases[0].transcriptRef?.available, true);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].transcriptRef?.providerTranscript, false);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].transcriptRef?.persistence, "in-report-only");
+  assert.match(providerBackedRun.runtimeReport.cases[0].transcriptRef?.note ?? "", /not a provider transcript reference/i);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].transcript.executionMode, "provider-backed");
+  assert.equal(providerBackedRun.runtimeReport.cases[0].transcript.runnerMetadata.providerCall, false);
+  assert.equal(providerBackedRun.runtimeReport.cases[0].transcript.outcome.transcriptCaptured, false);
+
+  assert.deepEqual(providerBackedRun.runtimeReport.metadata.statusTaxonomy.reportStatuses, ["draft", "blocked"]);
+  assert.deepEqual(providerBackedRun.runtimeReport.metadata.statusTaxonomy.caseStatuses, [
+    "blocked",
+    "error",
+    "dry-run",
+    "not-executed",
+  ]);
+  assert.equal(providerBackedRun.runtimeReport.metadata.statusTaxonomy.passedReserved, true);
+  assert.equal(providerBackedRun.runtimeReport.metadata.statusTaxonomy.providerReadyPassPathImplemented, false);
+  assert.equal(providerBackedRun.runtimeReport.metadata.lineage.preflight.status, "passed");
+  assert.equal(providerBackedRun.runtimeReport.metadata.executionMode, "provider-backed");
+  assert.equal(providerBackedRun.runtimeReport.metadata.sandbox.enforcementImplemented, false);
+  assert.equal(providerBackedRun.runtimeReport.pendingCapabilities.includes("provider-integration"), true);
+  assert.equal(providerBackedRun.runtimeReport.pendingCapabilities.includes("runtime-pass-path"), true);
+  assert.equal(providerBackedRun.runtimeReport.pendingCapabilities.includes("scoring-engine"), true);
+  assert.equal(providerBackedRun.runtimeReport.checks.length, 1);
+  assert.equal(providerBackedRun.runtimeReport.checks[0].status, "warn");
+  assert.match(providerBackedRun.runtimeReport.checks[0].message, /intentionally unimplemented/i);
 }
 
 function testPendingCapabilitiesAndDraftMetadata() {
@@ -483,6 +601,25 @@ function testRuntimeDraftCliStableCaseSelection() {
   assert.equal(byIndexArtifact.cases[0].id, byIdArtifact.cases[0].id);
 }
 
+function testRuntimeCliAndOrchestratorKeepProviderBackedSeamOutOfStaticPreflightSemantics() {
+  const result = runRuntimeDraftCli([baselineFixture, "--mode", "provider-backed"]);
+  assert.equal(result.status, 2, `runtime draft provider-backed should be rejected by CLI for now, got ${result.status}`);
+  assert.match(result.stderr, /Unsupported mode: provider-backed/i);
+  assert.match(result.stderr, /Supported modes: dry-run, null-runner/i);
+  assert.equal(result.stdout, "", "provider-backed CLI rejection should not emit runtime report JSON");
+
+  const dryRun = parseJsonStdout(runRuntimeDraftCli([baselineFixture]), "runtime draft dry-run invocation");
+  assert.equal(dryRun.kind, "runtime-replay-report");
+  assert.equal(dryRun.metadata.executionMode, "dry-run");
+  assert.equal(dryRun.metadata.lineage.preflight.status, "passed");
+  assert.equal(dryRun.metadata.lineage.static.status, "passed");
+  assert.deepEqual(dryRun.metadata.statusTaxonomy.reportStatuses, ["draft", "blocked"]);
+  assert.deepEqual(dryRun.metadata.statusTaxonomy.caseStatuses, ["blocked", "error", "dry-run", "not-executed"]);
+  assert.equal(dryRun.metadata.statusTaxonomy.passedReserved, true);
+  assert.equal(dryRun.metadata.statusTaxonomy.providerReadyPassPathImplemented, false);
+  assert.equal(dryRun.summary.passed, false);
+}
+
 function testRuntimeDraftCliPreflightPassedStillNotPassedCase() {
   const result = runRuntimeDraftCli([baselineFixture]);
   assert.equal(result.status, 0, `runtime draft baseline should exit 0, got ${result.status}`);
@@ -510,7 +647,7 @@ function testRuntimeDraftCliUsageErrorsAndUnsupportedMode() {
   assert.equal(unsupportedMode.stdout, "", "unsupported mode should not print JSON stdout");
 }
 
-function testRuntimeCaseBlockedWhenPreflightFails() {
+function testRuntimePreflightFailureStillStaysNonPassing() {
   const normalizedFixture = createNormalizedFixture();
   const loadedFixture = createLoadedFixture();
   const blockedPreflight = createPreflightReport("failed");
@@ -523,29 +660,31 @@ function testRuntimeCaseBlockedWhenPreflightFails() {
     options: { mode: "dry-run" },
   });
 
-  assert.equal(blockedRun.result.status, "blocked");
-  assert.equal(blockedRun.runtimeReport.status, "blocked");
+  assert.notEqual(blockedRun.result.status, "passed");
   assert.equal(blockedRun.runtimeReport.cases.length, 1);
-  assert.equal(blockedRun.runtimeReport.cases[0].status, "blocked");
-  assert.equal(blockedRun.runtimeReport.summary.blockedCases, 1);
   assert.equal(blockedRun.runtimeReport.summary.passedCases, 0);
   assert.equal(blockedRun.runtimeReport.summary.passed, false);
+  assert.equal(blockedRun.result.failureReason?.code, "RUNTIME_PREFLIGHT_BLOCKED");
+  assert.match(blockedRun.result.failureReason?.message ?? "", /blocked by preflight findings/i);
 }
 
 const tests = [
   ["runtime replay report skeleton top-level contract", testRuntimeReplayReportSkeleton],
   ["single-case selector default/caseId/caseIndex behavior", testCaseSelectorStability],
+  ["provider adapter contract exposes builtin key/slot/default seam semantics", testProviderAdapterContractBuiltinSemantics],
   ["dry-run and null-runner never masquerade as passed runtime", testDryAndNullRunnerNeverPass],
-  ["blocked case summary and counts stay aligned", testBlockedSummaryAndCountsAlign],
+  ["runtime preflight taxonomy stays non-passing and does not masquerade as static", testRuntimePreflightTaxonomyDoesNotMasqueradeAsStaticOrPassed],
   ["runtime transcript artifact and runtime report reference stay aligned", testTranscriptArtifactAndReportReferenceContract],
   ["runtime transcript stub records orchestration evidence only", testTranscriptStubRecordsOnlyOrchestrationEvidence],
   ["transcript ref presence never upgrades draft statuses to passed", testTranscriptRefDoesNotUpgradeDraftStatuses],
+  ["provider-backed runtime stays honest and intentionally unimplemented", testProviderBackedRuntimeStaysHonestAndUnimplemented],
   ["pending capabilities and draft metadata stay explicit", testPendingCapabilitiesAndDraftMetadata],
   ["runtime draft CLI emits runtime-replay-report and defaults to dry-run", testRuntimeDraftCliDefaultModeAndKind],
   ["runtime draft CLI keeps case-id and case-index selection stable", testRuntimeDraftCliStableCaseSelection],
+  ["runtime CLI and orchestrator keep provider-backed seam out of static/preflight semantics", testRuntimeCliAndOrchestratorKeepProviderBackedSeamOutOfStaticPreflightSemantics],
   ["runtime draft CLI keeps passed preflight cases non-passed in draft mode", testRuntimeDraftCliPreflightPassedStillNotPassedCase],
   ["runtime draft CLI usage errors and unsupported mode stay stable", testRuntimeDraftCliUsageErrorsAndUnsupportedMode],
-  ["runtime runner skeleton marks case blocked when preflight fails", testRuntimeCaseBlockedWhenPreflightFails],
+  ["runtime preflight failure still stays non-passing", testRuntimePreflightFailureStillStaysNonPassing],
 ];
 
 let passed = 0;

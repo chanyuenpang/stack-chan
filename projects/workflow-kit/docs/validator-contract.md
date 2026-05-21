@@ -64,25 +64,30 @@ The Phase 3 runtime draft CLI is intentionally separate from the static validato
 Current coverage is intentionally narrow:
 
 - the standalone CLI already exists;
-- orchestration only covers `static validation -> preflight -> single-case selection -> dry-run/null-runner runtime skeleton -> runtime draft artifact`;
+- orchestration only covers `static validation -> preflight -> single-case selection -> provider adapter seam -> dry-run/null-runner runtime skeleton -> runtime draft artifact`;
+- the provider adapter seam is contract-first only: it freezes adapter-facing input/output boundaries without enabling provider-backed execution;
 - transcript evidence is currently provider-less and draft-only;
+- `dry-run`, `null-runner`, and a future provider-backed mode are currently treated as separate mode slots, but only the first two are reachable today;
+- the provider-backed slot is reserved/unimplemented and is not exposed as a user-selectable CLI mode;
 - it is a draft execution surface, not a formal validation gate;
 - it is not transcript-capable runtime replay.
 
 | Command | Args / flags | stdout | stderr | Exit code |
 | --- | --- | --- | --- | --- |
-| `pnpm validate:runtime:draft <fixture-path> [--case-id <id> \| --case-index <n>] [--mode dry-run\|null-runner] [--format json]` | Required positional `<fixture-path>`. Optional `--case-id <id>` or `--case-index <n>` for single-case selection. Optional `--mode dry-run\|null-runner`; default is `dry-run`. Optional `--format json`; `--json` is accepted as a JSON shortcut. `--help`/`-h` prints usage. JSON is the default and only supported output format. | On successful CLI parsing, writes one runtime draft JSON artifact with `kind: "runtime-replay-report"`. If orchestration throws, writes a fallback runtime draft JSON artifact with `status: "failed"`. Help text is printed to stdout for `--help`/`-h`. | CLI usage errors print a short error message and, for missing/unknown args, usage text. Normal runtime draft execution should not write diagnostics to stderr. | `0` when the CLI successfully completes the current static -> preflight -> single-case runtime skeleton orchestration and emits a runtime draft artifact, even if the artifact summary is non-passing because the case is `blocked`, `dry-run`, or `not-executed`; `1` when runtime draft orchestration itself throws and a fallback error artifact is emitted; `2` for CLI usage errors such as missing fixture path, mutually exclusive `--case-id` / `--case-index`, unknown argument, unsupported mode, unsupported format, or invalid case index value. |
+| `pnpm validate:runtime:draft <fixture-path> [--case-id <id> \| --case-index <n>] [--mode dry-run\|null-runner] [--format json]` | Required positional `<fixture-path>`. Optional `--case-id <id>` or `--case-index <n>` for single-case selection. Optional `--mode dry-run\|null-runner`; default is `dry-run`. Optional `--format json`; `--json` is accepted as a JSON shortcut. `--help`/`-h` prints usage. JSON is the default and only supported output format. Provider-backed mode remains reserved/unimplemented and is intentionally not exposed as a CLI flag. | On successful CLI parsing, writes one runtime draft JSON artifact with `kind: "runtime-replay-report"`. If orchestration throws, writes a fallback runtime draft JSON artifact with `status: "failed"`. Help text is printed to stdout for `--help`/`-h`. | CLI usage errors print a short error message and, for missing/unknown args, usage text. Normal runtime draft execution should not write diagnostics to stderr. | `0` when the CLI successfully completes the current static -> preflight -> single-case runtime skeleton orchestration and emits a runtime draft artifact, even if the artifact summary is non-passing because the case is `blocked`, `dry-run`, or `not-executed`; `1` when runtime draft orchestration itself throws and a fallback error artifact is emitted; `2` for CLI usage errors such as missing fixture path, mutually exclusive `--case-id` / `--case-index`, unknown argument, unsupported mode, unsupported format, or invalid case index value. |
 
 Notes:
 
-- This CLI currently reuses `loadFixture()`, `validateFixture()`, `validatePreflight()`, and `runRuntimeCaseSkeleton()` through the runtime draft orchestrator; it does not introduce provider execution, transcript persistence, sandbox enforcement, multi-case orchestration, or a separate raw fixture parsing pipeline.
+- This CLI currently reuses `loadFixture()`, `validateFixture()`, `validatePreflight()`, provider adapter seam contracts, and `runRuntimeCaseSkeleton()` through the runtime draft orchestrator; it does not introduce provider execution, transcript persistence, sandbox enforcement, multi-case orchestration, or a separate raw fixture parsing pipeline.
+- The provider adapter seam is a contract-first integration seam only. It exists so future provider-backed work has a stable boundary, not because provider-backed replay is already available.
 - The orchestration scope stops at preflight plus the current single-case dry/null runtime skeleton. It does not perform provider-backed runtime replay and should not be interpreted as a production runtime gate.
 - CLI success does **not** mean runtime passed. In the current draft phase, the emitted artifact must remain honest about `blocked`, `dry-run`, and `not-executed` outcomes.
-- The current draft runtime artifact contract is intentionally non-executional: top-level `status` is constrained to `draft` or `blocked`, `summary.passed` must remain `false`, `cases[].status` is constrained to `blocked | dry-run | not-executed`, and `observed` stays a stub.
+- The current draft runtime artifact contract is intentionally non-executional: top-level `status` is constrained to `draft` or `blocked`, `summary.passed` must remain `false`, `cases[].status` is constrained to `blocked | error | dry-run | not-executed`, and `observed` stays a stub.
+- In the currently reachable draft flows, case outcomes should remain within `blocked | dry-run | not-executed`; the reserved `error` slot exists only for orchestration/runtime skeleton error reporting and must not be interpreted as provider execution.
 - Phase 3 transcript evidence is currently limited to provider-less draft evidence for a single selected case. When emitted, `transcriptRef` is only an in-report draft transcript artifact ref and must not be interpreted as transcript persistence, provider transcript support, or a reusable transcript registry.
 - Any emitted transcript evidence must continue to declare `providerTranscript=false` and must not claim provider execution.
 - Multi-case aggregate transcript collection is not supported; transcript evidence, if present, is per selected case only.
-- Provider execution, transcript capture/persistence, sandbox enforcement, scoring, and multi-case aggregate orchestration remain unimplemented.
+- Provider execution, provider transcript capture, transcript capture/persistence, sandbox enforcement, scoring, and multi-case aggregate orchestration remain unimplemented.
 - This entrypoint is intentionally not wired into `pnpm validate`, `pnpm validate:all`, `pnpm validate:contracts`, `pnpm validate:preflight`, or `pnpm validate:preflight:contracts`.
 
 ## Standalone runtime contract test entry
@@ -99,11 +104,12 @@ Current scope:
 - validates single-case selector stability for default first case, `caseId`, and `caseIndex` selection;
 - validates that `dry-run` / `null-runner` results never masquerade as `passed` runtime execution;
 - validates blocked-case summary/check alignment and `blockedCases` accounting;
-- validates that `pendingCapabilities`, sandbox declaration-only metadata, lineage references, and runtime report notes stay explicit about unimplemented provider transcript support, transcript persistence, scoring, and sandbox enforcement.
+- validates that `pendingCapabilities`, sandbox declaration-only metadata, lineage references, reserved provider-backed mode semantics, and runtime report notes stay explicit about unimplemented provider transcript support, transcript persistence, scoring, and sandbox enforcement.
 
 Intentional limits:
 
 - no real provider execution;
+- no provider-backed runtime replay;
 - no provider transcript support;
 - no transcript persistence;
 - no multi-case aggregate transcript evidence;

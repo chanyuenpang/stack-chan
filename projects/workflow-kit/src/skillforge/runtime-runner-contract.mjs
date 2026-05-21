@@ -4,13 +4,20 @@ const RUNTIME_TRANSCRIPT_REF_KIND = "runtime-transcript-artifact-ref";
 const RUNTIME_TRANSCRIPT_REF_VERSION = "runtime-transcript-artifact-ref-draft-1";
 
 const DEFAULT_ALLOWED_CASE_STATUSES = Object.freeze([
-  "passed",
-  "failed",
   "blocked",
   "error",
   "dry-run",
   "not-executed",
 ]);
+
+const DEFAULT_PROVIDER_ADAPTER_SEAM = Object.freeze({
+  contractFirst: true,
+  implemented: false,
+  providerBacked: false,
+  key: "dry-run",
+  slot: "future-provider-backed-single-case-runtime",
+  note: "provider adapter seam reserved only; this does not imply provider integration is implemented",
+});
 
 const DEFAULT_RUNNER_PENDING_CAPABILITIES = Object.freeze([
   "provider-integration",
@@ -128,6 +135,12 @@ export function buildRuntimeRunnerInput({
     caseRecord: normalizeCaseRecord(caseRecord),
     boundary: normalizeBoundary(boundary),
     options: cloneObject(options),
+    providerAdapterSeam: {
+      ...DEFAULT_PROVIDER_ADAPTER_SEAM,
+      ...(options?.providerAdapterSeam && typeof options.providerAdapterSeam === "object"
+        ? options.providerAdapterSeam
+        : {}),
+    },
   };
 }
 
@@ -201,6 +214,7 @@ export function buildRuntimeTranscriptArtifactRef({
   available = false,
   location = null,
   providerTranscript = false,
+  persistence = "in-report-only",
   note = null,
 } = {}) {
   return {
@@ -218,9 +232,10 @@ export function buildRuntimeTranscriptArtifactRef({
             path: ["cases", caseId == null ? null : { id: caseId }, "transcript"],
           },
     providerTranscript: providerTranscript === true,
+    persistence,
     note:
       note ??
-      "draft in-report transcript artifact ref for single-case provider-less runtime transcript stub; this is not a provider transcript reference",
+      "draft in-report transcript artifact ref for single-case provider-less runtime transcript stub; this is not a provider transcript reference and does not imply persisted provider evidence",
   };
 }
 

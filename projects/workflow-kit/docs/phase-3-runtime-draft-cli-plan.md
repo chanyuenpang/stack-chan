@@ -2,7 +2,7 @@
 
 > 状态：设计草案（implementation subplan draft，仓库内对应 runtime draft CLI 子计划已落到当前受限实现）  
 > 目的：为下一份 Phase 3 实施型 subplan 提供可直接拆分的原子任务、文件边界、禁区、非目标与最小验收口径。  
-> 重要边界：本文**不是完整 runtime 实现交付说明**；当前已落地的也只是独立 runtime draft CLI、受限 orchestration 与 provider-less transcript evidence 的草案级表达，不代表真实 runtime replay、provider integration、provider transcript、transcript engine / persistence、sandbox enforcement、multi-case orchestration、CI runtime gate 已实现。
+> 重要边界：本文**不是完整 runtime 实现交付说明**；当前已落地的也只是独立 runtime draft CLI、provider adapter seam、受限 orchestration 与 provider-less transcript evidence 的草案级表达，不代表真实 runtime replay、provider integration、provider transcript、transcript engine / persistence、sandbox enforcement、multi-case orchestration、CI runtime gate 已实现。
 
 ## 1. 背景与定位
 
@@ -16,16 +16,17 @@
 - single-case dry/null runner skeleton；
 - standalone runtime contract tests；
 - 独立 runtime draft CLI；
-- preflight→single-case dry/null runtime skeleton orchestration wiring。
+- preflight→single-case dry/null runtime skeleton orchestration wiring；
+- provider adapter seam 的 contract-first 接缝。
 
 因此，下一份实施型 subplan 不应再重复做“contract skeleton 本身”，而应进入一个更窄的实施面；而当前仓库里已经完成的，也正是下面这条受限实施面：
 
 ```text
 runtime draft CLI
-+ preflight -> runtime skeleton orchestration wiring
++ preflight -> provider adapter seam -> runtime skeleton orchestration wiring
 ```
 
-这一步的目标不是“让真实 runtime 跑起来”，而是把已经存在的 preflight / runtime skeleton 零件接成一个**独立、诚实、单 case、草案级**执行入口，并允许在 report 内有限表达 provider-less transcript evidence，作为后续 provider / transcript / sandbox enforcement 实装前的承载面。
+这一步的目标不是“让真实 runtime 跑起来”，而是把已经存在的 preflight / runtime skeleton / provider adapter seam 零件接成一个**独立、诚实、单 case、草案级**执行入口，并允许在 report 内有限表达 provider-less transcript evidence，作为后续 provider / transcript / sandbox enforcement 实装前的承载面。
 
 一句话版：
 
@@ -40,8 +41,8 @@ runtime draft CLI
 下一份实施型 subplan 至少要稳定回答以下问题：
 
 1. 怎样提供一个独立 `runtime draft CLI`，与 static / preflight CLI 家族隔离？
-2. 怎样把 `validatePreflight()`、case selector、runner contract、sandbox contract、dry/null runner skeleton 串成单一 orchestration 路径？
-3. 这个 orchestration 具体读哪些输入、产出哪些 artifact、如何表达 blocked / dry-run / not-executed，以及 provider-less transcript evidence？
+2. 怎样把 `validatePreflight()`、case selector、provider adapter seam、runner contract、sandbox contract、dry/null runner skeleton 串成单一 orchestration 路径？
+3. 这个 orchestration 具体读哪些输入、产出哪些 artifact、如何表达 blocked / error / dry-run / not-executed，以及 provider-less transcript evidence？
 4. 哪些 contract 是禁区，不能被顺手改坏？
 5. 哪些内容继续明确延后，防止把“草案 CLI”写成“runtime 已实现”？
 
@@ -55,12 +56,13 @@ runtime draft CLI
   -> static validate（只作为上游事实，不改 static contract）
   -> preflight
   -> select single case
+  -> build provider adapter seam inputs
   -> build sandbox boundary contract
   -> run dry/null runtime skeleton
   -> print runtime draft report
 ```
 
-它是 **orchestration wiring 子计划**，不是 provider 子计划，也不是 transcript 子计划，更不是 sandbox enforcement 子计划。
+它是 **orchestration wiring 子计划**，不是 provider-backed execution 子计划，也不是 transcript 子计划，更不是 sandbox enforcement 子计划。provider adapter seam 在这里也只是 contract-first 接缝，不代表 provider-backed mode 可用。
 
 ## 4. 建议的实施子计划结构
 
@@ -108,6 +110,7 @@ runtime draft CLI
 - `--case-id <id>` 可选
 - `--case-index <n>` 可选
 - `--mode dry-run|null-runner`，默认 `dry-run`
+- provider-backed mode 当前不暴露为 CLI flag；对应 slot 仅保留为 reserved/unimplemented
 - `--format json`，当前唯一支持
 - `--help` / `-h`
 
@@ -119,6 +122,7 @@ runtime draft CLI
 退出码建议：
 
 - `0`：CLI 成功完成 orchestration，并生成 draft runtime artifact；**即使 summary.passed=false 也可保持 0，只要不是 CLI/脚本错误**
+- 当前 case status 的诚实结果以 `blocked | dry-run | not-executed` 为主；若出现 `error`，也只表示 orchestration/runtime skeleton 错误位，不表示 provider execution
 - `1`：runtime draft orchestration 自身异常或 fallback error artifact
 - `2`：CLI usage error
 
@@ -172,9 +176,12 @@ runtime draft CLI
 
 - 允许把 preflight fail 映射为 runtime `blocked`；
 - 允许 dry/null mode 产出 `dry-run` / `not-executed`；
+- 允许保留 runtime skeleton/internal failure 的 `error` slot，但不能把它写成 provider execution；
 - 允许把 preflight / static lineage 写入 runtime artifact metadata；
 - 允许在 report 内表达 provider-less draft transcript evidence 或 transcriptRef；
+- 允许 provider adapter seam 作为中间 contract 层接线；
 - 不引入 provider call；
+- 不暴露 provider-backed mode；
 - 不做 transcript persistence；
 - 不做 provider transcript；
 - 不做多 case loop；
@@ -222,10 +229,11 @@ runtime draft CLI
 其中这一步最关键的是把以下语义说死：
 
 - `summary.passed` 在 draft mode 下通常应为 `false`；
-- `cases[].status` 当前只应落在 `blocked | dry-run | not-executed`，除非未来真实 provider 子计划另行扩展；
+- `cases[].status` 当前合同只应落在 `blocked | error | dry-run | not-executed`；其中面向用户的正常诚实结果仍以 `blocked | dry-run | not-executed` 为主，`error` 只是 reserved runtime skeleton/orchestration error slot；
 - `observed` 是 skeleton stub，不是 provider transcript evidence；
 - `transcriptRef` 若出现，只能表示 in-report draft transcript artifact ref；
 - `providerTranscript=false` 必须保持显式；
+- provider-backed mode slot 必须继续保持 reserved/unimplemented，且 CLI 不暴露该模式；
 - `metadata.note` 必须继续明说“no provider call / no provider transcript / no transcript persistence / no scoring”。
 
 **不要改的文件**
@@ -297,7 +305,8 @@ runtime draft CLI
 只回写这些事实：
 
 - runtime draft CLI 是独立草案入口；
-- 其 orchestration 只覆盖 preflight→single-case dry/null runtime skeleton，并允许有限的 provider-less transcript evidence 表达；
+- 其 orchestration 只覆盖 preflight→single-case selection→provider adapter seam→dry/null runtime skeleton，并允许有限的 provider-less transcript evidence 表达；
+- provider adapter seam 当前只是 contract-first 接缝；CLI 仍不暴露 provider-backed mode；
 - provider / provider transcript / transcript persistence / sandbox enforcement / multi-case aggregate 仍未实现；
 - runtime draft 不接入 `validate:all` / `validate:contracts` / `validate:preflight` 默认路径。
 

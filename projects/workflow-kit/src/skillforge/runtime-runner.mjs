@@ -1,5 +1,10 @@
 import { buildRuntimeReplayReport } from "./runtime-replay-reporter.mjs";
 import {
+  buildRuntimeProviderAdapterContractContext,
+  RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+  RUNTIME_PROVIDER_ADAPTER_KEYS,
+} from "./runtime-provider-adapter-contract.mjs";
+import {
   buildRuntimeRunnerContractContext,
   buildRuntimeTranscriptArtifactRef,
 } from "./runtime-runner-contract.mjs";
@@ -8,11 +13,12 @@ import { buildRuntimeTranscriptArtifact } from "./runtime-transcript-contract.mj
 import { selectRuntimeCase } from "./runtime-case-selector.mjs";
 
 const DRY_RUNNER_VERSION = "runtime-runner-skeleton-dry-null-1";
-const SUPPORTED_MODES = new Set(["dry-run", "null-runner"]);
-const NON_PASSING_STATUSES = new Set(["dry-run", "blocked", "not-executed"]);
+const SUPPORTED_MODES = new Set(["dry-run", "null-runner", "provider-backed"]);
+const NON_PASSING_STATUSES = new Set(["dry-run", "blocked", "not-executed", "error"]);
 
 function pickStatusForMode(mode) {
   if (mode === "null-runner") return "not-executed";
+  if (mode === "provider-backed") return "error";
   return "dry-run";
 }
 
@@ -31,15 +37,29 @@ function buildBlockedReason(preflightReport) {
   };
 }
 
+function buildProviderAdapterUnimplementedReason() {
+  return {
+    code: "RUNTIME_PROVIDER_ADAPTER_UNIMPLEMENTED",
+    message:
+      "provider-backed runtime adapter slot is reserved but intentionally unimplemented in this phase",
+    blockingCheckIds: [],
+  };
+}
+
 function buildObservedStub({ mode, caseRecord }) {
   return {
     kind: "runtime-observed-stub",
     mode,
-    evidence: "not-executed",
+    evidence: mode === "provider-backed" ? "provider-slot-reserved" : "not-executed",
     providerCall: false,
     transcriptCaptured: false,
     sideEffectsPerformed: false,
-    note: `runtime runner skeleton did not execute provider for case ${caseRecord?.id ?? "<unknown>"}`,
+    providerEvidenceAvailable: false,
+    persistedEvidenceAvailable: false,
+    note:
+      mode === "provider-backed"
+        ? `runtime runner skeleton reserved provider-backed adapter slot but did not execute provider for case ${caseRecord?.id ?? "<unknown>"}`
+        : `runtime runner skeleton did not execute provider for case ${caseRecord?.id ?? "<unknown>"}`,
   };
 }
 
@@ -50,6 +70,7 @@ function buildTranscriptEvents({
   caseRecord,
   boundary,
   mode,
+  adapterKey,
   blocked,
 }) {
   const blockingChecks = Array.isArray(preflightReport?.checks)
@@ -85,7 +106,7 @@ function buildTranscriptEvents({
       status: preflightReport?.status ?? (blocked ? "blocked" : "passed"),
       detail: blocked
         ? "preflight did not pass, so runtime execution remained blocked in draft mode"
-        : "preflight passed, enabling dry/null runner reservation without provider execution",
+        : "preflight passed, enabling adapter selection without provider execution",
       evidence: {
         reportVersion: preflightReport?.reportVersion ?? null,
         protocolVersion: preflightReport?.protocolVersion ?? null,
@@ -116,18 +137,29 @@ function buildTranscriptEvents({
     },
     {
       phase: "runner",
-      kind: blocked ? "runner-blocked" : mode === "null-runner" ? "runner-skipped" : "runner-dry-run-reserved",
-      status: blocked ? "blocked" : "not-executed",
+      kind: blocked
+        ? "runner-blocked"
+        : mode === "null-runner"
+          ? "runner-skipped"
+          : mode === "provider-backed"
+            ? "runner-provider-slot-blocked"
+            : "runner-dry-run-reserved",
+      status: blocked ? "blocked" : mode === "provider-backed" ? "error" : adapterKey === "dry-run" ? "dry-run" : "not-executed",
       detail: blocked
         ? "runner remained blocked because preflight was not passed"
         : mode === "null-runner"
           ? "null runner reserved output contract shape without execution"
-          : "dry-run reserved output contract shape without execution",
+          : mode === "provider-backed"
+            ? "provider-backed adapter slot was selected but remains intentionally unimplemented in this phase"
+            : "dry-run reserved output contract shape without execution",
       evidence: {
         mode,
+        adapterKey,
         providerCall: false,
         transcriptEngineUsed: false,
         executionReservedOnly: true,
+        providerEvidenceAvailable: false,
+        persistedTranscriptAvailable: false,
       },
     },
   ];
@@ -154,6 +186,77 @@ function normalizeMode(mode) {
     throw new RangeError(`Unsupported runtime runner skeleton mode: ${normalizedMode}`);
   }
   return normalizedMode;
+}
+
+function buildProviderSelection(mode) {
+  const adapterKey = normalizeMode(mode);
+  if (!RUNTIME_PROVIDER_ADAPTER_KEYS.includes(adapterKey)) {
+    throw new RangeError(`Unsupported runtime provider adapter key: ${adapterKey}`);
+  }
+
+  return {
+    adapterKey,
+    providerSlot: RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT,
+    providerBacked: adapterKey === "provider-backed",
+    implemented: adapterKey !== "provider-backed",
+  };
+}
+
+function buildFailureReason({ mode, preflightReport }) {
+  if (preflightReport?.status !== "passed") {
+    return buildBlockedReason(preflightReport);
+  }
+
+  if (mode === "provider-backed") {
+    return buildProviderAdapterUnimplementedReason();
+  }
+
+  return null;
+}
+
+function runBuiltinProviderAdapter({ mode, caseRecord, providerAdapterContract, preflightReport }) {
+  return providerAdapterContract.buildResult({
+    caseId: caseRecord.id,
+    status: pickStatusForMode(mode),
+    observed: buildObservedStub({ mode, caseRecord }),
+    transcriptRef: null,
+    note:
+      mode === "provider-backed"
+        ? "provider-backed adapter slot selected, but no provider integration exists yet"
+        : mode === "null-runner"
+          ? "null runner adapter reserved output contract shape without execution"
+          : "dry-run adapter reserved output contract shape without provider execution",
+    providerMetadata: {
+      implementationState:
+        mode === "provider-backed" ? "reserved-unimplemented-provider-slot" : "builtin-skeleton-adapter",
+      providerBacked: mode === "provider-backed",
+      providerKey: providerAdapterContract.input.provider.providerKey,
+      providerSlot: providerAdapterContract.input.provider.providerSlot,
+      executed: false,
+      providerCall: false,
+      providerEvidenceAvailable: false,
+      transcriptCaptured: false,
+      transcriptPersistence: false,
+      persistence: "none",
+      mode,
+    },
+    pendingCapabilities:
+      mode === "provider-backed"
+        ? [
+            "provider-integration",
+            "provider-selection",
+            "provider-transcript-capture",
+            "provider-transcript-persistence",
+            "runtime-pass-path",
+            "scoring-engine",
+          ]
+        : [
+            "provider-integration",
+            "transcript-engine",
+            "sandbox-implementation",
+            "scoring-engine",
+          ],
+  });
 }
 
 export function buildRuntimeRunnerSkeletonInput({
@@ -207,6 +310,7 @@ export function runRuntimeCaseSkeleton({
     });
 
   const caseRecord = selectRuntimeCase({ normalizedFixture, caseId, caseIndex });
+  const providerSelection = buildProviderSelection(mode);
 
   const effectiveRunnerContract =
     runnerContract ??
@@ -223,6 +327,12 @@ export function runRuntimeCaseSkeleton({
       options: {
         mode,
         skeleton: true,
+        providerAdapterSeam: {
+          key: providerSelection.adapterKey,
+          slot: providerSelection.providerSlot,
+          implemented: providerSelection.implemented,
+          providerBacked: providerSelection.providerBacked,
+        },
       },
     });
 
@@ -234,25 +344,57 @@ export function runRuntimeCaseSkeleton({
     runnerContract: effectiveRunnerContract,
     sandboxContract: effectiveSandboxContract,
     caseId: caseRecord.id,
-    options: { ...options, mode },
+    options: {
+      ...options,
+      mode,
+      providerKey: providerSelection.adapterKey,
+      providerSlot: providerSelection.providerSlot,
+      providerAdapterSeam: {
+        key: providerSelection.adapterKey,
+        slot: providerSelection.providerSlot,
+        implemented: providerSelection.implemented,
+        providerBacked: providerSelection.providerBacked,
+      },
+    },
   });
 
   assertRequiredInput(input);
 
-  const blocked = preflightReport?.status !== "passed";
-  const status = blocked ? "blocked" : pickStatusForMode(mode);
+  const providerAdapterContract = buildRuntimeProviderAdapterContractContext({
+    fixtureDir,
+    loadedFixture,
+    normalizedFixture,
+    caseRecord,
+    boundary: {
+      permissions: effectiveSandboxContract.permissions,
+      toolBoundary: effectiveSandboxContract.toolBoundary,
+    },
+    options: {
+      ...options,
+      mode,
+      providerKey: providerSelection.adapterKey,
+      providerSlot: providerSelection.providerSlot,
+    },
+  });
 
-  if (!NON_PASSING_STATUSES.has(status)) {
-    throw new RangeError(`Runtime runner skeleton produced forbidden status: ${status}`);
+  const adapterResult = runBuiltinProviderAdapter({
+    mode,
+    caseRecord,
+    providerAdapterContract,
+    preflightReport,
+  });
+
+  if (!NON_PASSING_STATUSES.has(adapterResult.status)) {
+    throw new RangeError(`Runtime runner skeleton produced forbidden status: ${adapterResult.status}`);
   }
 
-  const observed = buildObservedStub({ mode, caseRecord });
-  const failureReason = blocked ? buildBlockedReason(preflightReport) : null;
+  const failureReason = buildFailureReason({ mode, preflightReport });
+  const blocked = adapterResult.status === "blocked";
 
   const result = effectiveRunnerContract.buildResult({
     caseId: caseRecord.id,
-    status,
-    observed,
+    status: adapterResult.status,
+    observed: adapterResult.observed,
     transcriptRef: null,
     failureReason,
     runnerMetadata: {
@@ -263,17 +405,24 @@ export function runRuntimeCaseSkeleton({
       providerCall: false,
       transcriptEngineUsed: false,
       sandboxEnforced: false,
+      evidenceProduced: false,
+      transcriptPersistence: "in-report-only",
       caseType: caseRecord?.type ?? null,
+      providerAdapter: {
+        key: providerAdapterContract.input.provider.providerKey,
+        slot: providerAdapterContract.input.provider.providerSlot,
+        builtin: providerAdapterContract.input.provider.builtin,
+        implemented: providerSelection.implemented,
+        providerBacked: providerSelection.providerBacked,
+        status: adapterResult.status,
+      },
       note:
-        mode === "null-runner"
-          ? "null runner skeleton reserved contract shape without execution"
-          : "dry runner skeleton reserved contract shape without provider execution",
-      pendingCapabilities: [
-        "provider-integration",
-        "transcript-engine",
-        "sandbox-implementation",
-        "scoring-engine",
-      ],
+        mode === "provider-backed"
+          ? "runner selected provider-backed adapter slot, but execution remains intentionally unimplemented"
+          : mode === "null-runner"
+            ? "runner selected null runner adapter and reserved contract shape without execution"
+            : "runner selected dry-run adapter and reserved contract shape without provider execution",
+      pendingCapabilities: adapterResult.providerMetadata?.pendingCapabilities,
     },
   });
 
@@ -295,8 +444,9 @@ export function runRuntimeCaseSkeleton({
     runnerMetadata: result.runnerMetadata,
     outcome: {
       status: result.status,
-      observedKind: observed.kind,
-      observed,
+      observedKind: adapterResult.observed.kind,
+      observedEvidence: adapterResult.observed.evidence,
+      observed: adapterResult.observed,
       failureReason,
     },
     events: buildTranscriptEvents({
@@ -309,6 +459,7 @@ export function runRuntimeCaseSkeleton({
         toolBoundary: effectiveSandboxContract.toolBoundary,
       },
       mode,
+      adapterKey: providerSelection.adapterKey,
       blocked,
     }),
     note:
@@ -325,6 +476,7 @@ export function runRuntimeCaseSkeleton({
     caseId: caseRecord.id,
     executionMode: mode,
     available: true,
+    persistence: "in-report-only",
     location: {
       kind: "in-report-artifact",
       path: ["cases", 0, "transcript"],
@@ -372,6 +524,18 @@ export function runRuntimeCaseSkeleton({
         fixtureId: normalizedFixture?.replayCases?.fixtureId ?? null,
       },
       mode,
+      providerAdapter: {
+        key: providerSelection.adapterKey,
+        slot: providerSelection.providerSlot,
+        implemented: providerSelection.implemented,
+        providerBacked: providerSelection.providerBacked,
+      },
+      statusTaxonomy: {
+        reportStatuses: ["draft", "blocked"],
+        caseStatuses: ["blocked", "error", "dry-run", "not-executed"],
+        passedReserved: true,
+        providerReadyPassPathImplemented: false,
+      },
       pendingCapabilities: result.runnerMetadata.pendingCapabilities,
     },
     cases: [
@@ -403,8 +567,11 @@ export function runRuntimeCaseSkeleton({
             scope: "runtime",
             status: "warn",
             severity: "P2",
-            message: "runtime runner skeleton only emits dry-run/null-runner contract results in this phase",
-            evidence: [mode],
+            message:
+              mode === "provider-backed"
+                ? "runtime runner skeleton selected provider-backed adapter slot but it remains intentionally unimplemented in this phase"
+                : "runtime runner skeleton only emits dry-run/null-runner contract results in this phase",
+            evidence: [mode, providerSelection.adapterKey],
           },
         ],
     options: {
@@ -414,7 +581,7 @@ export function runRuntimeCaseSkeleton({
       },
       sandbox: effectiveSandboxContract.boundarySummary,
       note:
-        "runtime draft artifact only; single-case dry/null skeleton with no provider call, no transcript evidence, no scoring, and no runtime pass evidence",
+        "runtime draft artifact only; single-case adapter-driven skeleton with no provider call, no transcript evidence, no scoring, and no runtime pass evidence",
     },
   });
 

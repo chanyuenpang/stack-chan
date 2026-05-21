@@ -4,10 +4,9 @@ export const RUNTIME_REPLAY_REPORT_VERSION = "0.1.0-draft";
 export const RUNTIME_REPLAY_PROTOCOL_VERSION = "runtime-replay-protocol-draft-1";
 export const RUNTIME_REPLAY_KIND = "runtime-replay-report";
 
-const PASSING_CASE_STATUSES = new Set(["passed"]);
-const FAILING_CASE_STATUSES = new Set(["failed", "error"]);
+const FAILING_CASE_STATUSES = new Set(["error"]);
 const DRAFT_NON_EXECUTED_CASE_STATUSES = new Set(["blocked", "dry-run", "not-executed"]);
-const ALLOWED_DRAFT_CASE_STATUSES = new Set(["blocked", "dry-run", "not-executed"]);
+const ALLOWED_DRAFT_CASE_STATUSES = new Set(["blocked", "error", "dry-run", "not-executed"]);
 const WARNING_CHECK_STATUSES = new Set(["warn"]);
 const ERROR_CHECK_STATUSES = new Set(["error", "fail"]);
 const DEFAULT_PENDING_CAPABILITIES = [
@@ -51,7 +50,7 @@ function normalizeObserved(observed, status) {
   return {
     ...observed,
     kind: observed?.kind ?? fallback.kind,
-    evidence: "not-executed",
+    evidence: observed?.evidence ?? "not-executed",
     providerCall: false,
     transcriptCaptured: false,
     sideEffectsPerformed: false,
@@ -66,9 +65,10 @@ function normalizeTranscriptRef(transcriptRef, runtimeCase) {
     ...transcriptRef,
     available: transcriptRef?.available === true,
     providerTranscript: transcriptRef?.providerTranscript === true,
+    persistence: transcriptRef?.persistence ?? "in-report-only",
     note:
       transcriptRef?.note ??
-      `draft transcript ref only for case ${runtimeCase?.id ?? "<unknown>"}; not a provider transcript reference`,
+      `draft transcript ref only for case ${runtimeCase?.id ?? "<unknown>"}; not a provider transcript reference and not persisted provider evidence`,
   };
 }
 
@@ -108,7 +108,7 @@ function normalizeError(error) {
 }
 
 function buildSummary(runtimeCases, checks, errors) {
-  const passedCases = runtimeCases.filter((runtimeCase) => PASSING_CASE_STATUSES.has(runtimeCase.status)).length;
+  const passedCases = 0;
   const failedCases = runtimeCases.filter((runtimeCase) => FAILING_CASE_STATUSES.has(runtimeCase.status)).length;
   const blockedCases = runtimeCases.filter((runtimeCase) => DRAFT_NON_EXECUTED_CASE_STATUSES.has(runtimeCase.status)).length;
   const warnings = checks.filter((check) => WARNING_CHECK_STATUSES.has(check.status)).length;
@@ -162,6 +162,12 @@ export function buildRuntimeReplayReport({
       sandbox: runtime?.sandbox ?? options.sandbox ?? null,
       executionMode: runtime?.mode ?? null,
       note: options.note ?? DEFAULT_METADATA_NOTE,
+      statusTaxonomy: {
+        reportStatuses: ["draft", "blocked"],
+        caseStatuses: [...ALLOWED_DRAFT_CASE_STATUSES],
+        passedReserved: true,
+        providerReadyPassPathImplemented: false,
+      },
       lineage: {
         static: {
           kind: runtime?.staticBaseline?.kind ?? null,
