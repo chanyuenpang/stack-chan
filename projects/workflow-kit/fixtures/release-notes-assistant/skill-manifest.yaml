@@ -1,0 +1,48 @@
+fixtureId: release-notes-assistant
+fixtureVersion: 0.1.0
+kind: skill-manifest
+profile: standard
+skills:
+  - id: release-notes-assistant
+    name: release-notes-assistant
+    version: 0.1.0
+    title: 版本发布说明整理助手
+    entry: skill/SKILL.md
+    description: 输入公开、虚构或合成 changelog、PR 摘要、版本变更列表，输出结构化中文 release notes。
+    tags:
+      - release-notes
+      - changelog
+      - product-updates
+      - standard
+      - zh-CN
+    language: zh-CN
+    permissions:
+      network: false
+      externalSend: false
+      fileRead: false
+      fileWrite: false
+      destructiveOperations: false
+      privatePathRead: false
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+resources:
+  templates:
+    - templates/release-notes-template.md
+  examples:
+    - examples/synthetic-changelog.md
+checklist:
+  structure: manifest 包含 fixtureId、profile、技能 ID、版本、标题、入口、附属资源和权限。
+  trigger: manifest 描述 changelog、PR 摘要、版本变更列表整理为发布说明主题。
+  boundary: 权限默认保守，不联网、不读本地、不写文件、不外发。
+  dependency: 不声明外部依赖或外部服务。
+  replay: 与 replay-cases.yaml 使用同一 fixtureId，结果保持 pending。
+  privacy: 仅处理公开、虚构或合成输入，不含真实私有仓库或敏感信息。
+  compatibility: entry 使用相对路径 skill/SKILL.md；runtime、跨平台、跨模型、CI 均 pending。

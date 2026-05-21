@@ -4,7 +4,7 @@
 >
 > 回写机制：每个小计划完成后，必须把实际完成状态回写到 `docs/roadmap.md`、必要的 `docs/static-mvp-validation-report.md` 与 `README.md`；未完成、未验证或仅设计中的能力必须继续标记为 `PENDING` / 风险项，不能写成 done。
 >
-> 当前活跃阶段：**Phase 1 收敛 / Phase 2B 本地总入口已落地**。Phase 1 已完成 evidence 去重、checklist 聚合语义同步、本地正反例矩阵入口；Phase 2A 已固化最小 schema/profile 文档契约，新增 `study-card-assistant` simple fixture 并实现 `validate:fixtures` 最小多正例入口；Phase 2B 已把 `validate:all` 改为本地总入口，顺序运行多正例入口与独立反例矩阵。schema engine、profile blocking rule、CI 与 runtime replay 仍未完成。
+> 当前活跃阶段：**Phase 1 收敛 / Phase 2D standard fixture 已落地**。Phase 1 已完成 evidence 去重、checklist 聚合语义同步、本地正反例矩阵入口；Phase 2A 已固化最小 schema/profile 文档契约，新增 `study-card-assistant` simple fixture 并实现 `validate:fixtures` 最小多正例入口；Phase 2B 已把 `validate:all` 改为本地总入口，顺序运行多正例入口与独立反例矩阵；Phase 2D 已新增 `release-notes-assistant` standard fixture。schema engine、profile blocking rule、CI 与 runtime replay 仍未完成。
 >
 > 当前验证入口：`pnpm --silent validate` 输出 baseline 正例 fixture 的 JSON artifact；`pnpm --silent validate:fixtures` 输出当前两个正例 fixture 的 multi-fixture JSON artifact；`pnpm --silent validate:fixture:matrix` 独立运行当前 6/6 正反例矩阵；`pnpm --silent validate:all` 作为本地总入口顺序运行 `validate:fixtures` 与 `validate:fixture:matrix` 并输出 human-readable aggregate summary。它们都只代表 static validation，不代表 runtime replay、跨平台、跨模型或 CI 验证通过。
 >
@@ -22,10 +22,11 @@
 | 单 fixture 静态 MVP | 已完成 | `fixtures/meeting-summary-assistant/**` 作为正例 fixture |
 | JSON validator | 已完成最小静态校验器 | `pnpm --silent validate`（等价于 `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json`）可输出正例 JSON artifact |
 | 本地静态矩阵 gate | Phase 1 已完成，需防回归 | `pnpm --silent validate:all`（等价于 `pnpm --silent validate:fixture:matrix`）当前 6/6 通过；输出 human-readable matrix summary |
-| 正例静态验证 | 通过 | `docs/static-mvp-validation-report.md` 记录 `meeting-summary-assistant` 与 `study-card-assistant` 单 fixture 均 exit `0`、各 15 条规则全 pass；`validate:fixtures` 当前 `totalFixtures=2`、`passedFixtures=2` |
+| 正例静态验证 | 通过 | `docs/static-mvp-validation-report.md` 记录 `meeting-summary-assistant`、`study-card-assistant` 与 `release-notes-assistant` 单 fixture 均 exit `0`、各 15 条规则全 pass；`validate:fixtures` 当前 `totalFixtures=3`、`passedFixtures=3` |
 | Phase 2A schema/profile 文档契约 | 已完成最小契约 | `docs/phase-2-schema-and-fixtures.md` 定义 `simple | standard | advanced-reserved`、扁平 fixture 目录、schema/report 字段候选与 pending 边界 |
 | 第二个 simple fixture | 已完成静态正例 | `fixtures/study-card-assistant/**` 非会议类学习卡片样本，单 fixture 静态验证通过 |
-| 多正例静态入口 | 已完成最小入口 | `pnpm --silent validate:fixtures` 默认扫描当前两个完整正例 fixture；显式路径模式也通过；继续作为 multi-fixture JSON artifact 入口 |
+| 首个 standard fixture | Phase 2D 已完成静态正例 | `fixtures/release-notes-assistant/**` 发布说明整理样本，包含 `templates/` 与 `examples/`，单 fixture 静态验证通过，profile=`standard` |
+| 多正例静态入口 | 已完成最小入口 | `pnpm --silent validate:fixtures` 默认扫描当前三个完整正例 fixture；显式路径模式也通过；继续作为 multi-fixture JSON artifact 入口 |
 | 本地总入口编排 | Phase 2B 已完成 | `pnpm --silent validate:all` 顺序运行 `validate:fixtures` 与 `validate:fixture:matrix`；即使正例阶段失败也继续运行矩阵，最终聚合 exit code；不输出 suite JSON |
 | 关键反例静态验证 | 已有证据 | 缺 description、secret/private path、伪 replay、缺 7 维 checklist 等反例均能失败并输出合法 JSON |
 
@@ -42,11 +43,11 @@
 | 完整生成器 | PENDING | 还不能从任意 workflow 自动生成完整 skill 文件树 |
 | UI | PENDING | 尚无可视化录入、审核、回放、发布界面 |
 | CI | PENDING | validator 尚未接入 PR/发布门禁；当前 `validate:all` 是本地 gate，不等于 CI 已完成 |
-| 多 fixture / 多平台 / 多模型系统矩阵 | 部分完成 / 其余 PENDING | Phase 2A 已有两个 simple 正例与 `validate:fixtures` 多正例静态入口；standard/advanced fixture、CI、跨平台、跨模型系统矩阵仍属后续 Phase 2+ |
+| 多 fixture / 多平台 / 多模型系统矩阵 | 部分完成 / 其余 PENDING | Phase 2A 已有两个 simple 正例、一个 standard 正例与 `validate:fixtures` 多正例静态入口；advanced fixture、CI、跨平台、跨模型系统矩阵仍属后续 Phase 2+ |
 
 ### 1.3 当前边界判定
 
-- 可以说：SkillForge 已完成“文档设计闭环 + 单 fixture 静态 MVP + JSON validator + 两个 simple 正例静态验证 + Phase 2A 最小多正例入口”。
+- 可以说：SkillForge 已完成“文档设计闭环 + 单 fixture 静态 MVP + JSON validator + 两个 simple 正例与一个 standard 正例静态验证 + Phase 2A 最小多正例入口”。
 - 不可以说：SkillForge 已完成真实模型回放、完整生成器、完整产品验收、跨平台/跨模型兼容。
 - 后续所有报告必须区分：`static_checked`、`runtime_replay_pending`、`cross_platform_pending`、`product_pending`。
 
@@ -194,7 +195,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 **任务列表**
 
 1. 新增至少 2 个非会议类 simple fixture，验证规则通用性。
-2. 新增 1 个 standard fixture，包含必要附属目录，例如 `references/` 或 `tools/`。
+2. 新增 1 个 standard fixture，包含必要附属目录，例如 `templates/` 与 `examples/`。（Phase 2D 已完成 `release-notes-assistant`；后续可继续扩展更多 standard/advanced 样本。）
 3. 抽象 fixture schema：ID 链、entry、manifest、validation、replay cases、privacy 声明。
 4. 抽象 report schema：版本、环境、summary、checks、findings、pending 项。
 5. 建立 CI：PR 中运行全部正例 fixture 和反例矩阵。
@@ -223,14 +224,15 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 - evidence 去重、checklist 聚合语义、本地反例矩阵均有防回归口径，不再被列为未完成能力。
 - schema/profile 最小契约已固化：`simple | standard | advanced-reserved`、`fixtures/<fixture-id>/` 扁平目录、profile 推荐声明位置和 schema 字段候选。
 - 第二个非会议类 simple fixture `study-card-assistant` 已创建并通过单 fixture 静态验证：主题为公开/虚构/合成学习材料转问答学习卡片，用于验证 trigger 与隐私规则不只围绕会议样本过拟合；runtime replay、跨平台、跨模型仍 pending。
-- `validate:fixtures` 已实现为 Phase 2A 最小多正例静态入口：默认扫描当前两个完整 fixture，显式路径模式通过，multi report 当前 `totalFixtures=2`、`passedFixtures=2`、`failedFixtures=0`。
+- `validate:fixtures` 已实现为 Phase 2A 最小多正例静态入口：默认扫描当前三个完整 fixture，显式路径模式通过，multi report 当前 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`。
 - `validate:all` 已实现为 Phase 2B 本地总入口：解析 `validate:fixtures` JSON 并打印 compact summary，再运行独立 matrix；任一阶段失败则总入口失败。
+- Phase 2D 已新增 `release-notes-assistant` standard fixture：发布说明整理主题，profile 透传为 `standard`，包含 `templates/release-notes-template.md` 与 `examples/synthetic-changelog.md`，仍保持 static-only、权限全关闭、无外部依赖。
 - 仍未完成 schema engine、profile blocking rule、CI、runtime replay；不得宣称 Phase 2 完成。
 - 进入 Phase 2 后续小计划必须明确：新增 fixture 范围、schema 草案边界、CI 入口是否只是规划还是已落地。
 
 **首批小计划建议**
 
-1. 多 fixture 扩展小计划：新增 2 个 simple fixture 与 1 个 standard fixture，只宣称静态通过。
+1. 多 fixture 扩展小计划：继续扩展 simple/standard fixture；当前已新增 `study-card-assistant` simple 与 `release-notes-assistant` standard，只宣称静态通过。
 2. Schema/contract 小计划：抽象 fixture schema 与 report schema，保持 `validate` JSON artifact 兼容。
 3. CI gate 小计划：把本地总入口 `validate:all` 接入 PR/发布前检查；完成前 CI 继续保持 `PENDING`。
 4. Snapshot/contract test 小计划：固定关键 JSON 字段，避免 runtime metadata（如 `generatedAt`）导致脆弱测试。
@@ -394,7 +396,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 | Validator 契约稳定性 | 规则清单、report schema、退出码说明仍需固化 | 后续 CI、生成器、UI 都依赖稳定输出 | P0 | Phase 1 |
 | evidence 去重防回归 | Phase 1 已完成；需在后续规则扩展中保持去重与脱敏一致 | 降低误判和报告阅读成本 | P1 | Phase 1 防回归 |
 | checklist 聚合语义防回归 | Phase 1 已文档化多来源聚合逻辑；需在多 fixture 扩展中保持一致 | 避免测试和用户误解“删除单一来源为何不失败” | P1 | Phase 1 防回归 / Phase 2 泛化 |
-| 多 fixture 覆盖 | 已有两个 simple 正例；仍缺更多 simple 与 standard/advanced 覆盖 | 防止规则过拟合，验证 schema 通用性 | P0 | Phase 2 |
+| 多 fixture 覆盖 | 已有两个 simple 正例和一个 standard 正例；仍缺更多 simple 与 advanced 覆盖 | 防止规则过拟合，验证 schema 通用性 | P0 | Phase 2 |
 | Schema | Phase 2A 已进入 schema/profile 文档契约固化；仍缺正式机器可读约束和 schema engine | CI、生成器、UI 需要共同契约 | P0 | Phase 2 |
 | CI 门禁 | 还未自动在 PR/发布前运行；`validate:all` 只是本地总入口 | 防止静态质量回退 | P0 | Phase 2 |
 | 本地反例矩阵防回归 / CI 接入 | 本地矩阵脚本与本地总入口已完成；CI 自动运行仍 pending | 确保隐私、伪 replay、缺字段等高风险不回归 | P0 | Phase 1 防回归 / Phase 2 CI |
@@ -459,7 +461,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 
 1. **固化 validator 契约与规则清单**：把现有 15 条规则整理成可维护规则表，明确 ID、dimension、severity、scope、失败条件和修复建议。
 2. **Phase 1 防回归复核**：持续运行 `validate` / `validate:all`，确保 evidence 去重、七维 checklist 多来源聚合语义和本地矩阵不回退。
-3. **新增第二、第三个 simple fixture**：选择非会议场景，验证规则通用性，防止单 fixture 过拟合。
+3. **新增更多 simple/advanced fixture**：选择非会议场景，验证规则通用性，防止单 fixture 过拟合。
 4. **引入 schema 与 CI 门禁**：先让所有正例 fixture 和关键反例矩阵在 CI 中稳定运行。
 5. **设计 runtime replay 最小协议**：先不追求全自动平台，先定义 transcript、observed、passed、评分 rubric 和人工复核格式。
 
@@ -470,7 +472,7 @@ Phase 1 正在收敛：evidence 去重、本地矩阵脚本、checklist 聚合�
 | M0 文档闭环 | 核心文档、验收、10 轮优化完成 | 已完成 |
 | M1 静态 MVP | 单 fixture + JSON validator + 正例静态通过 | 已完成 |
 | M2 稳定静态工具 | 规则清单、schema 草案、去重、诊断、开发指南 | Phase 1 收敛中；去重/聚合/本地矩阵已完成，Phase 2A schema/profile 文档契约固化中，schema engine/CI 仍 pending |
-| M3 多 fixture + CI | 多 fixture、反例矩阵、CI 门禁 | 未开始 |
+| M3 多 fixture + CI | 多 fixture、反例矩阵、CI 门禁 | 多 fixture 静态部分进行中：已有 3 个正例；CI 仍未开始 |
 | M4 真实模型回放 | transcript + observed + 评分 + 验收记录 | 未开始 |
 | M5 生成器 | workflow 输入生成 skill 并通过验证 | 未开始 |
 | M6 发布协作 | registry、UI、团队评审、回滚、反馈优化 | 远期 |

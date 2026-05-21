@@ -1,0 +1,47 @@
+fixtureId: release-notes-assistant
+fixtureVersion: 0.1.0
+kind: generation-run
+profile: standard
+run:
+  id: release-notes-standard-static-run-001
+  mode: static-fixture
+  status: prepared
+  modelReplayExecuted: false
+  notes:
+    - 该文件仅描述公开、虚构或合成 standard fixture 的静态生成记录。
+    - 未执行真实模型回放。
+    - 未访问网络、未读取本地文件、未外发、未写入文件。
+    - 不代表 runtime replay、cross-platform、cross-model 或 CI 通过。
+artifacts:
+  workflowSource: workflow-source.yaml
+  skillSpec: skill-spec.yaml
+  manifest: skill-manifest.yaml
+  skillEntry: skill/SKILL.md
+  template: templates/release-notes-template.md
+  example: examples/synthetic-changelog.md
+safety:
+  publicFictionalSyntheticOnly: true
+  containsSecrets: false
+  containsRealPrivateRepos: false
+  containsRealIssues: false
+  containsRealCustomers: false
+  containsInternalHostsOrIps: false
+  containsPrivatePaths: false
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+checklist:
+  structure: 记录生成模式、状态、profile 和 required/additional 产物路径。
+  trigger: 关联发布说明整理技能。
+  boundary: 声明未执行任何外部副作用，权限全部关闭。
+  dependency: 无模型回放依赖，无外部 API 依赖。
+  replay: 明确 modelReplayExecuted 为 false，case 结果保持 null。
+  privacy: 标注公开、虚构或合成且不含敏感内容。
+  compatibility: 使用稳定 YAML 字段，适合静态校验读取；runtime、跨平台、跨模型、CI 均 pending。

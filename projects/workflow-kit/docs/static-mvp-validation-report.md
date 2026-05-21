@@ -4,7 +4,7 @@
 
 本报告固化 SkillForge 静态 MVP 的当前可复现证据，范围限定为：
 
-- 正例 fixtures：`fixtures/meeting-summary-assistant/**` 与 `fixtures/study-card-assistant/**`
+- 正例 fixtures：`fixtures/meeting-summary-assistant/**`、`fixtures/study-card-assistant/**` 与 `fixtures/release-notes-assistant/**`
 - 单 fixture 静态校验命令：`pnpm --silent validate:fixture <fixture-path> --format json`
 - 多正例静态校验命令：`pnpm --silent validate:fixtures`
 - 本地总入口命令：`pnpm --silent validate:all`（顺序运行多正例入口与独立反例矩阵）
@@ -52,21 +52,22 @@ pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 
 正例摘要：15 条规则全部通过，其中 P0 5 条、P1 8 条、P2 2 条；`blockingFailures=0`、`warnings=0`、`errors=0`。
 
-## 2A. Phase 2A 多 fixture 静态证据（最新重新运行）
+## 2A. Phase 2A / 2D 多 fixture 静态证据（最新重新运行）
 
-本节补充 Phase 2A 证据：第二个非会议类 simple fixture `study-card-assistant` 已通过静态验证，`validate:fixtures` 已作为最小多正例入口通过。该证据仍只代表 static validation。
+本节补充 Phase 2A/2D 证据：第二个非会议类 simple fixture `study-card-assistant` 与首个 standard fixture `release-notes-assistant` 已通过静态验证，`validate:fixtures` 已作为多正例入口通过。该证据仍只代表 static validation。
 
 | 命令 | exit code | 关键结果 |
 |---|---:|---|
 | `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json` | `0` | `status=passed`，`summary.passed=true`，`summary.total=15`，`blockingFailures=0`，`warnings=0`，`errors=0` |
 | `pnpm --silent validate:fixture fixtures/study-card-assistant --format json` | `0` | `status=passed`，`summary.passed=true`，`summary.total=15`，`blockingFailures=0`，`warnings=0`，`errors=0` |
-| `pnpm --silent validate:fixtures` | `0` | `kind=multi-fixture-validation-report`，`status=passed`，`summary.totalFixtures=2`，`passedFixtures=2`，`failedFixtures=0`，`totalChecks=30`，`bySeverity=P0:10/P1:16/P2:4` |
-| `pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant --format json` | `0` | 显式路径模式通过；输出顺序为 `meeting-summary-assistant`、`study-card-assistant`；`totalFixtures=2`，`passedFixtures=2`，`failedFixtures=0` |
+| `pnpm --silent validate:fixture fixtures/release-notes-assistant --format json` | `0` | `status=passed`，`fixture.id=release-notes-assistant`，`fixture.profile=standard`，`summary.total=15`，`blockingFailures=0`，`warnings=0`，`errors=0` |
+| `pnpm --silent validate:fixtures` | `0` | `kind=multi-fixture-validation-report`，`status=passed`，`summary.totalFixtures=3`，`passedFixtures=3`，`failedFixtures=0`，`totalChecks=45`，`bySeverity=P0:15/P1:24/P2:6`；profiles: `meeting-summary-assistant:null`、`release-notes-assistant:standard`、`study-card-assistant:simple` |
+| `pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant fixtures/release-notes-assistant --format json` | `0` | 显式路径模式通过；`totalFixtures=3`，`passedFixtures=3`，`failedFixtures=0` |
 | `pnpm --silent validate` | `0` | 仍只验证 baseline fixture `fixtures/meeting-summary-assistant`，输出单 fixture JSON artifact |
 | `pnpm --silent validate:fixture:matrix` | `0` | 独立本地正反例矩阵 gate，输出 `Fixture matrix passed: 6/6 cases.` |
-| `pnpm --silent validate:all` | `0` | Phase 2B 本地总入口通过；先打印 `validate:fixtures` compact summary（`fixtures passed 2/2`、`totalChecks=30`、`blockingFailures=0`、`warnings=0`、`errors=0`），再运行 matrix 并输出 `Fixture matrix passed: 6/6 cases.` |
+| `pnpm --silent validate:all` | `0` | Phase 2B+2D 本地总入口通过；先打印 `validate:fixtures` compact summary（`fixtures passed 3/3`、`totalChecks=45`、`blockingFailures=0`、`warnings=0`、`errors=0`），再运行 matrix 并输出 `Fixture matrix passed: 6/6 cases.` |
 
-最新复核环境：CWD `/home/yankeeting/.openclaw/projects/workflow-kit`，Node `v24.15.0`，pnpm `10.33.2`。本次 multi-fixture report 的 `generatedAt` 为运行时字段（示例：`2026-05-21T05:28:56.356Z`），不应 snapshot。
+最新复核环境：CWD `/home/yankeeting/.openclaw/projects/workflow-kit`，Node `v24.15.0`，pnpm `10.33.2`。本次 multi-fixture report 的 `generatedAt` 为运行时字段，不应 snapshot。
 
 ## 3. Phase 1 反例矩阵摘要
 
@@ -86,7 +87,7 @@ Phase 1 结论：5 类反例均 exit 非 0，失败场景 stdout 均为合法 JS
 
 ## 3B. Phase 2B 本地总入口验证证据
 
-Phase 2B 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本地总入口编排：
+Phase 2B+2D 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本地总入口编排，并纳入首个 standard fixture：
 
 1. 运行 `node scripts/validate-fixtures.mjs`，要求 stdout 可解析为 multi-fixture JSON，并打印 compact human-readable suite summary。
 2. 无论第一阶段是否失败，继续运行 `node scripts/validate-fixture-matrix.mjs`，保留矩阵 human-readable stdout。
@@ -97,7 +98,7 @@ Phase 2B 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本地�
 
 | 命令 | exit code | 关键结果 |
 |---|---:|---|
-| `pnpm --silent validate:all` | `0` | 输出 `== validate:fixtures ==`、`fixtures passed 2/2`、`totalChecks=30`、`blockingFailures=0`、`warnings=0`、`errors=0`；随后输出 `== validate:fixture:matrix ==` 与 `Fixture matrix passed: 6/6 cases.` |
+| `pnpm --silent validate:all` | `0` | 输出 `== validate:fixtures ==`、`fixtures passed 3/3`、`totalChecks=45`、`blockingFailures=0`、`warnings=0`、`errors=0`；随后输出 `== validate:fixture:matrix ==` 与 `Fixture matrix passed: 6/6 cases.` |
 
 该证据仍是本地 static validation 证据，不代表 CI、runtime replay、跨平台或跨模型完成。
 
@@ -140,6 +141,6 @@ Phase 2B 已把 `pnpm --silent validate:all` 从 matrix-only alias 改为本地�
 
 ## 7. 结论
 
-当前静态 MVP、Phase 2A 最小多 fixture 证据与 Phase 2B 本地总入口证据可复现：两个 simple 正例 fixture 在当前环境下均 exit 0、各 15 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=2`、`passedFixtures=2`、`failedFixtures=0`；`validate:fixture:matrix` 证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力；`validate:all` 已把两者编排为本地总入口并通过。
+当前静态 MVP、Phase 2A 最小多 fixture 证据与 Phase 2B 本地总入口证据可复现：两个 simple 正例 fixture 与一个 standard 正例 fixture 在当前环境下均 exit 0、各 15 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=3`、`passedFixtures=3`、`failedFixtures=0`；`validate:fixture:matrix` 证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力；`validate:all` 已把两者编排为本地总入口并通过。
 
-结论限定为：**SkillForge 静态 MVP、Phase 2A 最小多正例静态入口与 Phase 2B 本地总入口验证通过，可作为后续 schema engine、runtime replay、CI、跨平台/跨模型兼容和完整产品验收的基础证据。**
+结论限定为：**SkillForge 静态 MVP、Phase 2A/2D 多正例静态入口与 Phase 2B 本地总入口验证通过（3 fixture、3 profile 值），可作为后续 schema engine、runtime replay、CI、跨平台/跨模型兼容和完整产品验收的基础证据。**

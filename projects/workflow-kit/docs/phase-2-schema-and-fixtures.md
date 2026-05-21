@@ -1,6 +1,6 @@
 # Phase 2 Schema 与多 Fixture 前置设计
 
-> Phase 2A 状态：schema/profile 最小文档契约已固化，`fixtures/study-card-assistant` 已作为第二个 simple 正例 fixture 创建并通过静态验证，`validate:fixtures` 已实现为最小多正例静态验证入口。Phase 2B 状态：`validate:all` 已实现为本地总入口，顺序运行 `validate:fixtures` 与独立 `validate:fixture:matrix`。Phase 2C 状态：`fixture.profile` 已从 manifest/frontmatter 透传到 single report 与 multi report；仍不创建 JSON Schema 文件，不实现 schema engine，不新增 blocking profile rule，不迁移现有 fixture 路径，不宣称 CI 已完成。
+> Phase 2A 状态：schema/profile 最小文档契约已固化，`fixtures/study-card-assistant` 已作为第二个 simple 正例 fixture 创建并通过静态验证，`validate:fixtures` 已实现为最小多正例静态验证入口。Phase 2B 状态：`validate:all` 已实现为本地总入口，顺序运行 `validate:fixtures` 与独立 `validate:fixture:matrix`。Phase 2C 状态：`fixture.profile` 已从 manifest/frontmatter 透传到 single report 与 multi report。Phase 2D 状态：`fixtures/release-notes-assistant` 已作为首个 `standard` profile 正例 fixture 创建并通过静态验证，包含 `templates/` 与 `examples/` 附属材料；仍不创建 JSON Schema 文件，不实现 schema engine，不新增 blocking profile rule，不迁移现有 fixture 路径，不宣称 CI 已完成。
 
 ## 1. Purpose
 
@@ -200,12 +200,12 @@ description: "当用户要求把公开或虚构学习材料整理成问答学习
 ```bash
 pnpm --silent validate:fixture fixtures/study-card-assistant --format json
 pnpm --silent validate:fixtures
-pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant --format json
+pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant fixtures/release-notes-assistant --format json
 pnpm --silent validate
 pnpm --silent validate:all
 ```
 
-其中 `validate:fixtures` 默认扫描当前两个完整正例 fixture，并输出 `kind: "multi-fixture-validation-report"` 的 JSON 汇总。
+其中 `validate:fixtures` 默认扫描当前三个完整正例 fixture，并输出 `kind: "multi-fixture-validation-report"` 的 JSON 汇总。
 
 ### Risks specific to `study-card-assistant`
 
@@ -213,6 +213,60 @@ pnpm --silent validate:all
 2. **隐私误带**：学习材料容易混入真实学生、学校、账号、路径、私有课程链接或未授权教材内容。
 3. **边界声明弱**：若未明确不联网/不读本地/不写文件/不外发，后续 validator 或人工审核难以判断安全边界。
 4. **Replay 伪通过**：在没有真实模型执行证据时，不得把 `observed` 填成输出或把 `passed` 写成 `true`。
+
+## 4B. Standard Fixture：`release-notes-assistant`
+
+`fixtures/release-notes-assistant/**` 已按 Phase 2D 边界创建为首个 standard profile fixture，并已通过单 fixture 与多 fixture 静态验证。它使用公开、虚构或合成 changelog、PR 摘要和版本变更列表，整理面向用户的中文发布说明。该证据仍然只是 static-only 验证，不代表 runtime replay、cross-platform、cross-model 或 CI 通过。
+
+### Identity / profile
+
+- Fixture ID：`release-notes-assistant`。
+- Fixture version：`0.1.0`。
+- Profile：`standard`；`skill-manifest.yaml` 顶层声明 `profile: standard`，`skill/SKILL.md` frontmatter `metadata.profile` 也声明为 `standard`。
+- 目录策略：继续使用 `fixtures/release-notes-assistant/` 扁平目录；不引入 profile 分层路径。
+- 主题：把用户直接提供的公开、虚构或合成 changelog、PR 摘要、版本变更列表整理成发布说明。
+
+### Files and standard attachments
+
+该 fixture 包含 8 个 required files，并额外包含 standard profile 附属材料：
+
+```text
+fixtures/release-notes-assistant/
+├── README.md
+├── workflow-source.yaml
+├── skill-spec.yaml
+├── generation-run.yaml
+├── skill-manifest.yaml
+├── replay-cases.yaml
+├── validation-result.yaml
+├── skill/
+│   └── SKILL.md
+├── templates/
+│   └── release-notes-template.md
+└── examples/
+    └── synthetic-changelog.md
+```
+
+### Static behavior boundary
+
+- 输出章节至少覆盖 `highlights`、`breaking changes`、`migration notes`、`known limitations`、`upgrade checklist`，并说明 source scope。
+- replay cases 至少 5 个，覆盖合成 changelog、虚构 PR 摘要、breaking change 边界、私有 repo/内部 tracker 拒绝、敏感类别拒绝；所有 `observed` 与 `passed` 均为 `null`。
+- 权限全部关闭：`network`、`externalSend`、`fileRead`、`fileWrite`、`destructiveOperations`、`privatePathRead` 均为 `false`。
+- dependencies 保持 `noneDeclared: true` 与 `items: []`。
+- 全部内容必须为公开、虚构或合成材料，不得包含真实私有 repo、真实 issue、真实客户、内部 host/IP、token、私有路径或未授权内部资料。
+- `validation-result.yaml` 与技能正文均保持 static-only 口径：不声明 runtime replay、cross-platform、cross-model 或 CI 已通过。
+
+### Latest acceptance evidence
+
+最新 Phase 2D 静态验收命令包括：
+
+```bash
+pnpm --silent validate:fixture fixtures/release-notes-assistant --format json
+pnpm --silent validate:fixtures
+pnpm --silent validate:all
+```
+
+期望结果：单 fixture report 中 `fixture.id === "release-notes-assistant"`、`fixture.profile === "standard"`，`blockingFailures=0`、`warnings=0`、`errors=0`；multi-fixture report 中 `summary.totalFixtures=3`、`passedFixtures=3`，profiles 覆盖 `meeting-summary-assistant:null`、`study-card-assistant:simple`、`release-notes-assistant:standard`；`validate:all` 正例阶段为 `fixtures passed 3/3`，matrix 仍为 `6/6`。
 
 ## 5. Directory Convention Options
 
@@ -428,7 +482,7 @@ Phase 2 应继续保持 Phase 1 语义：七维 checklist 是多来源聚合，�
 
 Phase 2A 已实现 `validate:fixtures` 作为最小多正例静态验证入口：
 
-- 默认扫描 `fixtures/*` 下符合 required files 的 fixture root，当前会包含 `fixtures/meeting-summary-assistant` 与 `fixtures/study-card-assistant`。
+- 默认扫描 `fixtures/*` 下符合 required files 的 fixture root，当前会包含 `fixtures/meeting-summary-assistant`、`fixtures/study-card-assistant` 与 `fixtures/release-notes-assistant`。
 - 支持传入一个或多个 fixture 路径，例如 `validate:fixtures fixtures/a fixtures/b`，显式路径按用户传入顺序验证。
 - 对每个 fixture 直接调用现有单 fixture validator，保留单 fixture JSON report contract。
 - 输出一个汇总 JSON，包含全部 fixture 的摘要和失败/警告详情。
@@ -444,15 +498,15 @@ Phase 2A 已实现 `validate:fixtures` 作为最小多正例静态验证入口�
   "status": "passed",
   "summary": {
     "passed": true,
-    "totalFixtures": 2,
-    "passedFixtures": 2,
+    "totalFixtures": 3,
+    "passedFixtures": 3,
     "failedFixtures": 0,
-    "totalChecks": 30,
+    "totalChecks": 45,
     "blockingFailures": 0,
     "warnings": 0,
     "errors": 0,
     "byStatus": { "pass": 30 },
-    "bySeverity": { "P0": 10, "P1": 16, "P2": 4 }
+    "bySeverity": { "P0": 15, "P1": 24, "P2": 6 }
   },
   "fixtures": [
     {
@@ -480,7 +534,7 @@ Phase 2A 已实现 `validate:fixtures` 作为最小多正例静态验证入口�
 
 Phase 2B 当前行为已实现：
 
-- 先运行 `validate:fixtures`，解析其 multi-fixture JSON stdout，并打印 compact human-readable suite summary，例如 `fixtures passed 2/2`、`totalChecks`、`blockingFailures`、`warnings`、`errors`。
+- 先运行 `validate:fixtures`，解析其 multi-fixture JSON stdout，并打印 compact human-readable suite summary，例如 `fixtures passed 3/3`、`totalChecks`、`blockingFailures`、`warnings`、`errors`。
 - 即使 `validate:fixtures` 失败或 JSON parse 失败，也继续运行独立 matrix 子入口 `validate:fixture:matrix`。
 - 再运行本地反例矩阵（当前 `validate:fixture:matrix`），保留 human-readable matrix summary。
 - 总入口不输出 suite JSON artifact；需要 multi-fixture JSON 时继续调用 `validate:fixtures`。
@@ -659,8 +713,8 @@ Phase 2 必须保护 Phase 1 的 report contract，不因扩展 schema 或多 fi
 Phase 2 初始完成不等于完整 Phase 2 完成。Phase 2A 当前可接受口径为：
 
 - 多 fixture、schema 字段候选与最小 profile 契约已文档化。
-- `study-card-assistant` 已作为第二个非会议类 simple fixture 静态通过。
-- `validate:fixtures` 已实现为最小多正例入口，默认扫描当前两个完整正例 fixture；显式路径模式可复核两个 fixture。
+- `study-card-assistant` 已作为第二个非会议类 simple fixture 静态通过，`release-notes-assistant` 已作为首个 standard fixture 静态通过。
+- `validate:fixtures` 已实现为最小多正例入口，默认扫描当前三个完整正例 fixture；显式路径模式可复核三个 fixture。
 - 当前 MVP required files 和 report compatibility 边界清晰。
 - 目录策略选择保守扁平方案，不破坏 Phase 1 路径证据。
 - 后续任务仍需按 T6-T9 继续推进，不应把 schema engine、profile blocking rule、runtime replay 或 CI 写成已完成。

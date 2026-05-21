@@ -1,0 +1,55 @@
+fixtureId: release-notes-assistant
+fixtureVersion: 0.1.0
+kind: validation-result
+profile: standard
+validation:
+  mode: static
+  status: pending
+  executed: false
+  modelReplayExecuted: false
+  summary: 静态验证入口尚未执行；本文件不声明真实模型回放已通过，也不声明跨平台、跨模型或 CI 通过。
+  checks:
+    structure:
+      status: pending
+      note: 待校验 required files、standard 附属 templates/examples、profile 和 skill/SKILL.md 入口是否齐全。
+    trigger:
+      status: pending
+      note: 待校验触发语义是否为发布说明整理，且非会议类或学习卡片类主题。
+    boundary:
+      status: pending
+      note: 待校验权限边界是否默认保守，不联网、不读本地、不写文件、不外发。
+    dependency:
+      status: pending
+      note: 待校验是否无外部依赖或外部服务调用。
+    replay:
+      status: pending
+      note: 待校验 replay cases 是否未伪造 observed/passed，且 modelReplayExecuted 为 false。
+    privacy:
+      status: pending
+      note: 待校验是否不含真实私有仓库、真实 issue、真实客户、内部 host/IP、访问令牌值或私有路径。
+    compatibility:
+      status: pending
+      note: 待校验 YAML 与 Markdown 是否可被静态 MVP 读取；runtime、跨平台、跨模型、CI 均 pending。
+pendingCapabilities:
+  runtimeReplay: pending
+  crossPlatform: pending
+  crossModel: pending
+  ci: pending
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+checklist:
+  structure: validation-result 声明静态验证状态、standard profile 和附属资源要求。
+  trigger: 包含 release notes 触发检查项。
+  boundary: 包含 boundary 检查项与保守权限。
+  dependency: 包含 dependency 检查项。
+  replay: 明确未执行真实模型回放，modelReplayExecuted 为 false。
+  privacy: 包含 privacy 检查项。
+  compatibility: 包含 compatibility 检查项与 pending 能力说明。

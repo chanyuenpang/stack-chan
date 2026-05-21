@@ -1,0 +1,52 @@
+fixtureId: release-notes-assistant
+fixtureVersion: 0.1.0
+kind: workflow-source
+profile: standard
+name: Release Notes Assistant 工作流
+summary: 将公开、虚构或合成 changelog、PR 摘要、版本变更列表整理为中文发布说明。
+source:
+  type: public-fictional-synthetic-sample
+  language: zh-CN
+  inputContract:
+    acceptedInputs:
+      - 合成 changelog 条目
+      - 虚构 PR 摘要
+      - 公开版本变更列表
+      - 已脱敏升级注意事项
+    rejectedInputs:
+      - 真实私有 repo 内容或内部缺陷系统访问请求
+      - 真实客户、账号、凭证或访问令牌
+      - 真实内部 host、内部 IP 或私有路径
+      - 要求联网拉取、读取本地文件或外发发布说明
+  outputContract:
+    format: markdown
+    sections:
+      - highlights
+      - breakingChanges
+      - migrationNotes
+      - knownLimitations
+      - upgradeChecklist
+      - sourceScope
+resources:
+  templates:
+    - templates/release-notes-template.md
+  examples:
+    - examples/synthetic-changelog.md
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+checklist:
+  structure: 工作流源声明 fixtureId、版本、profile、附属模板与示例资源。
+  trigger: 主题明确为将 changelog、PR 摘要或版本变更整理成发布说明。
+  boundary: 明确拒绝私有仓库、内部系统、敏感凭证、联网读取和外发。
+  dependency: 不依赖外部服务、网络、本地文件或私有数据源。
+  replay: 可由 replay-cases.yaml 提供静态回放设计，结果保持 pending。
+  privacy: 仅使用公开、虚构或合成发布材料。
+  compatibility: 使用 YAML 与 Markdown，可被静态校验器读取；runtime、跨平台、跨模型、CI 均 pending。

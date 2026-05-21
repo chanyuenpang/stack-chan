@@ -1,0 +1,74 @@
+fixtureId: release-notes-assistant
+fixtureVersion: 0.1.0
+kind: skill-spec
+profile: standard
+skill:
+  name: release-notes-assistant
+  version: 0.1.0
+  title: 版本发布说明整理助手
+  description: 根据公开、虚构或合成的 changelog、PR 摘要和版本变更列表生成结构化中文发布说明。
+  triggerPhrases:
+    - 整理 release notes
+    - 生成版本发布说明
+    - 把 changelog 改写成用户公告
+    - 汇总 PR 摘要为升级说明
+inputs:
+  required:
+    - changeSummaryMaterial
+  optional:
+    - releaseVersion
+    - audience
+    - outputLanguage
+    - riskLevel
+outputs:
+  primary: releaseNotes
+  format: markdown
+  requiredSections:
+    - highlights
+    - breaking changes
+    - migration notes
+    - known limitations
+    - upgrade checklist
+boundaries:
+  allowed:
+    - 整理用户直接提供的公开、虚构或合成变更文本
+    - 把工程化摘要改写为用户可读说明
+    - 标注 breaking change、迁移步骤、已知限制和升级检查项
+    - 在信息不足时标注“材料未提供”或“无法从材料判断”
+  denied:
+    - 访问网络、私有 repo 或内部 issue tracker
+    - 读取本地文件、私有路径或隐藏配置
+    - 写入文件、发布公告、发送消息或调用外部服务
+    - 执行删除、覆盖、部署或系统配置修改
+    - 处理或复述真实客户、账号、访问令牌、密钥、内部 host 或内部 IP
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+privacy:
+  sourceTypes:
+    - public
+    - fictional
+    - synthetic
+  realPrivateRepositoryDataAllowed: false
+  realCustomerDataAllowed: false
+compatibility:
+  staticValidatorOnly: true
+  runtimeReplay: pending
+  crossPlatform: pending
+  crossModel: pending
+  ci: pending
+checklist:
+  structure: 定义输入、输出、附属资源、边界、权限和触发词，profile 为 standard。
+  trigger: 中文触发词覆盖 release notes、版本发布说明、changelog 和 PR 摘要整理。
+  boundary: 保守权限边界明确，不联网、不读本地、不写文件、不外发。
+  dependency: 无外部依赖。
+  replay: 可使用静态 replay cases 验证触发、边界与拒绝行为。
+  privacy: 禁止真实私有仓库、真实 issue、真实客户、内部主机、凭证和私有路径。
+  compatibility: 版本为 0.1.0，适配静态 MVP；runtime、跨平台、跨模型、CI 均 pending。
