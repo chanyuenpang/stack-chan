@@ -1,0 +1,43 @@
+fixtureId: study-card-assistant
+fixtureVersion: 0.1.0
+kind: generation-run
+profile: simple
+run:
+  id: public-fictional-synthetic-static-run-001
+  mode: static-fixture
+  status: prepared
+  modelReplayExecuted: false
+  notes:
+    - 该文件仅描述公开、虚构或合成 fixture 的静态生成记录。
+    - 未执行真实模型回放。
+    - 未访问网络、未读取本地文件、未外发、未写入文件。
+artifacts:
+  workflowSource: workflow-source.yaml
+  skillSpec: skill-spec.yaml
+  manifest: skill-manifest.yaml
+  skillEntry: skill/SKILL.md
+safety:
+  publicFictionalSyntheticOnly: true
+  containsSecrets: false
+  containsRealStudents: false
+  containsRealSchools: false
+  containsPrivateLinks: false
+  containsPrivatePaths: false
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+checklist:
+  structure: 记录生成模式、状态、profile 和产物路径。
+  trigger: 关联学习材料整理成问答学习卡片的技能。
+  boundary: 声明未执行任何外部副作用。
+  dependency: 无模型回放依赖，无外部 API 依赖。
+  replay: 明确 modelReplayExecuted 为 false。
+  privacy: 标注公开、虚构或合成且不含敏感内容。
+  compatibility: 使用稳定 YAML 字段，适合静态校验读取。

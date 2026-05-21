@@ -1,6 +1,6 @@
 # SkillForge
 
-SkillForge turns reusable workflow experience into verifiable AI skills; this repository currently contains a **static MVP** for validating one fixture, not a complete skill generator.
+SkillForge turns reusable workflow experience into verifiable AI skills; this repository currently contains a **static MVP** for validating fixtures statically, not a complete skill generator.
 
 ![Status: Static MVP](https://img.shields.io/badge/status-Static%20MVP-blue)
 ![Acceptance: PASS_WITH_RISK](https://img.shields.io/badge/acceptance-PASS_WITH_RISK-orange)
@@ -12,11 +12,11 @@ Current static validation result: `passed=true`, `15/15` checks passed (`P0=5`, 
 
 AI skills are useful only when their trigger, boundaries, dependencies, privacy assumptions, and replay claims can be reviewed. SkillForge is an attempt to make that review explicit and reproducible.
 
-The current MVP is deliberately small: it validates one public fixture, `fixtures/meeting-summary-assistant`, using a static rule set and emits a JSON report. This helps separate documented evidence from unsupported claims.
+The current MVP is deliberately small: it validates public/fictional fixtures using a static rule set and emits JSON reports. `fixtures/meeting-summary-assistant` remains the baseline `validate` fixture, and Phase 2A adds `fixtures/study-card-assistant` plus a minimal multi-fixture entry. This helps separate documented evidence from unsupported claims.
 
 ## What it does today
 
-The static MVP checks whether the fixture is internally consistent and safe enough to use as a baseline example. It covers these dimensions:
+The static MVP checks whether each fixture is internally consistent and safe enough to use as a static example. It covers these dimensions:
 
 - **Structure**: expected files, manifest linkage, `SKILL.md` entry, and required metadata.
 - **Trigger**: actionable description/trigger wording for the skill.
@@ -56,6 +56,20 @@ errors=0
 
 The command writes a JSON validation report to stdout. A passing result means the current fixture passed the static validator only.
 
+### Run all positive fixtures
+
+```bash
+pnpm --silent validate:fixtures
+```
+
+`validate:fixtures` writes a multi-fixture JSON report to stdout. With no explicit paths it scans complete direct child fixture directories under `fixtures/*`; in the current tree it reports `totalFixtures=2`, `passedFixtures=2`, and `failedFixtures=0`. You can also pass explicit paths, for example:
+
+```bash
+pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant --format json
+```
+
+This is still static validation only; it does not run model replay and does not replace the local positive/negative matrix gate.
+
 ### Run the fixture matrix
 
 ```bash
@@ -68,8 +82,9 @@ The matrix command copies the positive fixture into temporary directories, mutat
 
 ### CLI contract
 
-- `validate` / `validate:fixture <fixture-path> --format json` writes a JSON report to stdout; use it when a machine-readable validation artifact is needed.
-- Exit `0` means `summary.passed=true`; exit `1` means validation completed but blocking rules failed; exit `2` is reserved for CLI usage errors.
+- `validate` / `validate:fixture <fixture-path> --format json` writes a single fixture JSON report to stdout; use it when a machine-readable validation artifact is needed.
+- `validate:fixtures [fixture-path ...] [--format json]` writes a multi-fixture JSON report with `kind=multi-fixture-validation-report`; with no paths it scans complete `fixtures/*` direct child fixture directories.
+- Exit `0` means the requested validation passed; exit `1` means validation completed but blocking rules or fixture failures occurred; exit `2` is reserved for CLI usage errors.
 - Diagnostics use stable `checks[].id` rule IDs and sanitized `evidence`; `metadata.generatedAt` is runtime metadata and should not be snapshot-tested.
 - `validate:all` / `validate:fixture:matrix` writes a human-readable summary to stdout and exits `0` only when every matrix case meets its expected exit code, JSON parseability, and target rule assertions; use it as the local CI/PR gate entry.
 
@@ -85,6 +100,7 @@ workflow-kit/
 ├── package.json
 ├── scripts/
 │   ├── validate-fixture.mjs
+│   ├── validate-fixtures.mjs
 │   └── validate-fixture-matrix.mjs
 ├── src/
 │   └── skillforge/
@@ -94,16 +110,18 @@ workflow-kit/
 │       ├── rules.mjs
 │       └── validator.mjs
 ├── fixtures/
-│   └── meeting-summary-assistant/
-│       ├── README.md
-│       ├── workflow-source.yaml
-│       ├── skill-spec.yaml
-│       ├── generation-run.yaml
-│       ├── skill-manifest.yaml
-│       ├── replay-cases.yaml
-│       ├── validation-result.yaml
-│       └── skill/
-│           └── SKILL.md
+│   ├── meeting-summary-assistant/
+│   │   ├── README.md
+│   │   ├── workflow-source.yaml
+│   │   ├── skill-spec.yaml
+│   │   ├── generation-run.yaml
+│   │   ├── skill-manifest.yaml
+│   │   ├── replay-cases.yaml
+│   │   ├── validation-result.yaml
+│   │   └── skill/
+│   │       └── SKILL.md
+│   └── study-card-assistant/
+│       └── ... same required fixture files
 └── docs/
     ├── acceptance-result.md
     ├── static-mvp-validation-report.md
@@ -116,10 +134,11 @@ workflow-kit/
 
 ## Current capabilities
 
-- Validates a single fixture: `fixtures/meeting-summary-assistant`.
+- Validates the baseline fixture: `fixtures/meeting-summary-assistant`.
+- Provides a minimal multi-positive fixture entry for the current two simple fixtures: `fixtures/meeting-summary-assistant` and `fixtures/study-card-assistant`.
 - Runs a static rule set: `skillforge-static-mvp-0.1.0`.
 - Emits a stable JSON report for the fixture validation command.
-- Provides a local fixture matrix command for positive and representative negative validation paths.
+- Provides a local fixture matrix command for positive and representative negative validation paths (`validate:all` remains the 6/6 matrix gate).
 - Covers 15 static checks across structure, trigger, boundary, dependency, replay, privacy, and compatibility.
 - Fails high-priority static risks such as missing core metadata, high-confidence secret/path leaks, and forged replay pass claims.
 - Redacts sensitive evidence in validation findings.
@@ -141,12 +160,13 @@ This repository is intentionally not claiming more than the static MVP proves:
 
 Primary evidence files:
 
-- [`docs/static-mvp-validation-report.md`](docs/static-mvp-validation-report.md) — reproducible static validation evidence for the positive fixture, including command, environment, rule set, summary, and known risks.
+- [`docs/static-mvp-validation-report.md`](docs/static-mvp-validation-report.md) — reproducible static validation evidence for the positive fixtures and multi-fixture entry, including command, environment, rule set, summary, and known risks.
 - [`docs/acceptance-result.md`](docs/acceptance-result.md) — MVP documentation/design acceptance result, currently `PASS_WITH_RISK`, with static MVP updates and pending runtime/cross-platform risks.
 
 Related context:
 
-- [`fixtures/meeting-summary-assistant/README.md`](fixtures/meeting-summary-assistant/README.md) — explains the public, fictional fixture.
+- [`fixtures/meeting-summary-assistant/README.md`](fixtures/meeting-summary-assistant/README.md) — explains the public, fictional baseline fixture.
+- [`fixtures/study-card-assistant/README.md`](fixtures/study-card-assistant/README.md) — explains the public/fictional/synthetic study-card fixture.
 - [`docs/optimization/round-10.md`](docs/optimization/round-10.md) — final optimization round and Go/No-Go framing for the static MVP path.
 
 Historical reference commits:
@@ -163,6 +183,7 @@ See [`docs/roadmap.md`](docs/roadmap.md) for planned next steps. The current exp
 Main entry points:
 
 - `scripts/validate-fixture.mjs` — CLI entry for `pnpm --silent validate:fixture ...`.
+- `scripts/validate-fixtures.mjs` — CLI entry for `pnpm --silent validate:fixtures ...`.
 - `scripts/validate-fixture-matrix.mjs` — local positive/negative fixture matrix using temporary copies.
 - `src/skillforge/loader.mjs` — loads fixture files for validation.
 - `src/skillforge/normalize.mjs` — normalizes fixture data before rules inspect it.

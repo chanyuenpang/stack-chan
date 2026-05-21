@@ -9,7 +9,7 @@ This document describes the current SkillForge static MVP validator contract as 
 | Status | Static MVP validator contract. |
 | Rule set | `skillforge-static-mvp-0.1.0`. |
 | Report version | `0.1.0`. |
-| Primary fixture path | Any supplied fixture directory, with the repository baseline fixture at `fixtures/meeting-summary-assistant`. |
+| Primary fixture path | Any supplied fixture directory. Current positive fixtures include `fixtures/meeting-summary-assistant` and `fixtures/study-card-assistant`; `pnpm validate` remains the single baseline alias for `meeting-summary-assistant`. |
 | Validator mode | Static file/content validation only. |
 | In scope | Required fixture files, Skill frontmatter, entry path, trigger wording, conservative boundaries, dependency declarations, replay honesty claims, privacy scans, checklist coverage, and JSON report shape. |
 | Out of scope | Model replay execution, skill generation, automatic repair, publishing, UI, batch product workflow, cross-model proof, cross-platform proof, or runtime behavior guarantees. |
@@ -24,7 +24,8 @@ Run commands from the repository root.
 | --- | --- | --- | --- | --- |
 | `pnpm validate` | Package alias for the current positive baseline: `pnpm validate:fixture fixtures/meeting-summary-assistant --format json`. | Writes one JSON validation report to stdout. Use this when a machine-readable artifact is needed. | Same as `validate:fixture`. | Same as `validate:fixture`: `0` when `report.summary.passed === true`, `1` for completed validation with blocking failure/error or fallback error report, `2` for CLI usage errors. |
 | `pnpm validate:fixture <fixture-path> [--format json]` | Required positional `<fixture-path>`. Optional `--format json`; `--json` is accepted as a JSON shortcut. `--help`/`-h` prints usage. JSON is the default and only supported output format. | On successful CLI parsing, writes one JSON report. If validation throws, writes a fallback JSON report with `status: "failed"`. Help text is printed to stdout for `--help`/`-h`. | CLI usage errors print a short error message and, for missing/unknown args, usage text. Normal validation should not write diagnostics to stderr. | `0` when `report.summary.passed === true`; `1` when validation completes but static blocking failure/error exists, or fallback error report is emitted; `2` for CLI usage errors such as missing fixture path, unknown argument, or unsupported format. |
-| `pnpm validate:all` | Package alias for the current local static matrix: `pnpm validate:fixture:matrix`. | Writes a human-readable matrix summary to stdout. This stdout is not the JSON artifact, although each internal validation case is asserted to produce parseable JSON where expected. | Same as `validate:fixture:matrix`. | Same as `validate:fixture:matrix`: `0` means every matrix assertion is satisfied; `1` means at least one matrix assertion or runtime error failed. |
+| `pnpm validate:fixtures [fixture-path ...] [--format json]` | Optional one or more fixture directories. Optional `--format json`; `--json` is accepted as a JSON shortcut. `--help`/`-h` prints usage. JSON is the default and only supported output format. With no paths, scans `fixtures/*` direct child directories, ignores hidden/non-directory/incomplete fixture roots, and sorts discovered paths lexicographically. With explicit paths, validates only those directories in user-supplied order. | On successful CLI parsing, writes one multi-fixture JSON report with `kind: "multi-fixture-validation-report"`. Help text is printed to stdout for `--help`/`-h`. | CLI usage errors print a short error message. Normal validation should not write diagnostics to stderr. | `0` when every included fixture report passes; `1` when at least one fixture fails validation or no scan-eligible fixture is found; `2` for CLI usage errors such as unknown argument, unsupported format, or explicit path that does not exist / is not a directory. |
+| `pnpm validate:all` | Package alias for the current local static matrix: `pnpm validate:fixture:matrix`. This remains the matrix gate in this round and was not changed to call `validate:fixtures`. | Writes a human-readable matrix summary to stdout. This stdout is not the JSON artifact, although each internal validation case is asserted to produce parseable JSON where expected. | Same as `validate:fixture:matrix`. | Same as `validate:fixture:matrix`: `0` means every matrix assertion is satisfied; `1` means at least one matrix assertion or runtime error failed. |
 | `pnpm validate:fixture:matrix` | No public args/flags. Uses the baseline fixture, copies it to temp directories, mutates representative cases, and invokes `scripts/validate-fixture.mjs` with JSON output internally. | Human-readable case summary lines, for example `✓ positive baseline: exit=0, passed=true, failedRules=-`, followed by `Fixture matrix passed: N/N cases.` when all assertions pass. | Matrix-level failures print `Fixture matrix failed: X/N cases failed.`; unexpected child stderr is reported as a case assertion error. | `0` when every matrix case has expected exit code, parseable JSON, expected pass/fail status, and expected target rule failures; `1` when any matrix assertion or matrix runtime error fails. |
 
 ### CLI usage error example: exit 2
@@ -41,6 +42,46 @@ Unsupported format: yaml. Only json is supported.
 ```
 
 For missing path or unknown arguments, the CLI also prints usage help.
+
+## Multi-fixture report contract
+
+`validate:fixtures` is the Phase 2A minimal multi-positive static validation entry. It directly validates each fixture with the existing single fixture validator and does **not** change the single fixture report contract described below.
+
+Top-level multi-fixture fields:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `reportVersion` | string | Yes | Same report contract version family as the single fixture report. |
+| `ruleSetVersion` | string | Yes | Current static MVP rule set version. |
+| `kind` | string | Yes | Always `multi-fixture-validation-report`. |
+| `status` | string | Yes | `passed` only when every included fixture passes. |
+| `summary` | object | Yes | Aggregated counts across included fixture reports. |
+| `fixtures` | array | Yes | One compact entry per validated fixture. Each entry includes `path`, `id`, `version`, `entry`, `status`, `summary`, and `findings`. |
+| `failures` | array | Yes | Compact failure/warning records derived from failed or warning findings; evidence is reused from the already-sanitized single fixture report. |
+| `metadata` | object | Yes | Includes `generatedAt`, `validator`, `format`, and `runner`. |
+
+`summary` contains:
+
+- `passed`
+- `totalFixtures`
+- `passedFixtures`
+- `failedFixtures`
+- `totalChecks`
+- `blockingFailures`
+- `warnings`
+- `errors`
+- `byStatus`
+- `bySeverity`
+
+Default scan mode only includes `fixtures/*` direct child directories that look like complete fixture roots by required files. Explicit path mode is stricter about CLI path validity but still lets the single fixture validator report structural failures for existing directories that are incomplete.
+
+Exit codes:
+
+- `0`: all included fixtures passed.
+- `1`: at least one included fixture failed validation, or scan mode found no eligible fixtures.
+- `2`: CLI usage error, unsupported format, unknown argument, or explicit path does not exist / is not a directory.
+
+`validate:all` remains the local positive/negative fixture matrix gate (`validate:fixture:matrix`) for this round; it was not redefined as the multi-fixture runner.
 
 ## JSON report top-level fields
 
@@ -123,6 +164,13 @@ Each check is a rule result enriched with the rule registry metadata.
 | `contract` | object | Yes | Compatibility metadata | Contains the smaller compatibility contract advertised to downstream tooling. |
 | `contract.topLevelFields` | string[] | Yes | Stable compatibility subset | Current subset: `fixture`, `status`, `summary`, `rules`, `findings`, `generatedAt`. |
 | `contract.findingFields` | string[] | Yes | Stable compatibility subset | Current subset: `id`, `severity`, `dimension`, `message`, `evidence`, `closeCondition`. |
+
+
+## Phase 2A compatible candidates (not currently emitted)
+
+Phase 2A treats `profile` as a compatible schema/profile candidate field, not as current validator output. The minimal enum is `simple | standard | advanced-reserved`. Recommended future declaration locations are `skill-manifest.yaml` top-level `profile` as the primary declaration and `skill/SKILL.md` frontmatter `metadata.profile` as a redundant/compatibility declaration.
+
+The current report contract remains unchanged: `fixture.profile` may be added later as a compatible field, but current `validate` reports are not required or documented to emit it. Existing top-level fields and `fixture` fields keep their current semantics.
 
 ## Rule registry fields
 

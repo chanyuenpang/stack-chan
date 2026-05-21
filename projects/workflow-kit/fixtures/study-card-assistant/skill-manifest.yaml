@@ -1,0 +1,42 @@
+fixtureId: study-card-assistant
+fixtureVersion: 0.1.0
+kind: skill-manifest
+profile: simple
+skills:
+  - id: study-card-assistant
+    name: study-card-assistant
+    version: 0.1.0
+    title: 学习卡片整理助手
+    entry: skill/SKILL.md
+    description: 输入公开、虚构或合成学习材料，输出结构化中文问答学习卡片。
+    tags:
+      - study-card
+      - qa
+      - learning
+      - zh-CN
+    language: zh-CN
+    permissions:
+      network: false
+      externalSend: false
+      fileRead: false
+      fileWrite: false
+      destructiveOperations: false
+      privatePathRead: false
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+checklist:
+  structure: manifest 包含 fixtureId、profile、技能 ID、版本、标题、入口和权限。
+  trigger: manifest 描述学习材料整理成问答学习卡片主题。
+  boundary: 权限默认保守，不联网、不读本地、不写文件、不外发。
+  dependency: 不声明外部依赖或外部服务。
+  replay: 与 replay-cases.yaml 使用同一 fixtureId，结果保持 pending。
+  privacy: 仅处理公开、虚构或合成输入。
+  compatibility: entry 使用相对路径 skill/SKILL.md。

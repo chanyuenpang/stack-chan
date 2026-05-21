@@ -4,14 +4,15 @@
 
 本报告固化 SkillForge 静态 MVP 的当前可复现证据，范围限定为：
 
-- 正例 fixture：`fixtures/meeting-summary-assistant/**`
-- 静态校验命令：`pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json`
+- 正例 fixtures：`fixtures/meeting-summary-assistant/**` 与 `fixtures/study-card-assistant/**`
+- 单 fixture 静态校验命令：`pnpm --silent validate:fixture <fixture-path> --format json`
+- 多正例静态校验命令：`pnpm --silent validate:fixtures`
 - 静态规则集：`skillforge-static-mvp-0.1.0`
 - 验证维度：structure、trigger、boundary、dependency、replay、privacy、compatibility
 
 边界说明：本报告只证明**静态 fixture 与静态校验器**当前通过；不证明模型运行时回放通过，不证明跨平台/跨模型兼容已完成，也不证明完整产品验收 PASS。
 
-## 2. 正例证据（T6 重新运行）
+## 2. Baseline 正例证据（最新重新运行）
 
 | 项 | 结果 |
 |---|---|
@@ -37,7 +38,7 @@
 | checks 数量 | `15` |
 | checks 严重级别分布 | `P0: 5, P1: 8, P2: 2` |
 | findings | `[]` |
-| generatedAt | `2026-05-21T02:46:19.368Z` |
+| generatedAt | `2026-05-21T05:28:55.940Z` |
 
 可复现命令：
 
@@ -49,6 +50,21 @@ pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json
 ```
 
 正例摘要：15 条规则全部通过，其中 P0 5 条、P1 8 条、P2 2 条；`blockingFailures=0`、`warnings=0`、`errors=0`。
+
+## 2A. Phase 2A 多 fixture 静态证据（最新重新运行）
+
+本节补充 Phase 2A 证据：第二个非会议类 simple fixture `study-card-assistant` 已通过静态验证，`validate:fixtures` 已作为最小多正例入口通过。该证据仍只代表 static validation。
+
+| 命令 | exit code | 关键结果 |
+|---|---:|---|
+| `pnpm --silent validate:fixture fixtures/meeting-summary-assistant --format json` | `0` | `status=passed`，`summary.passed=true`，`summary.total=15`，`blockingFailures=0`，`warnings=0`，`errors=0` |
+| `pnpm --silent validate:fixture fixtures/study-card-assistant --format json` | `0` | `status=passed`，`summary.passed=true`，`summary.total=15`，`blockingFailures=0`，`warnings=0`，`errors=0` |
+| `pnpm --silent validate:fixtures` | `0` | `kind=multi-fixture-validation-report`，`status=passed`，`summary.totalFixtures=2`，`passedFixtures=2`，`failedFixtures=0`，`totalChecks=30`，`bySeverity=P0:10/P1:16/P2:4` |
+| `pnpm --silent validate:fixtures fixtures/meeting-summary-assistant fixtures/study-card-assistant --format json` | `0` | 显式路径模式通过；输出顺序为 `meeting-summary-assistant`、`study-card-assistant`；`totalFixtures=2`，`passedFixtures=2`，`failedFixtures=0` |
+| `pnpm --silent validate` | `0` | 仍只验证 baseline fixture `fixtures/meeting-summary-assistant`，输出单 fixture JSON artifact |
+| `pnpm --silent validate:all` | `0` | 仍为本地正反例矩阵 gate，输出 `Fixture matrix passed: 6/6 cases.` |
+
+最新复核环境：CWD `/home/yankeeting/.openclaw/projects/workflow-kit`，Node `v24.15.0`，pnpm `10.33.2`。本次 multi-fixture report 的 `generatedAt` 为运行时字段（示例：`2026-05-21T05:28:56.356Z`），不应 snapshot。
 
 ## 3. Phase 1 反例矩阵摘要
 
@@ -77,6 +93,7 @@ Phase 1 结论：5 类反例均 exit 非 0，失败场景 stdout 均为合法 JS
 - **高置信隐私脱敏风险：静态 MVP 已关闭。** T5 证明 secret/token 与私有路径 evidence 会被替换为 `<redacted-secret>` / `<redacted-path>`。
 - **隐私 evidence 重复噪音：Phase 1 已修复并验证。** 隐私扫描使用独立扫描 regex，避免脱敏逻辑扰动 `lastIndex`；同文件、同脱敏 detail、同 pattern kind 的 evidence 会去重，矩阵脚本覆盖 secret/token 与 private path 重复注入。
 - **checklist 聚合语义：Phase 1 已文档化。** 规则说明与 README 均明确七维 checklist 是多来源聚合覆盖，不是单文件 exactly once。
+- **Phase 2A 多正例入口：静态 MVP 已关闭最小范围。** `validate:fixtures` 当前默认扫描两个完整正例 fixture，`totalFixtures=2`、`passedFixtures=2`、`failedFixtures=0`；它不替代 runtime replay 或 CI。
 
 ### 未关闭 / 仍需后续跟踪
 
@@ -103,6 +120,6 @@ Phase 1 结论：5 类反例均 exit 非 0，失败场景 stdout 均为合法 JS
 
 ## 7. 结论
 
-当前静态 MVP 证据可复现：正例 fixture 在当前环境下 exit 0，15 条静态规则全部通过；T5 反例矩阵证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力。
+当前静态 MVP 与 Phase 2A 最小多 fixture 证据可复现：两个 simple 正例 fixture 在当前环境下均 exit 0、各 15 条静态规则全部通过；`validate:fixtures` 当前聚合 `totalFixtures=2`、`passedFixtures=2`、`failedFixtures=0`；T5 反例矩阵证明关键失败路径可被 JSON 化报告捕获，并具备基础脱敏能力。
 
-结论限定为：**SkillForge 静态 MVP 验证通过，可作为后续运行时回放、跨平台/跨模型兼容和完整产品验收的基础证据。**
+结论限定为：**SkillForge 静态 MVP 与 Phase 2A 最小多正例静态入口验证通过，可作为后续 schema engine、runtime replay、CI、跨平台/跨模型兼容和完整产品验收的基础证据。**

@@ -1,0 +1,48 @@
+fixtureId: study-card-assistant
+fixtureVersion: 0.1.0
+kind: workflow-source
+profile: simple
+name: 学习卡片整理助手工作流
+summary: 将公开、虚构或合成学习材料整理为问答学习卡片。
+source:
+  type: public-fictional-synthetic-sample
+  language: zh-CN
+  inputContract:
+    acceptedInputs:
+      - 公开百科式概念说明
+      - 虚构历史背景短文
+      - 合成学习材料片段
+      - 不含个人敏感信息的复习提纲
+    rejectedInputs:
+      - 真实学生或教师个人信息
+      - 私有课程链接或账号信息
+      - 本地文件路径或私人笔记位置
+      - 访问令牌、密钥或凭证
+      - 未授权教材全文
+  outputContract:
+    format: markdown
+    sections:
+      - cardList
+      - question
+      - answer
+      - hint
+      - difficultyOrOrder
+      - commonPitfall
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+checklist:
+  structure: 工作流源声明 fixtureId、版本、profile、输入输出契约。
+  trigger: 主题明确为学习材料整理成问答学习卡片。
+  boundary: 明确拒绝私有、敏感或不可公开材料。
+  dependency: 不依赖外部服务、网络、本地文件或私有数据源。
+  replay: 可由 replay-cases.yaml 提供静态回放设计。
+  privacy: 仅使用公开、虚构或合成材料。
+  compatibility: 使用 YAML 与 Markdown，可被静态校验器读取。

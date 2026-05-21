@@ -1,0 +1,73 @@
+fixtureId: study-card-assistant
+fixtureVersion: 0.1.0
+kind: skill-spec
+profile: simple
+skill:
+  name: study-card-assistant
+  version: 0.1.0
+  title: 学习卡片整理助手
+  description: 根据公开、虚构或合成学习材料生成结构化中文问答学习卡片。
+  triggerPhrases:
+    - 整理学习卡片
+    - 生成问答卡片
+    - 把材料做成复习卡
+    - 提炼概念问答
+inputs:
+  required:
+    - studyMaterial
+  optional:
+    - cardCount
+    - difficultyOrder
+    - outputLanguage
+outputs:
+  primary: qaStudyCards
+  format: markdown
+  requiredSections:
+    - 卡片列表
+    - 问题
+    - 答案
+    - 提示
+    - 难度或顺序
+    - 易错点
+boundaries:
+  allowed:
+    - 整理用户直接提供的公开、虚构或合成文本
+    - 只基于输入材料提炼问题与答案
+    - 在信息不足时标注“材料未提供”或“无法从材料判断”
+    - 可按 easy、medium、hard 或用户指定顺序排列
+  denied:
+    - 访问网络补全学习材料
+    - 读取本地文件或私人笔记
+    - 写入文件或保存卡片
+    - 外发学习卡片或调用外部服务
+    - 执行删除、覆盖或系统配置修改
+    - 处理真实学生、学校、账号、访问令牌 或私有课程链接
+permissions:
+  network: false
+  externalSend: false
+  fileRead: false
+  fileWrite: false
+  destructiveOperations: false
+  privatePathRead: false
+dependencies:
+  noneDeclared: true
+  items: []
+privacy:
+  sourceTypes:
+    - public
+    - fictional
+    - synthetic
+  realPersonalDataAllowed: false
+compatibility:
+  staticValidatorOnly: true
+  runtimeReplay: pending
+  crossPlatform: pending
+  crossModel: pending
+checklist:
+  structure: 定义输入、输出、边界、权限和触发词。
+  trigger: 中文触发词覆盖学习卡片、问答卡片、复习卡和概念问答。
+  boundary: 保守权限边界明确，不联网、不读本地、不写文件、不外发。
+  dependency: 无外部依赖。
+  replay: 可使用静态 replay cases 验证触发与拒绝行为。
+  privacy: 禁止真实敏感数据、私有路径、账号和链接。
+  compatibility: 版本为 0.1.0，适配静态 MVP。
