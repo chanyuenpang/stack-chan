@@ -5,6 +5,7 @@ export const RUNTIME_REPLAY_PROTOCOL_VERSION = "runtime-replay-protocol-draft-1"
 export const RUNTIME_REPLAY_KIND = "runtime-replay-report";
 
 const FAILING_CASE_STATUSES = new Set(["error"]);
+const BLOCKED_CASE_STATUSES = new Set(["blocked"]);
 const DRAFT_NON_EXECUTED_CASE_STATUSES = new Set(["blocked", "dry-run", "not-executed"]);
 const ALLOWED_DRAFT_CASE_STATUSES = new Set(["blocked", "error", "dry-run", "not-executed"]);
 const WARNING_CHECK_STATUSES = new Set(["warn"]);
@@ -19,6 +20,23 @@ const DEFAULT_PENDING_CAPABILITIES = [
 ];
 const DEFAULT_METADATA_NOTE =
   "runtime draft artifact only: no provider execution, no transcript evidence, no scoring result, no runtime pass evidence";
+
+const PROVIDER_BACKED_RESERVED_FIELDS = Object.freeze({
+  runtimeCaseStatuses: ["blocked", "error", "dry-run", "not-executed"],
+  providerEvidenceAvailable: false,
+  transcriptPersistence: "none",
+  runtimePassedAvailable: false,
+});
+
+const FUTURE_PROVIDER_BACKED_REQUIRED_OUTPUTS = Object.freeze([
+  "cases[].status=passed",
+  "cases[].observed.providerCall=true",
+  "cases[].observed.providerEvidenceAvailable=true",
+  "cases[].transcriptRef.available=true",
+  "cases[].transcriptRef.providerTranscript=true",
+  "metadata.providerExecution.executionId",
+  "metadata.providerExecution.providerStatus",
+]);
 
 function safeFixturePath(fixtureDir) {
   if (!fixtureDir) return null;
@@ -110,7 +128,7 @@ function normalizeError(error) {
 function buildSummary(runtimeCases, checks, errors) {
   const passedCases = 0;
   const failedCases = runtimeCases.filter((runtimeCase) => FAILING_CASE_STATUSES.has(runtimeCase.status)).length;
-  const blockedCases = runtimeCases.filter((runtimeCase) => DRAFT_NON_EXECUTED_CASE_STATUSES.has(runtimeCase.status)).length;
+  const blockedCases = runtimeCases.filter((runtimeCase) => BLOCKED_CASE_STATUSES.has(runtimeCase.status)).length;
   const warnings = checks.filter((check) => WARNING_CHECK_STATUSES.has(check.status)).length;
   const errorCount = errors.length + checks.filter((check) => ERROR_CHECK_STATUSES.has(check.status)).length;
 
@@ -151,7 +169,7 @@ export function buildRuntimeReplayReport({
       entry: fixture?.entry ?? runtime?.fixture?.entry ?? null,
       profile: fixture?.profile ?? runtime?.fixture?.profile ?? null,
     },
-    status: normalizedCases.some((runtimeCase) => runtimeCase.status === "blocked") ? "blocked" : "draft",
+    status: normalizedCases.some((runtimeCase) => BLOCKED_CASE_STATUSES.has(runtimeCase.status)) ? "blocked" : "draft",
     summary,
     cases: normalizedCases,
     checks: normalizedChecks,
@@ -167,6 +185,11 @@ export function buildRuntimeReplayReport({
         caseStatuses: [...ALLOWED_DRAFT_CASE_STATUSES],
         passedReserved: true,
         providerReadyPassPathImplemented: false,
+      },
+      providerBackedContract: {
+        currentState: "reserved-unimplemented",
+        reservedFields: { ...PROVIDER_BACKED_RESERVED_FIELDS },
+        futureRequiredOutputs: [...FUTURE_PROVIDER_BACKED_REQUIRED_OUTPUTS],
       },
       lineage: {
         static: {

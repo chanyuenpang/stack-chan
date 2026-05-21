@@ -22,6 +22,30 @@ const DEFAULT_PENDING_CAPABILITIES = Object.freeze([
   "scoring-engine",
 ]);
 
+const RESERVED_PROVIDER_BACKED_STATUS_SET = Object.freeze([
+  "blocked",
+  "error",
+  "dry-run",
+  "not-executed",
+]);
+
+const FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS = Object.freeze([
+  "providerMetadata.providerKey",
+  "providerMetadata.providerSlot",
+  "providerMetadata.executionId",
+  "providerMetadata.providerRunId",
+  "providerMetadata.providerStatus",
+  "providerMetadata.providerBacked=true",
+  "providerMetadata.executed=true",
+  "providerMetadata.providerCall=true",
+  "providerMetadata.providerEvidenceAvailable",
+  "providerMetadata.transcriptCaptured",
+  "providerMetadata.transcriptPersistence",
+  "transcriptRef.available=true",
+  "transcriptRef.providerManaged=true",
+  "transcriptRef.handle",
+]);
+
 function cloneArray(value) {
   return Array.isArray(value) ? [...value] : [];
 }
@@ -175,6 +199,59 @@ export function buildRuntimeProviderAdapterResult({
     throw new RangeError(`Unsupported runtime provider adapter result status: ${normalizedStatus}`);
   }
 
+  const normalizedMetadata = {
+    implementationState: "contract-first-unimplemented",
+    providerBacked: false,
+    providerKey: null,
+    providerSlot: null,
+    executed: false,
+    providerCall: false,
+    providerEvidenceAvailable: false,
+    transcriptCaptured: false,
+    transcriptPersistence: false,
+    persistence: "none",
+    executionId: null,
+    providerRunId: null,
+    providerStatus: null,
+    futureRequiredFields: [...FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS],
+    reservedStatusSet: [...RESERVED_PROVIDER_BACKED_STATUS_SET],
+    note:
+      note ??
+      "provider adapter seam result only; no real provider call, no transcript persistence, no runtime pass evidence",
+    pendingCapabilities: Array.isArray(pendingCapabilities)
+      ? [...pendingCapabilities]
+      : [...DEFAULT_PENDING_CAPABILITIES],
+    ...cloneObject(providerMetadata),
+  };
+
+  if (normalizedMetadata.providerBacked !== true) {
+    normalizedMetadata.executed = false;
+    normalizedMetadata.providerCall = false;
+    normalizedMetadata.providerEvidenceAvailable = false;
+    normalizedMetadata.transcriptCaptured = false;
+    normalizedMetadata.transcriptPersistence = false;
+    normalizedMetadata.persistence = normalizedMetadata.persistence ?? "none";
+    normalizedMetadata.executionId = null;
+    normalizedMetadata.providerRunId = null;
+    normalizedMetadata.providerStatus = null;
+  }
+
+  const normalizedTranscriptRef =
+    transcriptRef && typeof transcriptRef === "object" && !Array.isArray(transcriptRef)
+      ? {
+          ...transcriptRef,
+          available: transcriptRef?.available === true,
+          providerManaged: transcriptRef?.providerManaged === true,
+        }
+      : null;
+
+  if (normalizedMetadata.providerBacked !== true && normalizedTranscriptRef) {
+    normalizedTranscriptRef.available = false;
+    normalizedTranscriptRef.providerManaged = false;
+    normalizedTranscriptRef.handle = null;
+    normalizedTranscriptRef.location = null;
+  }
+
   return {
     contract: {
       kind: "runtime-provider-adapter-output",
@@ -183,20 +260,8 @@ export function buildRuntimeProviderAdapterResult({
     caseId,
     status: normalizedStatus,
     observed,
-    transcriptRef,
-    providerMetadata: {
-      implementationState: "contract-first-unimplemented",
-      providerBacked: false,
-      providerKey: null,
-      providerSlot: null,
-      note:
-        note ??
-        "provider adapter seam result only; no real provider call, no transcript persistence, no runtime pass evidence",
-      pendingCapabilities: Array.isArray(pendingCapabilities)
-        ? [...pendingCapabilities]
-        : [...DEFAULT_PENDING_CAPABILITIES],
-      ...cloneObject(providerMetadata),
-    },
+    transcriptRef: normalizedTranscriptRef,
+    providerMetadata: normalizedMetadata,
   };
 }
 
@@ -237,6 +302,8 @@ export const RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_KIND = PROVIDER_ADAPTER_TRA
 export const RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION = PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION;
 export const RUNTIME_PROVIDER_ADAPTER_KEYS = [...BUILTIN_PROVIDER_ADAPTER_KEYS];
 export const RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT = DEFAULT_PROVIDER_ADAPTER_SLOT;
+export const RUNTIME_PROVIDER_ADAPTER_RESERVED_STATUS_SET = [...RESERVED_PROVIDER_BACKED_STATUS_SET];
+export const RUNTIME_PROVIDER_ADAPTER_FUTURE_REQUIRED_FIELDS = [...FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS];
 
 export default {
   buildRuntimeProviderAdapterInput,
@@ -250,4 +317,6 @@ export default {
   RUNTIME_PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION: PROVIDER_ADAPTER_TRANSCRIPT_REF_VERSION,
   RUNTIME_PROVIDER_ADAPTER_KEYS: [...BUILTIN_PROVIDER_ADAPTER_KEYS],
   RUNTIME_PROVIDER_ADAPTER_DEFAULT_SLOT: DEFAULT_PROVIDER_ADAPTER_SLOT,
+  RUNTIME_PROVIDER_ADAPTER_RESERVED_STATUS_SET: [...RESERVED_PROVIDER_BACKED_STATUS_SET],
+  RUNTIME_PROVIDER_ADAPTER_FUTURE_REQUIRED_FIELDS: [...FUTURE_PROVIDER_BACKED_REQUIRED_FIELDS],
 };

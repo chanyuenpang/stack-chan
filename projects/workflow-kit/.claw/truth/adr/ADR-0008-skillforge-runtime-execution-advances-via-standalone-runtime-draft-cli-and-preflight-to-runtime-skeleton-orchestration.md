@@ -25,13 +25,14 @@ accepted
 当前阶段的具体规则如下：
 
 - `runtime draft CLI` 必须保持独立入口，不污染 `validate`、`validate:all`、`validate:contracts`、`validate:preflight`、`validate:preflight:contracts` 的既有语义；其命令锚点为 `validate:runtime:draft`。
-- provider adapter seam 虽然已经落到 runner/orchestrator contract，但 CLI 对外仍只允许 `dry-run | null-runner`；`provider-backed` 只能保留为 runner 内部 reserved/unimplemented mode slot，不能被包装成可用执行能力。
+- provider adapter seam 已固定为 `contract-first` 的 adapter-driven seam：runner 必须先选择 adapter，再由 adapter contract 产出结果；但 CLI 对外仍只允许 `dry-run | null-runner`，`provider-backed` 只能保留为 runner 内部 reserved/unimplemented mode slot，不能被包装成可用执行能力。
 - CLI 成功语义固定为“成功生成 draft artifact”，而不是“runtime passed”；退出码固定为 `0=artifact generated`、`1=orchestration error with error artifact`、`2=usage error`，不得绑定 `summary.passed`。
 - `preflight→runtime` 串联必须通过 `src/skillforge/runtime-draft-orchestrator.mjs` 这一独立 orchestration 接缝完成，并复用既有 `loadFixture()`、`normalizeFixture()`、`validateFixture()`、`validatePreflight()`、`runRuntimeCaseSkeleton()` 栈，而不是重写解析或验证逻辑。
 - 当前 runtime draft artifact 必须显式继承 static / preflight lineage；`metadata` 中要保留 source versions、source statuses、fixture/profile/entry 与 `sourceLineage.static|preflight|replayCases`，确保 runtime draft 始终可追溯回上游静态与 preflight 产物。
-- draft contract 必须保持诚实边界：顶层 `status` 只允许 `blocked` 或 `draft`；`summary.passed` 固定为 `false`；`cases[].status` 只允许 `blocked` / `dry-run` / `not-executed`；`transcriptRef=null`；`observed` 只能是 stub，且 `providerCall`、`transcriptCaptured`、`sideEffectsPerformed` 全为 `false`。
-- runtime draft contract tests 必须作为独立验证轨道存在，用于锁定 CLI、case selection、blocked/dry/null 语义与 artifact contract；同时继续保护 static / preflight baseline 零污染。
-- 当前能力仍只允许 `single fixture`、`single case`、`dry/null`、`no-provider`、`no transcript`、`no scoring`、`no sandbox enforcement` 的 execution proof；不得把这条路径描述成正式 gate、provider-backed runtime replay 或多 case orchestration 已实现。
+- runtime / report / adapter 的 status taxonomy 必须统一保持 non-passing honesty：顶层 report-level 仍只会是 `draft` 或 `blocked`；`summary.passed` 固定为 `false`；`cases[].status` 与 provider adapter output 当前只允许 `blocked` / `error` / `dry-run` / `not-executed`；不得开放 `passed`，也不得把 provider-backed reserved slot 伪装成已执行。
+- draft contract 必须保持诚实边界：当前 `transcriptRef` 只允许引用 in-report draft artifact，不得暗示 provider transcript；`observed` 只能是 stub / reserved evidence，且 `providerCall`、`transcriptCaptured`、`sideEffectsPerformed` 全为 `false`；对于 provider-backed reserved slot，必须显式保留 `reserved-but-unimplemented`、`providerEvidenceAvailable=false`、`persistedEvidenceAvailable=false` 一类语义。
+- runtime draft contract tests 必须作为独立验证轨道存在，用于锁定 CLI、case selection、blocked/dry/null 语义、provider adapter seam honesty 与 artifact contract；同时继续保护 static / preflight baseline 零污染。
+- 当前能力仍只允许 `single fixture`、`single case`、`dry/null`、`provider adapter seam only`、`provider-backed reserved/unimplemented`、`no scoring`、`no sandbox enforcement` 的 execution proof；不得把这条路径描述成正式 gate、provider-backed runtime replay 或多 case orchestration 已实现。
 
 ## Alternatives Considered
 
@@ -64,6 +65,7 @@ accepted
 - 正向：以独立 `scripts/run-runtime-draft.mjs` 与 `src/skillforge/runtime-draft-orchestrator.mjs` 承载串联，保持 execution 路线与 static/preflight 默认验证族解耦，降低基线污染风险。
 - 正向：通过固定 lineage metadata，后续 provider/transcript/scoring 扩展必须沿既有 static/preflight 来源链路演进，减少 report 语义漂移。
 - 正向：通过把 CLI exit code 与 `summary.passed` 解耦，明确区分“artifact 已生成”和“runtime 真正通过”，避免把 draft 能力误当成正式 gate。
+- 正向：把 runner 从硬编码 skeleton 收敛为 adapter-driven seam 后，后续真实 provider 接入有了最小、诚实、可测试的 contract slot，同时不会让当前 draft 路径冒充 provider integration 已完成。
 - 正向：独立 `scripts/test-runtime-contracts.mjs` 让 runtime draft CLI、case selection、blocked/dry/null contract，以及 provider adapter seam / CLI 可见性边界都有稳定回归锚点；当前补齐收口后，来源完成记录确认已通过 `16/16 cases`。
 - 取舍：当前仍不支持真实 provider integration、transcript capture、sandbox enforcement、多 case / multi-fixture orchestration 或 scoring，功能上依然只是诚实的 draft skeleton。
 - 取舍：后续进入更真实 runtime execution 时，必须继续遵守已固定的 artifact contract、lineage 透传与独立 runtime 验证轨道，不能回退到模糊语义或混入 static/preflight 既有入口。
@@ -73,8 +75,12 @@ accepted
 
 - `runtime draft CLI`
 - `preflight→runtime skeleton orchestration`
+- `provider adapter seam`
+- `contract-first`
+- `provider-backed reserved/unimplemented`
 - `scripts/run-runtime-draft.mjs`
 - `runtime-draft-orchestrator.mjs`
+- `runtime-provider-adapter-contract.mjs`
 - `validate:runtime:draft`
 - `validate:runtime:contracts`
 - `summary.passed`

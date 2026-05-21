@@ -69,6 +69,7 @@ Current coverage is intentionally narrow:
 - transcript evidence is currently provider-less and draft-only;
 - `dry-run`, `null-runner`, and a future provider-backed mode are currently treated as separate mode slots, but only the first two are reachable today;
 - the provider-backed slot is reserved/unimplemented and is not exposed as a user-selectable CLI mode;
+- provider-backed reserved-slot fields remain contract-tightened placeholders only: fields such as provider execution metadata, provider transcript bits, persistence handles, and provider evidence availability must currently remain `false`, `null`, `"none"`, or other explicit reserved values rather than implying provider execution;
 - it is a draft execution surface, not a formal validation gate;
 - it is not transcript-capable runtime replay.
 
@@ -81,13 +82,16 @@ Notes:
 - This CLI currently reuses `loadFixture()`, `validateFixture()`, `validatePreflight()`, provider adapter seam contracts, and `runRuntimeCaseSkeleton()` through the runtime draft orchestrator; it does not introduce provider execution, transcript persistence, sandbox enforcement, multi-case orchestration, or a separate raw fixture parsing pipeline.
 - The provider adapter seam is a contract-first integration seam only. It exists so future provider-backed work has a stable boundary, not because provider-backed replay is already available.
 - The orchestration scope stops at preflight plus the current single-case dry/null runtime skeleton. It does not perform provider-backed runtime replay and should not be interpreted as a production runtime gate.
+- If preflight does not pass, the runtime draft flow should collapse that outcome into an honest runtime `blocked` state rather than preserving a misleading pseudo-executional `preflight-failed` runtime label.
 - CLI success does **not** mean runtime passed. In the current draft phase, the emitted artifact must remain honest about `blocked`, `dry-run`, and `not-executed` outcomes.
 - The current draft runtime artifact contract is intentionally non-executional: top-level `status` is constrained to `draft` or `blocked`, `summary.passed` must remain `false`, `cases[].status` is constrained to `blocked | error | dry-run | not-executed`, and `observed` stays a stub.
 - In the currently reachable draft flows, case outcomes should remain within `blocked | dry-run | not-executed`; the reserved `error` slot exists only for orchestration/runtime skeleton error reporting and must not be interpreted as provider execution.
 - Phase 3 transcript evidence is currently limited to provider-less draft evidence for a single selected case. When emitted, `transcriptRef` is only an in-report draft transcript artifact ref and must not be interpreted as transcript persistence, provider transcript support, or a reusable transcript registry.
 - Any emitted transcript evidence must continue to declare `providerTranscript=false` and must not claim provider execution.
+- Provider-backed reserved-slot fields must remain honest in the emitted artifact: `summary.passed` stays `false`; provider execution toggles stay `false`; provider transcript handles stay unavailable; persistence stays reserved/unimplemented; and provider evidence availability must not be set true.
 - Multi-case aggregate transcript collection is not supported; transcript evidence, if present, is per selected case only.
 - Provider execution, provider transcript capture, transcript capture/persistence, sandbox enforcement, scoring, and multi-case aggregate orchestration remain unimplemented.
+- The implementation-prep checklist for future provider-backed work is documented separately in `docs/phase-3-provider-backed-slot-contract-checklist.md`; that checklist is preparation only and must not be read as provider integration already being complete.
 - This entrypoint is intentionally not wired into `pnpm validate`, `pnpm validate:all`, `pnpm validate:contracts`, `pnpm validate:preflight`, or `pnpm validate:preflight:contracts`.
 
 ## Standalone runtime contract test entry

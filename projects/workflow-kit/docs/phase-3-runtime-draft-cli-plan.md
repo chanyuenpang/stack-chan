@@ -42,7 +42,7 @@ runtime draft CLI
 
 1. 怎样提供一个独立 `runtime draft CLI`，与 static / preflight CLI 家族隔离？
 2. 怎样把 `validatePreflight()`、case selector、provider adapter seam、runner contract、sandbox contract、dry/null runner skeleton 串成单一 orchestration 路径？
-3. 这个 orchestration 具体读哪些输入、产出哪些 artifact、如何表达 blocked / error / dry-run / not-executed，以及 provider-less transcript evidence？
+3. 这个 orchestration 具体读哪些输入、产出哪些 artifact、如何表达 blocked / error / dry-run / not-executed，以及 provider-less transcript evidence？特别是：如何保证 provider-backed reserved slot 相关字段继续保持 `false/null/reserved`，并把 preflight 未通过更诚实地收口为 `blocked`？
 4. 哪些 contract 是禁区，不能被顺手改坏？
 5. 哪些内容继续明确延后，防止把“草案 CLI”写成“runtime 已实现”？
 
@@ -174,7 +174,7 @@ runtime draft CLI
 
 只做 orchestration 接线：
 
-- 允许把 preflight fail 映射为 runtime `blocked`；
+- 允许把 preflight fail 映射为 runtime `blocked`；不要继续暴露带执行暗示的 `preflight-failed` 运行态标签；
 - 允许 dry/null mode 产出 `dry-run` / `not-executed`；
 - 允许保留 runtime skeleton/internal failure 的 `error` slot，但不能把它写成 provider execution；
 - 允许把 preflight / static lineage 写入 runtime artifact metadata；
@@ -228,12 +228,13 @@ runtime draft CLI
 
 其中这一步最关键的是把以下语义说死：
 
-- `summary.passed` 在 draft mode 下通常应为 `false`；
-- `cases[].status` 当前合同只应落在 `blocked | error | dry-run | not-executed`；其中面向用户的正常诚实结果仍以 `blocked | dry-run | not-executed` 为主，`error` 只是 reserved runtime skeleton/orchestration error slot；
+- `summary.passed` 在 draft mode 下通常应为 `false`，在当前可达路径中应固定保持 `false`；
+- `cases[].status` 当前合同只应落在 `blocked | error | dry-run | not-executed`；其中面向用户的正常诚实结果仍以 `blocked | dry-run | not-executed` 为主，`error` 只是 reserved runtime skeleton/orchestration error slot；preflight 未通过时应收口为 `blocked`；
 - `observed` 是 skeleton stub，不是 provider transcript evidence；
 - `transcriptRef` 若出现，只能表示 in-report draft transcript artifact ref；
 - `providerTranscript=false` 必须保持显式；
 - provider-backed mode slot 必须继续保持 reserved/unimplemented，且 CLI 不暴露该模式；
+- provider-backed reserved-slot 字段必须继续保持诚实占位：provider execution metadata、provider evidence flags、transcript handles、persistence state 等都不能提前写成已接通；
 - `metadata.note` 必须继续明说“no provider call / no provider transcript / no transcript persistence / no scoring”。
 
 **不要改的文件**
@@ -309,6 +310,7 @@ runtime draft CLI
 - provider adapter seam 当前只是 contract-first 接缝；CLI 仍不暴露 provider-backed mode；
 - provider / provider transcript / transcript persistence / sandbox enforcement / multi-case aggregate 仍未实现；
 - runtime draft 不接入 `validate:all` / `validate:contracts` / `validate:preflight` 默认路径。
+- `docs/phase-3-provider-backed-slot-contract-checklist.md` 只作为 implementation-prep checklist 引用，不得被写成 provider integration 已完成证据。
 
 **最小验收口径**
 

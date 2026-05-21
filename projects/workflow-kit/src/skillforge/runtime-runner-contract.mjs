@@ -10,12 +10,33 @@ const DEFAULT_ALLOWED_CASE_STATUSES = Object.freeze([
   "not-executed",
 ]);
 
+const BLOCKING_FAILURE_REASON_CODES = Object.freeze([
+  "RUNTIME_PREFLIGHT_BLOCKED",
+]);
+
 const DEFAULT_PROVIDER_ADAPTER_SEAM = Object.freeze({
   contractFirst: true,
   implemented: false,
   providerBacked: false,
   key: "dry-run",
   slot: "future-provider-backed-single-case-runtime",
+  reservedStatusSet: ["blocked", "error", "dry-run", "not-executed"],
+  futureRequiredFields: [
+    "providerMetadata.providerKey",
+    "providerMetadata.providerSlot",
+    "providerMetadata.executionId",
+    "providerMetadata.providerRunId",
+    "providerMetadata.providerStatus",
+    "providerMetadata.providerBacked=true",
+    "providerMetadata.executed=true",
+    "providerMetadata.providerCall=true",
+    "providerMetadata.providerEvidenceAvailable",
+    "providerMetadata.transcriptCaptured",
+    "providerMetadata.transcriptPersistence",
+    "transcriptRef.available=true",
+    "transcriptRef.providerManaged=true",
+    "transcriptRef.handle",
+  ],
   note: "provider adapter seam reserved only; this does not imply provider integration is implemented",
 });
 
@@ -158,6 +179,55 @@ export function buildRuntimeRunnerResult({
     throw new RangeError(`Unsupported runtime runner result status: ${normalizedStatus}`);
   }
 
+  const normalizedRunnerMetadata = {
+    providerExecutionReserved: true,
+    providerBacked: runnerMetadata?.providerBacked === true,
+    providerCall: false,
+    transcriptCaptured: false,
+    transcriptPersistence: "none",
+    evidenceProduced: false,
+    passedReserved: true,
+    futureProviderRequiredFields: [
+      "runnerMetadata.providerExecutionId",
+      "runnerMetadata.providerStatus",
+      "runnerMetadata.providerBacked=true",
+      "runnerMetadata.providerCall=true",
+      "runnerMetadata.transcriptCaptured=true",
+      "transcriptRef.available=true",
+      "result.status=passed",
+    ],
+    ...cloneObject(runnerMetadata),
+    pendingCapabilities: Array.isArray(runnerMetadata?.pendingCapabilities)
+      ? [...runnerMetadata.pendingCapabilities]
+      : [...DEFAULT_RUNNER_PENDING_CAPABILITIES],
+  };
+
+  const normalizedTranscriptRef =
+    transcriptRef && typeof transcriptRef === "object" && !Array.isArray(transcriptRef)
+      ? {
+          ...transcriptRef,
+          available: transcriptRef?.available === true,
+          providerTranscript: transcriptRef?.providerTranscript === true,
+        }
+      : null;
+
+  if (normalizedRunnerMetadata.providerBacked !== true && normalizedTranscriptRef?.providerTranscript === true) {
+    throw new RangeError("Provider transcript refs are reserved until provider-backed runtime execution is implemented");
+  }
+
+  if (normalizedRunnerMetadata.providerBacked !== true && normalizedTranscriptRef) {
+    normalizedTranscriptRef.providerTranscript = false;
+  }
+
+  if (
+    normalizedStatus !== "blocked" &&
+    BLOCKING_FAILURE_REASON_CODES.includes(failureReason?.code)
+  ) {
+    throw new RangeError(
+      `Runtime runner blocking failureReason requires blocked status, got: ${normalizedStatus}`,
+    );
+  }
+
   return {
     contract: {
       kind: "runtime-runner-output",
@@ -166,14 +236,9 @@ export function buildRuntimeRunnerResult({
     caseId,
     status: normalizedStatus,
     observed,
-    transcriptRef,
+    transcriptRef: normalizedTranscriptRef,
     failureReason,
-    runnerMetadata: {
-      ...cloneObject(runnerMetadata),
-      pendingCapabilities: Array.isArray(runnerMetadata?.pendingCapabilities)
-        ? [...runnerMetadata.pendingCapabilities]
-        : [...DEFAULT_RUNNER_PENDING_CAPABILITIES],
-    },
+    runnerMetadata: normalizedRunnerMetadata,
   };
 }
 

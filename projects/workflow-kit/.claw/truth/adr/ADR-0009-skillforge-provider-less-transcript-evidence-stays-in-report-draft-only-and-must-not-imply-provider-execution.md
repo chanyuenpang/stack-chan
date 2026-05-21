@@ -29,7 +29,8 @@ accepted
 - transcript artifact 必须由 `src/skillforge/runtime-transcript-contract.mjs` 统一定义，且固定为 `kind=runtime-transcript-artifact`、`artifactVersion=runtime-transcript-artifact-draft-1`、`scope=single-case`、`executionClass=provider-less-draft-only`。
 - transcript 内容只允许记录 orchestration evidence；允许的事实锚点包括 `fixture loaded`、`static validated`、`preflight passed/failed`、`case selected`、`boundary built`、`runner blocked/skipped/dry-run reserved`，不得伪造模型对话、provider request/response、side effects 或任何 provider transcript 片段。
 - `runnerMetadata` 与 `outcome` 必须继续把诚实边界写死：`providerCall=false`、`transcriptEngineUsed=false`、`transcriptCaptured=false`、`providerResponseCaptured=false`；即使 `transcriptRef` 存在，这些字段也不得翻转。
-- provider adapter seam 的存在也不能改变 transcript 语义：`provider-backed` 即便作为 runner 内部 reserved slot 存在，当前也只能产出受限 error slot / reserved note，不能把 transcript artifact、`transcriptRef` 或 `executionMode=provider-backed` 解释成 provider transcript、provider persistence 或真实 provider execution。
+- provider adapter seam 的存在也不能改变 transcript 语义：`provider-backed` 即便作为 runner 内部 reserved/unimplemented slot 存在，当前也只能产出受限 `error` slot / reserved note，不能把 transcript artifact、`transcriptRef` 或 `executionMode=provider-backed` 解释成 provider transcript、provider persistence 或真实 provider execution。
+- transcript contract 还必须与新的 non-passing status taxonomy 对齐：即使 runner / adapter 输出已允许 `error` 作为 orchestration/runtime skeleton 保留位，`transcriptRef` 的存在仍不能把 case 语义抬升成 `passed`，也不能掩盖 `providerEvidenceAvailable=false`、`persistedEvidenceAvailable=false` 一类受限信号。
 - `cases[].transcriptRef` 不再允许恒为 `null`，但其语义必须固定为 `in-report draft transcript artifact ref`；引用对象必须携带 `artifactId`、`caseId`、`executionMode`、`available`、`location`、`providerTranscript`、`note`，并且 `providerTranscript=false`。
 - `location` 只能指向当前 report 内的 transcript artifact（例如 `cases[0].transcript`），不得越级宣称外部 persistence、provider transcript store 或 multi-case aggregate transcript 已存在。
 - transcript contract tests 必须作为 runtime contracts 的一部分长期存在，专门守住“有 transcriptRef ≠ 有 provider transcript”“有 transcript artifact ≠ case passed”的诚实边界。
@@ -64,7 +65,7 @@ accepted
 
 - 正向：runtime draft report 不再只有 blocked/dry skeleton，而是具备可检索、可引用的最小 orchestration transcript evidence，后续调试与协议演进锚点更清晰。
 - 正向：通过 `in-report draft artifact ref` 固定 transcriptRef 语义，report 消费方可以稳定引用 transcript artifact，而不会误把它当成 provider transcript 地址。
-- 正向：把 `providerCall=false`、`transcriptCaptured=false`、`providerTranscript=false` 等信号同时写进 artifact、ref、provider adapter seam 与 tests，形成多层 honesty guardrail，减少后续语义漂移。
+- 正向：把 `providerCall=false`、`transcriptCaptured=false`、`providerTranscript=false`、`providerEvidenceAvailable=false` 等信号同时写进 artifact、ref、provider adapter seam 与 tests，形成多层 honesty guardrail，减少后续语义漂移。
 - 正向：独立 transcript contract + runtime contract tests 让后续扩展 provider、persistence、scoring 时必须显式修改合同，而不是在模糊字段上偷偷放宽。
 - 取舍：当前 transcript 仍然不是模型对话记录，也不能证明真实执行发生；它只证明 runtime orchestration 走到了哪些受限步骤。
 - 取舍：由于 `location` 固定在当前 report 内，当前阶段不能复用 transcript 作外部持久化、跨运行聚合或多 case 汇总分析。
@@ -82,6 +83,8 @@ accepted
 - `normalizeTranscriptRef`
 - `in-report-draft-artifact-ref`
 - `providerTranscript=false`
+- `providerEvidenceAvailable=false`
+- `persistedEvidenceAvailable=false`
 - `providerCall=false`
 - `transcriptCaptured=false`
 - `providerResponseCaptured=false`

@@ -25,6 +25,8 @@
 
 同时，当前 provider seam 也只是 adapter-facing contract-first seam：它冻结了未来 provider adapter 的输入/输出边界，但并没有把 provider-backed mode 变成可执行能力。CLI 仍不暴露 provider-backed mode；provider-backed slot 目前只是 reserved/unimplemented。
 
+补充收紧边界：当前 provider-backed reserved slot 相关字段也只能维持诚实占位语义——provider execution metadata、provider transcript bits、persistence handles、provider evidence availability、以及任何 provider-backed success/passed path，都必须继续落在 `false` / `null` / `"none"` / reserved 状态，不能因为 adapter seam 或 draft transcript ref 的存在而被误读成 provider integration 已完成。
+
 本文要回答的问题是：
 
 1. static validation 与未来 runtime replay / preflight 如何分层；
@@ -99,9 +101,10 @@ preflight 不负责执行模型，不负责生成 transcript，不做最终评�
 1. **Static pass 是 runtime 的前置条件，不是 runtime 的替代品。**
 2. **Preflight pass 只表示“可尝试执行”，不表示“执行通过”。**
 3. **当前 provider seam 只是 contract-first adapter seam，不等于 provider-backed runtime replay 已实现。**
-4. **Runtime replay report 只能建立在实际执行证据之上。**
-5. **任何 runtime 结果都不回写为伪造的 static pass。**
-6. **`validate:all` / `validate:contracts` 继续只代表 static validation，不混入 runtime。**
+4. **Preflight 未通过时，runtime draft 结果应更诚实地收敛为 `blocked`，而不是继续暴露带执行幻觉的 `preflight-failed` 运行态标签。**
+5. **Runtime replay report 只能建立在实际执行证据之上。**
+6. **任何 runtime 结果都不回写为伪造的 static pass。**
+7. **`validate:all` / `validate:contracts` 继续只代表 static validation，不混入 runtime。**
 
 ---
 
@@ -406,10 +409,10 @@ pendingCapabilities: []
 
 1. 顶层 `status` 在当前 draft mode 只诚实落在 `draft | blocked`，不再伪装成 `passed | failed` 执行结论；
 2. `summary.passed` 固定为 `false`，直到真实 provider + transcript + scoring evidence 存在；
-3. `cases[].status` 当前合同只保留 `blocked | error | dry-run | not-executed`；其中目前面向用户可达的诚实结果仍应落在 `blocked | dry-run | not-executed`，`error` 只是保留给 orchestration/runtime skeleton 错误报告的 slot；
+3. `cases[].status` 当前合同只保留 `blocked | error | dry-run | not-executed`；其中目前面向用户可达的诚实结果仍应落在 `blocked | dry-run | not-executed`，`error` 只是保留给 orchestration/runtime skeleton 错误报告的 slot；preflight 未通过时也应在 runtime 层收口为 `blocked`；
 4. `observed` 必须保持 stub，`transcriptRef` 必须默认为 `null`；
 5. `metadata.note` 必须显式声明 no provider / no transcript / no scoring；
-6. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；
+6. provider-backed mode 相关 slot 只能保持 reserved/unimplemented，CLI 不暴露对应模式；与 provider-backed slot 对应的 execution metadata、provider transcript、persistence、provider evidence flags 也都必须继续保持 `false` / `null` / reserved；
 7. lineage 通过 `metadata.lineage.static` / `metadata.lineage.preflight` / `metadata.lineage.replayCases` 引用上游来源，而不是把 runtime draft 说成新证据源。
 
 ## 6.3 为什么不直接复用 validator report
@@ -595,6 +598,8 @@ Milestone D / 当前 Phase 3 虽然已经有独立 runtime draft CLI 与 preflig
 补充说明：当前仓库虽然已经存在 single-case dry/null runner skeleton 与独立 `pnpm validate:runtime:contracts` 测试入口，但它们只用于冻结 contract 与诚实性边界，不代表真实 runtime replay/provider/transcript/sandbox enforcement 已实现。
 
 补充到 transcript 口径：当前新增的 transcript evidence 若存在，也只是在 runtime draft artifact 范围内表达 provider-less evidence，不进入统一 validate family，不构成 provider transcript，也不构成 transcript persistence 证明。
+
+补充到 checklist 口径：后续真实 provider-backed 子计划需要补齐哪些字段、哪些 reserved slot 当前必须继续保持 `false/null/reserved`，已另行整理在 `docs/phase-3-provider-backed-slot-contract-checklist.md`。那份清单是 implementation-prep，不是 provider integration 完成证明。
 
 当前 draft artifact 也不应把 `passedCases > 0` 解读成 runtime 已通过；这些计数字段仅保留同构 shape，为后续 provider 子计划承接留接口。
 

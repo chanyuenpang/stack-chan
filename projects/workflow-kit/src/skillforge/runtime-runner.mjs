@@ -16,7 +16,8 @@ const DRY_RUNNER_VERSION = "runtime-runner-skeleton-dry-null-1";
 const SUPPORTED_MODES = new Set(["dry-run", "null-runner", "provider-backed"]);
 const NON_PASSING_STATUSES = new Set(["dry-run", "blocked", "not-executed", "error"]);
 
-function pickStatusForMode(mode) {
+function pickStatusForMode(mode, { preflightBlocked = false } = {}) {
+  if (preflightBlocked) return "blocked";
   if (mode === "null-runner") return "not-executed";
   if (mode === "provider-backed") return "error";
   return "dry-run";
@@ -215,20 +216,26 @@ function buildFailureReason({ mode, preflightReport }) {
 }
 
 function runBuiltinProviderAdapter({ mode, caseRecord, providerAdapterContract, preflightReport }) {
+  const preflightBlocked = preflightReport?.status !== "passed";
+
   return providerAdapterContract.buildResult({
     caseId: caseRecord.id,
-    status: pickStatusForMode(mode),
+    status: pickStatusForMode(mode, { preflightBlocked }),
     observed: buildObservedStub({ mode, caseRecord }),
     transcriptRef: null,
-    note:
-      mode === "provider-backed"
+    note: preflightBlocked
+      ? "provider adapter output remained blocked because preflight did not pass"
+      : mode === "provider-backed"
         ? "provider-backed adapter slot selected, but no provider integration exists yet"
         : mode === "null-runner"
           ? "null runner adapter reserved output contract shape without execution"
           : "dry-run adapter reserved output contract shape without provider execution",
     providerMetadata: {
-      implementationState:
-        mode === "provider-backed" ? "reserved-unimplemented-provider-slot" : "builtin-skeleton-adapter",
+      implementationState: preflightBlocked
+        ? "preflight-blocked"
+        : mode === "provider-backed"
+          ? "reserved-unimplemented-provider-slot"
+          : "builtin-skeleton-adapter",
       providerBacked: mode === "provider-backed",
       providerKey: providerAdapterContract.input.provider.providerKey,
       providerSlot: providerAdapterContract.input.provider.providerSlot,
@@ -239,6 +246,7 @@ function runBuiltinProviderAdapter({ mode, caseRecord, providerAdapterContract, 
       transcriptPersistence: false,
       persistence: "none",
       mode,
+      preflightBlocked,
     },
     pendingCapabilities:
       mode === "provider-backed"
@@ -415,9 +423,20 @@ export function runRuntimeCaseSkeleton({
         implemented: providerSelection.implemented,
         providerBacked: providerSelection.providerBacked,
         status: adapterResult.status,
+        executionId: null,
+        providerRunId: null,
+        providerStatus: null,
+        futureRequiredFields: [
+          "providerAdapter.executionId",
+          "providerAdapter.providerRunId",
+          "providerAdapter.providerStatus",
+          "providerAdapter.providerBacked=true",
+          "providerAdapter.status=passed",
+        ],
       },
-      note:
-        mode === "provider-backed"
+      note: blocked
+        ? "runner remained blocked because preflight did not pass"
+        : mode === "provider-backed"
           ? "runner selected provider-backed adapter slot, but execution remains intentionally unimplemented"
           : mode === "null-runner"
             ? "runner selected null runner adapter and reserved contract shape without execution"
@@ -529,6 +548,10 @@ export function runRuntimeCaseSkeleton({
         slot: providerSelection.providerSlot,
         implemented: providerSelection.implemented,
         providerBacked: providerSelection.providerBacked,
+        executionId: null,
+        providerRunId: null,
+        providerStatus: null,
+        currentState: "reserved-unimplemented",
       },
       statusTaxonomy: {
         reportStatuses: ["draft", "blocked"],
