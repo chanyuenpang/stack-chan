@@ -57,6 +57,30 @@ Notes:
 - `summary.totalChecks` in the preflight artifact counts preflight checks only, not static validator checks or runtime replay cases.
 - A passing preflight artifact still does **not** mean runtime replay ran. It only means the fixture passes the current standalone runtime-readiness gate.
 
+## Standalone runtime contract test entry
+
+The current Phase 3 runtime contract test entry is also intentionally separate from both static and preflight contract suites.
+
+| Command | Args / flags | stdout | stderr | Exit code |
+| --- | --- | --- | --- | --- |
+| `pnpm validate:runtime:contracts` | No public args/flags. Runs `scripts/test-runtime-contracts.mjs` as a minimal standalone contract suite. | Human-readable case summary lines such as `✓ runtime replay report skeleton top-level contract`, followed by `Runtime contract tests passed: N/N cases.` when all assertions pass. | Node assertion/runtime errors only when a runtime contract assertion fails unexpectedly. | `0` when every runtime contract assertion passes; `1` when any runtime contract assertion or script runtime error fails. |
+
+Current scope:
+
+- validates the `runtime-replay-report` skeleton top-level contract and `kind === runtime-replay-report`;
+- validates single-case selector stability for default first case, `caseId`, and `caseIndex` selection;
+- validates that `dry-run` / `null-runner` results never masquerade as `passed` runtime execution;
+- validates blocked-case summary/check alignment and `blockedCases` accounting;
+- validates that `pendingCapabilities`, sandbox declaration-only metadata, and runtime report notes stay explicit about unimplemented provider/transcript/sandbox enforcement.
+
+Intentional limits:
+
+- no real provider execution;
+- no transcript capture or transcript persistence;
+- no sandbox enforcement verification;
+- no integration into `pnpm validate:contracts` or `pnpm validate:preflight:contracts`;
+- no claim that passing runtime contract tests means runtime replay is implemented.
+
 ## Multi-fixture report contract
 
 `validate:fixtures` is the Phase 2A minimal multi-positive static validation entry. It directly validates each fixture with the existing single fixture validator and does **not** change the single fixture report contract described below.

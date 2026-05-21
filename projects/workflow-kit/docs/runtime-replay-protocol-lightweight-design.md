@@ -357,6 +357,7 @@ fixture:
   path: ...
   id: ...
   version: ...
+  entry: ...
   profile: ...
 status: passed | failed
 summary:
@@ -370,7 +371,7 @@ summary:
 cases:
   - id: ...
     type: positive|negative|edge
-    status: passed|failed|blocked|error
+    status: passed|failed|blocked|error|dry-run|not-executed
     expectedBehavior: ...
     observed: ...
     transcriptRef: ...
@@ -382,7 +383,11 @@ metadata:
   runner: reserved
   sandbox: reserved
   sourceReplayCasesVersion: ...
+  note: skeleton-only artifact; not execution evidence
+pendingCapabilities: []
 ```
+
+当前 Phase 3 这一小步若已落代码，也应只落到 runtime replay report skeleton builder 为止；`dry-run` / `not-executed` / `pendingCapabilities` / `metadata.note` 这些位的存在，本身就是为了防止外界误读成“真实 runtime replay 已经跑通”。
 
 ## 6.3 为什么不直接复用 validator report
 
@@ -422,9 +427,11 @@ metadata:
 
 ## 7. Runner / sandbox：本阶段只冻结接口，不实现能力
 
+> 当前进度补充：Phase 3 已新增 `src/skillforge/runtime-runner-contract.mjs`，用于冻结 runner 的单 case 输入/输出生产者合同；并已新增 `src/skillforge/runtime-sandbox-contract.mjs`，用于冻结 runner 消费的 sandbox boundary summary；并已新增 `src/skillforge/runtime-runner.mjs` + `src/skillforge/runtime-case-selector.mjs`，用于形成 single-case dry/null runner skeleton 的最小合同闭环。它们仍然不是真实 runtime runner、sandbox implementation、provider integration、transcript engine 或 scoring engine 的交付。
+
 ## 7.1 本阶段建议冻结的接口层
 
-Milestone D 只建议冻结**抽象接口层**，不实现 runner。
+Milestone D 最初只建议冻结**抽象接口层**、不实现 runner；当前 Phase 3 已落地的 `runtime-runner.mjs` 仅是 single-case dry/null skeleton，用来证明接口可接线，不代表真实 runner 已实现。
 
 最小接口可分为 4 类：
 
@@ -455,6 +462,38 @@ Milestone D 只建议冻结**抽象接口层**，不实现 runner。
 - 输入：selected case + execution context
 - 输出：case execution result
 
+当前已冻结的最小单 case contract 输入/输出面为：
+
+```ts
+input = {
+  fixtureDir,
+  loadedFixture,
+  normalizedFixture,
+  preflightReport,
+  caseRecord,
+  boundary: {
+    permissions,
+    toolBoundary,
+  },
+  options,
+}
+
+output = {
+  caseId,
+  status,
+  observed,
+  transcriptRef,
+  failureReason,
+  runnerMetadata,
+}
+```
+
+这里的关键点是：
+
+- runner 读取的是 `normalize + preflight` 已经整理好的上游事实，而不是自己重造解析逻辑；
+- `boundary` 目前只是声明式消费面，不等于真实 sandbox enforcement；
+- `status` 可以是 `dry-run` / `not-executed` / `blocked`，因此 contract 本身不制造“已经执行成功”的幻觉。
+
 ### D. Transcript sink / artifact writer
 
 职责：把 execution evidence 写成独立 artifact 引用。
@@ -463,6 +502,35 @@ Milestone D 只建议冻结**抽象接口层**，不实现 runner。
 
 - 输入：transcript / observed / summary
 - 输出：artifact ref
+
+## 7.1.1 Sandbox boundary contract（已冻结的最小声明面）
+
+当前已冻结的 runtime sandbox boundary contract 输入/输出面为：
+
+```ts
+input = {
+  permissions,
+  toolBoundary,
+  sideEffectPolicy,
+  sandboxMode,
+  network,
+  filesystem,
+  externalMessaging,
+}
+
+output = {
+  boundarySummary,
+  reservedCapabilities,
+  warnings,
+}
+```
+
+其中：
+
+- `boundarySummary` 是 runner 后续唯一应消费的声明式边界摘要，不应再发明第二套边界字段；
+- `reservedCapabilities` 只表达未来可能补齐的能力位，例如 network/filesystem/external messaging isolation，不代表这些能力已存在；
+- `warnings` 默认应明确指出当前阶段只有 contract，没有 sandbox enforcement；
+- `sideEffectPolicy` / `sideEffectGuard` / `sandboxMode` 目前都只是声明字段，不构成真实隔离执行证据。
 
 ## 7.2 本阶段冻结哪些“输入面”
 
@@ -476,16 +544,17 @@ Milestone D 只建议冻结**抽象接口层**，不实现 runner。
 
 ## 7.3 本阶段明确不实现的能力
 
-Milestone D 明确不做：
+Milestone D / 当前 Phase 3 仍明确不做：
 
-- 不写 runner；
 - 不接真实模型 provider；
 - 不做 transcript engine；
 - 不做 sandbox implementation；
 - 不做 tool execution adapter；
 - 不做 scoring engine；
 - 不做多模型/多平台矩阵执行器；
-- 不把 runtime 命令接到 `package.json` 脚本里。
+- 不把 runtime 入口混进 `validate:contracts`、`validate:preflight:contracts` 或其他 static/preflight 默认链路。
+
+补充说明：当前仓库虽然已经存在 single-case dry/null runner skeleton 与独立 `pnpm validate:runtime:contracts` 测试入口，但它们只用于冻结 contract 与诚实性边界，不代表真实 runtime replay/provider/transcript/sandbox enforcement 已实现。
 
 ---
 
