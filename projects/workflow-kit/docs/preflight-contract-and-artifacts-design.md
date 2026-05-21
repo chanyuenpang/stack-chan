@@ -1,6 +1,6 @@
 # SkillForge Preflight Contract 与 Artifacts 设计草案
 
-> 状态：设计草案（未实现）  
+> 状态：设计草案 + 部分最小骨架已实现（artifact/report skeleton + normalize→preflight adapter）
 > 目标：为下一个 Milestone E 子计划提供可直接执行的 contract-forward 边界，先冻结 artifact schema / preflight contract，再决定是否继续进入 runner 层。  
 > 重要边界：本文**不代表 runtime replay、runner、sandbox、transcript engine、model integration、CI runtime gate 已实现**。
 
@@ -520,7 +520,29 @@ preflight 的职责是 gate，不是执行。
 当前 `schema.mjs` 还很轻。  
 因此下个子计划最适合做的是 **schema 目标冻结**，而不是一口气把完整 schema engine、enum blocking、artifact migration 全包了。
 
-## 13. 结论摘要
+## 13. 实现同步（当前仅第一段原子实现）
+
+当前代码已落地的范围仅包括：
+
+- 独立 `runtime-preflight-result` artifact/report skeleton；
+- 独立 normalize→preflight adapter；
+- adapter 明确以 `normalizeFixture()` 输出作为核心上游输入。
+
+当前**仍未实现**：
+
+- runtime runner / transcript / runtime replay report full implementation。
+
+当前**已新增但仍属最小实现**：
+
+- 独立 preflight checks catalog（blocking / warning 分层，不混入 static rules）；
+- 独立 preflight evaluator/validator，消费 preflight adapter 输出并产出 `checks / errors / status / summary`；
+- 独立 standalone preflight CLI（`scripts/validate-preflight.mjs`），支持单 fixture path + `--format json`，并固定 `0/1/2` exit 语义；
+- 独立 preflight contract tests（`scripts/test-preflight-contracts.mjs`），通过单独入口验证 preflight JSON contract / exit code 语义，不影响现有 static contract baseline；
+- evaluator 仅实现 runtime-ready gate，不代表 runtime replay、runner 或 transcript 已落地。
+
+因此，当前状态只能说明 **preflight contract 接缝已开始固化**，不能解读为 runtime replay 已完成。
+
+## 14. 结论摘要
 
 基于当前仓库状态，Milestone E 前的最合理下一子计划应聚焦：
 

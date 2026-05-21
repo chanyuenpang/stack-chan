@@ -43,6 +43,20 @@ Unsupported format: yaml. Only json is supported.
 
 For missing path or unknown arguments, the CLI also prints usage help.
 
+## Standalone preflight CLI contract
+
+The Phase 3 preflight CLI is intentionally separate from the static validator command family. It produces a `runtime-preflight-result` artifact and is not part of `pnpm validate`, `pnpm validate:all`, or `pnpm validate:contracts`.
+
+| Command | Args / flags | stdout | stderr | Exit code |
+| --- | --- | --- | --- | --- |
+| `pnpm validate:preflight <fixture-path> [--format json]` | Required positional `<fixture-path>`. Optional `--format json`; `--json` is accepted as a JSON shortcut. `--help`/`-h` prints usage. JSON is the default and only supported output format. | On successful CLI parsing, writes one preflight JSON artifact with `kind: "runtime-preflight-result"`. If preflight execution throws, writes a fallback preflight JSON report with `status: "failed"`. Help text is printed to stdout for `--help`/`-h`. | CLI usage errors print a short error message and, for missing/unknown args, usage text. Normal preflight validation should not write diagnostics to stderr. | `0` when `report.summary.passed === true`; `1` when preflight completes with blocking failure/error or fallback error report is emitted; `2` for CLI usage errors such as missing fixture path, unknown argument, or unsupported format. |
+
+Notes:
+
+- This CLI internally reuses the existing `loadFixture()` and `validateFixture()` chain before running `validatePreflight()`; it does not introduce a second raw fixture parsing pipeline.
+- `summary.totalChecks` in the preflight artifact counts preflight checks only, not static validator checks or runtime replay cases.
+- A passing preflight artifact still does **not** mean runtime replay ran. It only means the fixture passes the current standalone runtime-readiness gate.
+
 ## Multi-fixture report contract
 
 `validate:fixtures` is the Phase 2A minimal multi-positive static validation entry. It directly validates each fixture with the existing single fixture validator and does **not** change the single fixture report contract described below.
