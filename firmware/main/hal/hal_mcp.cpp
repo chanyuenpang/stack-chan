@@ -30,6 +30,59 @@ namespace {
 
 bool stackchan_mcp_dispatch_tool(const std::string& tool_name, const cJSON* arguments, std::string& out_result);
 
+struct CelebrateTaskContext {
+    std::string style;
+    int duration_ms = 4000;
+    int intensity = 2;
+    bool sound = false;
+};
+
+void celebrate_task(void* arg)
+{
+    auto ctx = std::unique_ptr<CelebrateTaskContext>(static_cast<CelebrateTaskContext*>(arg));
+    const std::string style = ctx ? ctx->style : std::string("cheer");
+    const int duration_ms = ctx ? ctx->duration_ms : 4000;
+    const int intensity = ctx ? ctx->intensity : 2;
+    const bool sound = ctx ? ctx->sound : false;
+
+    std::string error;
+    if (!start_celebrate_modifier(style, duration_ms, intensity, sound, &error)) {
+        mclog::tagWarn(_tag,
+                       "celebrate task failed: style={} duration_ms={} intensity={} sound={} error={}",
+                       style, duration_ms, intensity, sound ? 1 : 0,
+                       error.empty() ? "celebrate_failed" : error);
+    }
+
+    vTaskDelete(nullptr);
+}
+
+bool schedule_celebrate_task(std::string style, int duration_ms, int intensity, bool sound)
+{
+    auto* ctx = new (std::nothrow) CelebrateTaskContext{};
+    if (!ctx) {
+        mclog::tagError(_tag,
+                        "celebrate schedule failed: alloc_failed style={} duration_ms={} intensity={} sound={}",
+                        style, duration_ms, intensity, sound ? 1 : 0);
+        return false;
+    }
+
+    ctx->style = std::move(style);
+    ctx->duration_ms = duration_ms;
+    ctx->intensity = intensity;
+    ctx->sound = sound;
+
+    BaseType_t rc = xTaskCreatePinnedToCore(celebrate_task, "celebrate", 4096, ctx, tskIDLE_PRIORITY + 3, nullptr, 1);
+    if (rc != pdPASS) {
+        mclog::tagError(_tag,
+                        "celebrate schedule failed: task_create_failed style={} duration_ms={} intensity={} sound={}",
+                        ctx->style, ctx->duration_ms, ctx->intensity, ctx->sound ? 1 : 0);
+        delete ctx;
+        return false;
+    }
+
+    return true;
+}
+
 int g_celebrate_dance_modifier_id = -1;
 Modifier* g_celebrate_dance_modifier_ptr = nullptr;
 std::mutex g_celebrate_mutex;
@@ -359,11 +412,10 @@ bool stackchan_mcp_dispatch_tool(const std::string& tool_name, const cJSON* argu
         v = cJSON_GetObjectItem(arguments, "sound");
         if (v && cJSON_IsBool(v)) sound = cJSON_IsTrue(v);
         mclog::tagInfo(_tag, "http dispatch celebrate: style={} duration_ms={} intensity={}", style, duration_ms, intensity);
-        std::string error;
-        if (!start_celebrate_modifier(style, duration_ms, intensity, sound, &error)) {
-            out_result = error.empty() ? "celebrate_failed" : error;
+        if (!schedule_celebrate_task(style, duration_ms, intensity, sound)) {
+            out_result = "task_create_failed";
         } else {
-            out_result = "ok";
+            out_result = R"({"ok":true,"accepted":true})";
         }
         return true;
     }

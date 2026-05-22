@@ -88,6 +88,13 @@ struct SystemRebootContext {
     char reason[65] = "remote_dev_control";
 };
 
+struct CelebrateTaskContext {
+    std::string style;
+    int duration_ms = 3200;
+    int intensity = 2;
+    bool sound = false;
+};
+
 
 uint16_t read_le16(const uint8_t* p)
 {
@@ -410,6 +417,25 @@ void inject_prompt_task(void* arg)
     vTaskDelete(nullptr);
 }
 
+void celebrate_task(void* arg)
+{
+    auto ctx = std::unique_ptr<CelebrateTaskContext>(static_cast<CelebrateTaskContext*>(arg));
+    const std::string style = ctx ? ctx->style : std::string("cheer");
+    const int duration_ms = ctx ? ctx->duration_ms : 3200;
+    const int intensity = ctx ? ctx->intensity : 2;
+    const bool sound = ctx ? ctx->sound : false;
+
+    std::string error;
+    if (!start_celebrate_modifier(style, duration_ms, intensity, sound, &error)) {
+        mclog::tagWarn(TAG,
+                       "celebrate task failed: style={} duration_ms={} intensity={} sound={} error={}",
+                       style, duration_ms, intensity, sound ? 1 : 0,
+                       error.empty() ? "celebrate_failed" : error);
+    }
+
+    vTaskDelete(nullptr);
+}
+
 DeviceControlResult make_success(std::string result_json = "{\"ok\":true}")
 {
     DeviceControlResult result;
@@ -581,11 +607,22 @@ DeviceControlResult handle_celebrate(const cJSON* args)
         }
     }
 
-    std::string error;
-    if (!start_celebrate_modifier(style, duration_ms, intensity, sound, &error)) {
-        return make_error(error.empty() ? "celebrate_failed" : error.c_str());
+    auto* ctx = new (std::nothrow) CelebrateTaskContext{};
+    if (!ctx) {
+        return make_error("alloc_failed");
     }
-    return make_success();
+    ctx->style = std::move(style);
+    ctx->duration_ms = duration_ms;
+    ctx->intensity = intensity;
+    ctx->sound = sound;
+
+    BaseType_t ret = xTaskCreatePinnedToCore(celebrate_task, "celebrate", 4096, ctx, tskIDLE_PRIORITY + 3, nullptr, 1);
+    if (ret != pdPASS) {
+        delete ctx;
+        return make_error("task_create_failed");
+    }
+
+    return make_success("{\"ok\":true,\"accepted\":true}");
 }
 
 DeviceControlResult handle_play_sound(const cJSON* args)

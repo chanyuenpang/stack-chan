@@ -11,7 +11,7 @@
   python3 remote_control.py --transport lan --ip 192.168.0.8 wake
   python3 remote_control.py --transport usb --device /dev/ttyACM0 stop
   python3 remote_control.py --transport auto reboot --confirm --reason maintenance
-  python3 remote_control.py prompt-sample short
+  python3 remote_control.py inject-prompt --prompt "把灯光设置成紫色"
 """
 
 import argparse
@@ -48,9 +48,9 @@ USB_WRITE_TIMEOUT = 0.5
 USB_DRAIN_WINDOW = 0.2
 USB_POST_OPEN_SETTLE = 0.05
 USB_INTER_WRITE_WAIT = 0.05
-USB_SUPPORTED_COMMANDS = {"status", "wake", "stop", "toggle", "reboot", "prompt-sample", "mcp", "head", "led", "celebrate", "reminder", "reminders", "stop-reminder", "play-sound", "inject-prompt", "capabilities"}
-LEGACY_USB_SUPPORTED_COMMANDS = {"status", "wake", "stop", "toggle", "reboot", "prompt-sample"}
-LAN_ONLY_COMMANDS = set()
+USB_SUPPORTED_COMMANDS = {"status", "wake", "stop", "toggle", "reboot", "mcp", "head", "led", "celebrate", "reminder", "reminders", "stop-reminder", "play-sound", "capabilities"}
+LEGACY_USB_SUPPORTED_COMMANDS = {"status", "wake", "stop", "toggle", "reboot"}
+LAN_ONLY_COMMANDS = {"inject-prompt"}
 
 
 # ─── 彩色输出 ────────────────────────────────────────────────────────────────
@@ -139,11 +139,6 @@ class StackChanHttpClient:
     def toggle(self):
         return self._post("/dev/toggle")
 
-    def prompt_sample(self, sample):
-        if sample == "short":
-            return self._post("/dev/inject_prompt")
-        return self._post("/dev/prompt_sample", {"sample": sample, "explicit_stop": True})
-
     def mcp_call(self, tool, arguments):
         full_tool = tool if tool.startswith("self.") else f"self.robot.{tool}"
         body = {
@@ -187,9 +182,8 @@ class StackChanHttpClient:
     def play_sound(self, name):
         return self._post("/dev/play_sound", {"sound": name})
 
-    def inject_prompt(self, sample="short"):
-        body = None if sample == "short" else {"sample": sample}
-        return self._post("/dev/inject_prompt", body)
+    def inject_prompt(self, prompt):
+        return self._post("/dev/inject_prompt", {"prompt": str(prompt)})
 
     def reboot(self, delay_ms=1500, reason="remote_control"):
         return self._post(
@@ -343,9 +337,6 @@ class StackChanUsbClient:
     def toggle(self):
         return self._send_command("toggle", {}, "toggle")
 
-    def prompt_sample(self, sample):
-        return self._send_command("prompt_sample", {"sample": sample, "explicit_stop": True}, f"prompt_sample {sample}")
-
     def reboot(self, delay_ms=1500, reason="remote_control"):
         safe_reason = str(reason).replace(" ", "_")
         return self._send_command(
@@ -394,10 +385,8 @@ class StackChanUsbClient:
     def play_sound(self, name):
         return self._send_command("play_sound", {"sound": str(name)})
 
-    def inject_prompt(self, sample="short"):
-        args = {} if sample == "short" else {"sample": sample}
-        legacy_command = None if sample != "short" else "inject_prompt"
-        return self._send_command("inject_prompt", args, legacy_command)
+    def inject_prompt(self, prompt):
+        raise UnsupportedCommandError("command 'inject-prompt' is only supported for lan transport")
 
 
 class UnifiedStackChanClient:
@@ -466,13 +455,6 @@ class UnifiedStackChanClient:
             return self._call_usb("reboot", "reboot", delay_ms=delay_ms, reason=reason)
         return self._call_auto("reboot", "reboot", delay_ms=delay_ms, reason=reason)
 
-    def prompt_sample(self, sample):
-        if self.transport == "lan":
-            return self._call_lan("prompt_sample", sample)
-        if self.transport == "usb":
-            return self._call_usb("prompt-sample", "prompt_sample", sample)
-        return self._call_auto("prompt-sample", "prompt_sample", "prompt_sample", sample)
-
     def mcp_call(self, tool, arguments):
         if self.transport == "lan":
             return self._call_lan("mcp_call", tool, arguments)
@@ -529,12 +511,12 @@ class UnifiedStackChanClient:
             return self._call_usb("play-sound", "play_sound", name)
         return self._call_auto("play-sound", "play_sound", "play_sound", name)
 
-    def inject_prompt(self, sample="short"):
+    def inject_prompt(self, prompt):
         if self.transport == "lan":
-            return self._call_lan("inject_prompt", sample)
+            return self._call_lan("inject_prompt", prompt)
         if self.transport == "usb":
-            return self._call_usb("inject-prompt", "inject_prompt", sample)
-        return self._call_auto("inject-prompt", "inject_prompt", "inject_prompt", sample)
+            raise UnsupportedCommandError("command 'inject-prompt' is only supported for lan transport")
+        return self._call_lan("inject_prompt", prompt)
 
     def capabilities(self):
         if self.transport == "lan":
@@ -581,15 +563,6 @@ def cmd_toggle(client, args):
         print(green("✓ 小智状态已切换"))
     else:
         print(red(f"✗ 切换失败: {resp.get('error', '未知错误')}"))
-
-
-def cmd_prompt_sample(client, args):
-    resp = client.prompt_sample(args.sample)
-    if resp.get("ok"):
-        print(green(f"✓ Prompt sample 已触发: {args.sample}"))
-    else:
-        print(red(f"✗ 触发失败: {resp.get('error', '未知错误')}"))
-    print(cyan(json.dumps(resp, indent=2, ensure_ascii=False)))
 
 
 def cmd_head(client, args):
@@ -670,7 +643,17 @@ def cmd_play_sound(client, args):
 
 
 def cmd_inject_prompt(client, args):
-    resp = client.inject_prompt(args.sample)
+    prompt = getattr(args, "prompt", None)
+    sample = getattr(args, "sample", None)
+
+    if prompt and sample:
+        print(red("✗ --prompt 与 --sample 不能同时使用"))
+        sys.exit(1)
+    if not prompt:
+        print(red("✗ inject-prompt 需要指定 --prompt <文本>"))
+        sys.exit(1)
+
+    resp = client.inject_prompt(prompt)
     if resp.get("ok"):
         msg = resp.get("message", "started")
         print(green(f"✓ Prompt 注入已启动: {msg}"))
@@ -710,7 +693,7 @@ def main():
   %(prog)s --transport lan --ip 192.168.0.8 wake
   %(prog)s --transport usb --device /dev/ttyACM0 stop
   %(prog)s --transport auto toggle
-  %(prog)s prompt-sample short
+  %(prog)s inject-prompt --prompt "你好，请帮我数到三"
   %(prog)s reboot --confirm --delay-ms 2000 --reason maintenance
   %(prog)s head --yaw 45 --pitch 30
   %(prog)s mcp --tool get_head_angles
@@ -753,10 +736,6 @@ def main():
 
     sub = subparsers.add_parser("toggle", help="切换小智状态 (lan/usb/auto)")
     sub.set_defaults(func=cmd_toggle)
-
-    sub = subparsers.add_parser("prompt-sample", help="触发 prompt sample: short|tts (lan/usb/auto)")
-    sub.add_argument("sample", nargs="?", default="short", choices=["short", "tts"], help="sample 类型")
-    sub.set_defaults(func=cmd_prompt_sample)
 
     sub = subparsers.add_parser("head", help="控制头部角度 (lan/usb/auto)")
     sub.add_argument("--yaw", type=float, required=True, help="水平角度 (-128~128)")
@@ -803,8 +782,9 @@ def main():
     sub.add_argument("name", help="Sound name: success, welcome, activation, exclamation, popup, vibration, upgrade, low_battery, err_pin, err_reg, wificonfig, camera_shutter, new_notification, 0-9")
     sub.set_defaults(func=cmd_play_sound)
 
-    sub = subparsers.add_parser("inject-prompt", help="Wake XiaoZhi and inject embedded voice prompt (lan/usb/auto)")
-    sub.add_argument("--sample", default="short", choices=["short", "tts"], help="embedded prompt sample，默认 short")
+    sub = subparsers.add_parser("inject-prompt", help="通过 LAN 注入任意 Prompt 文本")
+    sub.add_argument("--prompt", help="要注入的任意文本")
+    sub.add_argument("--sample", choices=["short", "tts"], help=argparse.SUPPRESS)
     sub.set_defaults(func=cmd_inject_prompt)
 
     sub = subparsers.add_parser("capabilities", help="查询当前 transport 的能力面")
