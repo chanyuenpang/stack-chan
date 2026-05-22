@@ -562,10 +562,7 @@ void Application::InitializeProtocol() {
             auto state = cJSON_GetObjectItem(root, "state");
             if (!cJSON_IsString(state) || state->valuestring == nullptr) {
                 ESP_LOGW(TAG, "TTS message missing valid state");
-                return;
-            }
-
-            if (strcmp(state->valuestring, "start") == 0) {
+            } else if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
                     aborted_ = false;
                     MarkSpeakingProgress();
@@ -584,9 +581,9 @@ void Application::InitializeProtocol() {
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
                 auto text = cJSON_GetObjectItem(root, "text");
+                MarkSpeakingProgress();
                 if (cJSON_IsString(text) && text->valuestring != nullptr) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
-                    MarkSpeakingProgress();
                     if (speaking_display_isolation_enabled_) {
                         ESP_LOGW(TAG, "Speaking UI isolation active: skip assistant subtitle update");
                     } else {
@@ -597,6 +594,8 @@ void Application::InitializeProtocol() {
                 } else {
                     ESP_LOGW(TAG, "TTS sentence_start missing valid text");
                 }
+            } else {
+                ESP_LOGW(TAG, "Unknown TTS state: %s", state->valuestring);
             }
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
