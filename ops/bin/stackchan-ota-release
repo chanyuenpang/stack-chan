@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # stackchan-ota-release — 一键 OTA 发布 + 验证 + 自动回退
 #
-# 把固件 bin 打包到 exp-pkg，更新 active-release 和 active.json，
-# 重启 OTA 服务、验证 HTTP 端点、跑 doctor 一致性检查。
-# 任何一步失败自动回退：恢复旧 active-release 和 active.json，重启服务。
-#
-# 用法:
-#   stackchan-ota-release <bin或release目录> --version x.y.z [--desc 描述] [--force 0|1] [--dry-run]
-#   stackchan-ota-release <bin或release目录> --version x.y.z --reboot-device --confirm
-#   stackchan-ota-release --help
+# 旧模式：把固件 bin 打包到 exp-pkg，更新 active-release 和 active.json，
+#        重启 OTA 服务、验证 HTTP 端点、跑 doctor 一致性检查。
+# 新模式：先严格抬升 firmware/CMakeLists.txt 中的 PROJECT_VER，执行 idf.py build，
+#        再沿用原有发布流程。
+# 自动回退仅覆盖 active-release / active.json / user service；源码版本不会自动回滚。
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+FIRMWARE_DIR="${ROOT_DIR}/firmware"
+CMAKE_FILE="${FIRMWARE_DIR}/CMakeLists.txt"
+DEFAULT_BUILD_BIN="${FIRMWARE_DIR}/build/stack-chan.bin"
 
 EXP_DIR="${ROOT_DIR}/exp-pkg"
 ACTIVE_LINK="${EXP_DIR}/active-release"
@@ -21,8 +21,6 @@ ACTIVE_JSON="${ROOT_DIR}/ops/ota/active.json"
 DOCTOR_BIN="${SCRIPT_DIR}/stackchan-doctor"
 REMOTE_CONTROL="${ROOT_DIR}/tools/remote_control/remote_control.py"
 OTA_BASE="http://127.0.0.1:8080"
-
-# ─── 彩色输出 ────────────────────────────────────────────────────────────────
 
 USE_COLOR="${USE_COLOR:-auto}"
 if [[ "$USE_COLOR" == "auto" ]]; then
@@ -35,65 +33,54 @@ yellow() { _c 33 "$*"; }
 cyan()   { _c 36 "$*"; }
 bold()   { _c 1 "$*"; }
 
-# ─── 用法 ────────────────────────────────────────────────────────────────────
-
 usage() {
   local status="${1:-2}"
-  if [[ "$status" == "0" ]]; then
-    cat <<'EOF'
+  local out_fd=2
+  [[ "$status" == "0" ]] && out_fd=1
+  cat >&${out_fd} <<'EOF'
 stackchan-ota-release — 一键 OTA 发布 + 验证 + 自动回退
 
 用法:
   stackchan-ota-release <bin或release目录> --version <x.y.z> [选项]
+  stackchan-ota-release --bump <patch|minor|major> --build [选项]
 
-必需参数:
-  <路径>              固件 bin 文件路径，或包含 stack-chan.bin 的 release 目录
-  --version <x.y.z>   目标版本号
+旧模式（兼容保留）:
+  <路径>                    固件 bin 文件路径，或包含 stack-chan.bin 的 release 目录
+  --version <x.y.z>         目标版本号
 
-可选参数:
-  --desc <描述>       候选目录描述（用于 exp-pkg/candidate-<描述>-<version>）
-                      未指定时从固件 app_desc 自动提取，或使用 "release"
-  --force <0|1>       强制 OTA 标志，默认 0
-  --dry-run           仅模拟执行，不写入任何文件，不重启服务
-  --reboot-device     发布成功后重启设备（须同时带 --confirm）
-  --confirm           确认设备重启操作
-  --help              显示此帮助
-
-安全规则:
-  - 默认 force=0，除非 --force 1
-  - 不得刷机、不写 NVS、不访问设备 IP（除非 --reboot-device --confirm）
-  - 不输出真实 token
-EOF
-  else
-    cat >&2 <<'EOF'
-stackchan-ota-release — 一键 OTA 发布 + 验证 + 自动回退
-
-用法:
-  stackchan-ota-release <bin或release目录> --version <x.y.z> [选项]
-
-必需参数:
-  <路径>              固件 bin 文件路径，或包含 stack-chan.bin 的 release 目录
-  --version <x.y.z>   目标版本号
+新模式（最小脚本化）:
+  --bump <patch|minor|major> 严格修改 firmware/CMakeLists.txt 的 PROJECT_VER
+  --build                    在 firmware 目录执行 idf.py build，并发布 build/stack-chan.bin
 
 可选参数:
-  --desc <描述>       候选目录描述（用于 exp-pkg/candidate-<描述>-<version>）
-                      未指定时从固件 app_desc 自动提取，或使用 "release"
-  --force <0|1>       强制 OTA 标志，默认 0
-  --dry-run           仅模拟执行，不写入任何文件，不重启服务
-  --reboot-device     发布成功后重启设备（须同时带 --confirm）
-  --confirm           确认设备重启操作
-  --help              显示此帮助
+  --desc <描述>             候选目录描述（用于 exp-pkg/candidate-<描述>-<version>）
+                            未指定时使用 "release"
+  --force <0|1>             强制 OTA 标志，默认 0
+  --dry-run                 仅模拟执行：不改源码、不 build、不发布、不重启服务、不重启设备
+  --reboot-device           发布成功后重启设备（仅旧模式/实发时可用，须同时带 --confirm）
+  --confirm                 确认设备重启操作
+  --help                    显示此帮助
 
-安全规则:
+参数约束:
+  - --bump 与 --version 互斥
+  - --bump 与输入路径互斥
+  - --bump 必须配 --build
+  - --build 若无输入路径，则必须配 --bump
+  - 旧模式继续要求：输入路径 + --version
+
+安全/回滚边界:
   - 默认 force=0，除非 --force 1
-  - 不得刷机、不写 NVS、不访问设备 IP（除非 --reboot-device --confirm）
-  - 不输出真实 token
+  - dry-run 不写任何文件、不 build、不改发布态、不重启服务、不 reboot 设备
+  - 自动回滚仅覆盖 active-release / active.json / stackchan-ota.service
+  - firmware/CMakeLists.txt 的源码版本不会自动回滚，失败时会明确提示
 EOF
-  fi
   exit "$status"
 }
 
-# ─── 参数解析 ────────────────────────────────────────────────────────────────
+fail() {
+  red "error: $*" >&2
+  exit 2
+}
 
 INPUT_PATH=""
 VERSION=""
@@ -102,6 +89,19 @@ FORCE="0"
 DRY_RUN=0
 REBOOT_DEVICE=0
 CONFIRMED=0
+BUILD=0
+BUMP_KIND=""
+MODE=""
+BIN_PATH=""
+APP_VERSION=""
+APP_METHOD=""
+BIN_SIZE=""
+BIN_SHA256=""
+CANDIDATE_NAME=""
+CANDIDATE_DIR=""
+LINK_TARGET=""
+BUILD_CMD=(idf.py build)
+OLD_SOURCE_VERSION=""
 
 if [[ $# -eq 0 ]]; then usage; fi
 
@@ -109,13 +109,13 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h) usage 0 ;;
     --version)
-      [[ $# -ge 2 ]] || { red "error: --version 需要参数" >&2; usage; }
+      [[ $# -ge 2 ]] || fail "--version 需要参数"
       VERSION="$2"; shift 2 ;;
     --desc)
-      [[ $# -ge 2 ]] || { red "error: --desc 需要参数" >&2; usage; }
+      [[ $# -ge 2 ]] || fail "--desc 需要参数"
       DESC="$2"; shift 2 ;;
     --force)
-      [[ $# -ge 2 ]] || { red "error: --force 需要参数" >&2; usage; }
+      [[ $# -ge 2 ]] || fail "--force 需要参数"
       FORCE="$2"; shift 2 ;;
     --dry-run)
       DRY_RUN=1; shift ;;
@@ -123,59 +123,74 @@ while [[ $# -gt 0 ]]; do
       REBOOT_DEVICE=1; shift ;;
     --confirm)
       CONFIRMED=1; shift ;;
+    --build)
+      BUILD=1; shift ;;
+    --bump)
+      [[ $# -ge 2 ]] || fail "--bump 需要参数"
+      BUMP_KIND="$2"; shift 2 ;;
     -*)
-      red "error: 未知选项 $1" >&2; usage ;;
+      fail "未知选项 $1" ;;
     *)
       if [[ -z "$INPUT_PATH" ]]; then
         INPUT_PATH="$1"
       else
-        red "error: 多余参数 $1" >&2; usage
+        fail "多余参数 $1"
       fi
       shift ;;
   esac
 done
 
-# ─── 参数校验 ────────────────────────────────────────────────────────────────
-
-if [[ -z "$INPUT_PATH" ]]; then
-  red "error: 必须提供 bin 文件路径或 release 目录" >&2
-  usage
-fi
-if [[ -z "$VERSION" ]]; then
-  red "error: --version 是必需的" >&2
-  usage
-fi
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  red "error: --version 格式必须为 x.y.z (如 2.0.36)" >&2
-  exit 2
-fi
 if [[ "$FORCE" != "0" && "$FORCE" != "1" ]]; then
-  red "error: --force 必须为 0 或 1" >&2
-  exit 2
+  fail "--force 必须为 0 或 1"
 fi
 if [[ "$REBOOT_DEVICE" == "1" && "$CONFIRMED" != "1" ]]; then
-  red "error: --reboot-device 必须同时带 --confirm" >&2
-  exit 2
+  fail "--reboot-device 必须同时带 --confirm"
 fi
 if [[ "$CONFIRMED" == "1" && "$REBOOT_DEVICE" != "1" ]]; then
   yellow "note: --confirm 仅在 --reboot-device 时有效，已忽略" >&2
   CONFIRMED=0
 fi
-
-# ─── 路径规范化 ──────────────────────────────────────────────────────────────
+if [[ -n "$VERSION" && ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  fail "--version 格式必须为 x.y.z (如 2.0.46)"
+fi
+if [[ -n "$BUMP_KIND" && ! "$BUMP_KIND" =~ ^(patch|minor|major)$ ]]; then
+  fail "--bump 仅支持 patch|minor|major"
+fi
+if [[ -n "$BUMP_KIND" && -n "$VERSION" ]]; then
+  fail "--bump 与 --version 互斥"
+fi
+if [[ -n "$BUMP_KIND" && -n "$INPUT_PATH" ]]; then
+  fail "--bump 与输入路径互斥"
+fi
+if [[ -n "$BUMP_KIND" && "$BUILD" != "1" ]]; then
+  fail "--bump 必须配合 --build 使用"
+fi
+if [[ "$BUILD" == "1" && -z "$INPUT_PATH" && -z "$BUMP_KIND" ]]; then
+  fail "--build 在没有输入路径时，必须配合 --bump 使用"
+fi
+if [[ -n "$INPUT_PATH" ]]; then
+  [[ -n "$VERSION" ]] || fail "旧模式必须提供 --version"
+  MODE="legacy"
+else
+  if [[ -n "$BUMP_KIND" || "$BUILD" == "1" ]]; then
+    MODE="bump-build"
+  else
+    fail "必须提供输入路径 + --version，或使用 --bump <patch|minor|major> --build"
+  fi
+fi
+if [[ "$MODE" == "bump-build" && "$REBOOT_DEVICE" == "1" ]]; then
+  fail "--bump --build 模式下不支持 --reboot-device"
+fi
 
 resolve_input_path() {
   local input="$1"
   local candidate=""
 
   if [[ "$input" == /* ]]; then
-    # 绝对路径：原样规范化。
     candidate="$input"
   elif [[ "$input" == StackChan/* ]]; then
-    # 从项目根传入的路径，例如 StackChan/exp-pkg/...。
     candidate="$(dirname "$ROOT_DIR")/${input}"
   else
-    # 默认按 StackChan 根目录解析，例如 firmware/... 或 exp-pkg/...。
     candidate="${ROOT_DIR}/${input}"
   fi
 
@@ -189,60 +204,97 @@ resolve_input_path() {
   fi
 }
 
-INPUT_PATH="$(resolve_input_path "$INPUT_PATH")" || {
-  red "error: 无法解析路径: $INPUT_PATH" >&2
-  exit 1
+read_source_version() {
+  python3 - "$CMAKE_FILE" <<'PY'
+import pathlib, re, sys
+text = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+matches = re.findall(r'^set\(PROJECT_VER "([0-9]+\.[0-9]+\.[0-9]+)"\)$', text, flags=re.M)
+if len(matches) != 1:
+    print(f"expected exactly one PROJECT_VER line, got {len(matches)}", file=sys.stderr)
+    sys.exit(1)
+print(matches[0])
+PY
 }
 
-if [[ -d "$INPUT_PATH" ]]; then
-  BIN_PATH="${INPUT_PATH}/stack-chan.bin"
-else
-  BIN_PATH="$INPUT_PATH"
-fi
+bump_semver() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+major, minor, patch = map(int, sys.argv[1].split('.'))
+kind = sys.argv[2]
+if kind == 'patch':
+    patch += 1
+elif kind == 'minor':
+    minor += 1
+    patch = 0
+elif kind == 'major':
+    major += 1
+    minor = 0
+    patch = 0
+else:
+    raise SystemExit(1)
+print(f"{major}.{minor}.{patch}")
+PY
+}
 
-if [[ ! -f "$BIN_PATH" ]]; then
-  red "error: 找不到固件文件: $BIN_PATH" >&2
-  exit 1
-fi
-
-cyan "==> 输入固件: ${BIN_PATH}"
-cyan "==> 目标版本: ${VERSION}"
-cyan "==> force: ${FORCE}"
-if [[ "$DRY_RUN" == "1" ]]; then
-  yellow "==> DRY-RUN 模式: 不会实际修改任何文件、不重启服务"
-fi
-
-# ─── 步骤 1: 读取 app_desc 版本 ─────────────────────────────────────────────
+update_source_version() {
+  local old_version="$1"
+  local new_version="$2"
+  python3 - "$CMAKE_FILE" "$old_version" "$new_version" <<'PY'
+import pathlib, re, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+old = sys.argv[2]
+new = sys.argv[3]
+text = path.read_text(encoding='utf-8')
+pattern = re.compile(r'^set\(PROJECT_VER "([0-9]+\.[0-9]+\.[0-9]+)"\)$', re.M)
+matches = list(pattern.finditer(text))
+if len(matches) != 1:
+    print(f"expected exactly one PROJECT_VER line, got {len(matches)}", file=sys.stderr)
+    sys.exit(1)
+if matches[0].group(1) != old:
+    print(f"unexpected current version: {matches[0].group(1)} != {old}", file=sys.stderr)
+    sys.exit(1)
+new_text, count = pattern.subn(f'set(PROJECT_VER "{new}")', text, count=1)
+if count != 1:
+    print("replace failed", file=sys.stderr)
+    sys.exit(1)
+fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + '.', suffix='.tmp')
+with open(fd, 'w', encoding='utf-8') as f:
+    f.write(new_text)
+pathlib.Path(tmp).replace(path)
+verify = path.read_text(encoding='utf-8')
+verify_matches = re.findall(r'^set\(PROJECT_VER "([0-9]+\.[0-9]+\.[0-9]+)"\)$', verify, flags=re.M)
+if verify_matches != [new]:
+    print(f"verification failed: {verify_matches}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
 
 get_app_desc_version() {
   local bin="$1"
   local version=""
   local method=""
+  local output=""
+  local esptool_cmd=""
 
-  # 方法 A: esptool.py image_info
   if command -v esptool &>/dev/null; then
-    local esptool_cmd="esptool"
+    esptool_cmd="esptool"
   elif command -v esptool.py &>/dev/null; then
-    local esptool_cmd="esptool.py"
-  else
-    esptool_cmd=""
+    esptool_cmd="esptool.py"
   fi
 
   if [[ -n "$esptool_cmd" ]]; then
-    # 兼容新旧 CLI: image-info 或 image_info
-    local output
-    if output=$("$esptool_cmd" image-info "$bin" 2>&1) || \
-       output=$("$esptool_cmd" image_info "$bin" 2>&1); then
-      version=$(echo "$output" | grep -oP 'App version:\s*\K\S+')
-      method="$esptool_cmd image-info"
+    if output=$("$esptool_cmd" image-info "$bin" 2>&1) || output=$("$esptool_cmd" image_info "$bin" 2>&1); then
+      version=$(echo "$output" | grep -oP 'App version:\s*\K\S+' || true)
+      if [[ -n "$version" ]]; then
+        method="$esptool_cmd image-info"
+      fi
     fi
   fi
 
-  # 方法 B: strings + grep (esptool 不可用时的 fallback)
   if [[ -z "$version" ]] && command -v strings &>/dev/null; then
-    if output=$(strings "$bin" | grep -P '^\d+\.\d+\.\d+$'); then
+    if output=$(strings "$bin" | grep -P '^\d+\.\d+\.\d+$' || true); then
       version=$(echo "$output" | head -1)
-      method="strings+grep"
+      [[ -n "$version" ]] && method="strings+grep"
     fi
   fi
 
@@ -255,59 +307,44 @@ get_app_desc_version() {
   echo "$version" "$method"
 }
 
-cyan "==> 步骤 1: 校验固件 app_desc 版本..."
-read -r APP_VERSION APP_METHOD < <(get_app_desc_version "$BIN_PATH")
-APP_METHOD="${APP_METHOD:-unknown}"
-cyan "    app_desc 版本: ${APP_VERSION} (方法: ${APP_METHOD})"
+compute_bin_metadata() {
+  BIN_SIZE=$(stat -c%s "$BIN_PATH")
+  BIN_SHA256=$(sha256sum "$BIN_PATH" | awk '{print $1}')
+}
 
-if [[ "$APP_VERSION" != "$VERSION" ]]; then
-  red "✗ 版本不匹配: app_desc=${APP_VERSION}, --version=${VERSION}" >&2
-  red "  拒绝发布。请修正 --version 参数或使用正确的固件文件。" >&2
-  exit 1
-fi
-green "✓ 版本校验通过: ${APP_VERSION} == ${VERSION}"
+prepare_candidate_name() {
+  [[ -n "$DESC" ]] || DESC="release"
+  CANDIDATE_NAME="candidate-${DESC}-${VERSION}"
+  CANDIDATE_DIR="${EXP_DIR}/${CANDIDATE_NAME}"
+  case "$CANDIDATE_DIR" in
+    "${EXP_DIR}"/*) LINK_TARGET="${CANDIDATE_NAME}" ;;
+    *) LINK_TARGET="$CANDIDATE_DIR" ;;
+  esac
+}
 
-# ─── 步骤 2: 计算 size 和 sha256 ─────────────────────────────────────────────
-
-cyan "==> 步骤 2: 计算固件校验值..."
-BIN_SIZE=$(stat -c%s "$BIN_PATH")
-BIN_SHA256=$(sha256sum "$BIN_PATH" | awk '{print $1}')
-cyan "    size:   ${BIN_SIZE} bytes"
-cyan "    sha256: ${BIN_SHA256}"
-
-# ─── 步骤 3: 确定候选目录名 ─────────────────────────────────────────────────
-
-if [[ -z "$DESC" ]]; then
-  # 尝试从 app_desc description 提取，或使用 version 中提取的简短描述
-  DESC="release"
-fi
-CANDIDATE_NAME="candidate-${DESC}-${VERSION}"
-CANDIDATE_DIR="${EXP_DIR}/${CANDIDATE_NAME}"
-
-cyan "==> 步骤 3: 候选目录 = ${CANDIDATE_NAME}"
-
-if [[ "$DRY_RUN" == "0" ]]; then
-  if [[ -d "$CANDIDATE_DIR" ]]; then
-    yellow "    warning: 候选目录已存在，将被覆盖"
-    rm -rf "$CANDIDATE_DIR"
+print_mode_banner() {
+  cyan "==> 发布模式: ${MODE}"; echo
+  if [[ "$MODE" == "legacy" ]]; then
+    cyan "==> 输入固件: ${BIN_PATH}"; echo
+    cyan "==> 目标版本: ${VERSION}"; echo
+  else
+    cyan "==> 源码版本: ${OLD_SOURCE_VERSION} -> ${VERSION}"; echo
+    cyan "==> build 命令: (cd ${FIRMWARE_DIR} && ${BUILD_CMD[*]})"; echo
+    cyan "==> 预期 bin: ${BIN_PATH}"; echo
   fi
-  mkdir -p "$CANDIDATE_DIR"
-  cp "$BIN_PATH" "${CANDIDATE_DIR}/stack-chan.bin"
-  green "✓ 已创建候选目录并复制固件"
-else
-  cyan "    [dry-run] 将创建: ${CANDIDATE_DIR}/stack-chan.bin"
-fi
+  cyan "==> force: ${FORCE}"; echo
+  cyan "==> 预期 candidate: ${CANDIDATE_DIR}"; echo
+  if [[ "$DRY_RUN" == "1" ]]; then
+    yellow "==> DRY-RUN 模式: 不改源码、不 build、不改发布态、不重启服务、不重启设备"; echo
+  fi
+}
 
-# 回退/备份状态变量（全局）
 BACKUP_LINK_TARGET=""
 BACKUP_JSON=""
 OLD_VERSION="unknown"
 
-# ─── 步骤 4: 备份旧状态（用于回退） ─────────────────────────────────────────
-
 backup_old_state() {
   if [[ "$DRY_RUN" == "1" ]]; then return 0; fi
-
   BACKUP_LINK_TARGET=""
   BACKUP_JSON=""
   OLD_VERSION="unknown"
@@ -319,7 +356,12 @@ backup_old_state() {
 
   if [[ -f "$ACTIVE_JSON" ]]; then
     BACKUP_JSON=$(cat "$ACTIVE_JSON")
-    OLD_VERSION=$(python3 -c "import json,sys; print(json.loads('''${BACKUP_JSON}''').get('version','unknown'))" 2>/dev/null || echo "unknown")
+    OLD_VERSION=$(python3 - "$ACTIVE_JSON" <<'PY' 2>/dev/null || echo "unknown"
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    print(json.load(f).get('version', 'unknown'))
+PY
+)
     cyan "    备份旧 active.json (version=${OLD_VERSION})"
   fi
 }
@@ -327,7 +369,8 @@ backup_old_state() {
 rollback() {
   local reason="$1"
   red "✗ 发布失败: ${reason}" >&2
-  red "==> 开始自动回退..." >&2
+  red "==> 开始自动回退 active-release / active.json / stackchan-ota.service ..." >&2
+  yellow "    注意：firmware/CMakeLists.txt 的源码版本不会自动回滚，请按需手动处理。" >&2
 
   if [[ "$DRY_RUN" == "1" ]]; then
     yellow "    [dry-run] 跳过回退操作"
@@ -335,59 +378,128 @@ rollback() {
   fi
 
   local rolled=0
-
-  # 恢复 active-release 软链接
   if [[ -n "$BACKUP_LINK_TARGET" ]]; then
     rm -f "$ACTIVE_LINK"
     ln -s "$BACKUP_LINK_TARGET" "$ACTIVE_LINK"
     cyan "    已恢复 active-release -> ${BACKUP_LINK_TARGET}"
     rolled=1
   elif [[ -L "$ACTIVE_LINK" ]]; then
-    # 如果没有备份但链接存在，保持不动
     cyan "    active-release 保留当前链接"
   fi
 
-  # 恢复 active.json
   if [[ -n "$BACKUP_JSON" ]]; then
-    echo "$BACKUP_JSON" > "$ACTIVE_JSON"
+    printf '%s' "$BACKUP_JSON" > "$ACTIVE_JSON"
     cyan "    已恢复 active.json (version=${OLD_VERSION})"
     rolled=1
   elif [[ -f "$ACTIVE_JSON" ]]; then
     cyan "    active.json 保留当前内容"
   fi
 
-  # 重启服务以恢复到旧状态
   if systemctl --user restart stackchan-ota.service 2>/dev/null; then
-    cyan "    已重启 stackchan-ota.service (恢复到旧版本)"
+    cyan "    已重启 stackchan-ota.service"
   fi
 
   if [[ "$rolled" == "1" ]]; then
-    red "  ⚠ 已自动回退到旧版本 ${OLD_VERSION}" >&2
+    red "  ⚠ 已自动回退发布态到旧版本 ${OLD_VERSION}" >&2
   fi
-
   exit 1
 }
+
+if [[ "$MODE" == "legacy" ]]; then
+  INPUT_PATH="$(resolve_input_path "$INPUT_PATH")" || {
+    red "error: 无法解析路径: $INPUT_PATH" >&2
+    exit 1
+  }
+  if [[ -d "$INPUT_PATH" ]]; then
+    BIN_PATH="${INPUT_PATH}/stack-chan.bin"
+  else
+    BIN_PATH="$INPUT_PATH"
+  fi
+  [[ -f "$BIN_PATH" ]] || { red "error: 找不到固件文件: $BIN_PATH" >&2; exit 1; }
+else
+  [[ -f "$CMAKE_FILE" ]] || { red "error: 找不到版本文件: $CMAKE_FILE" >&2; exit 1; }
+  OLD_SOURCE_VERSION="$(read_source_version)" || { red "error: 无法读取源码版本（PROJECT_VER）" >&2; exit 1; }
+  VERSION="$(bump_semver "$OLD_SOURCE_VERSION" "$BUMP_KIND")"
+  BIN_PATH="$DEFAULT_BUILD_BIN"
+fi
+
+prepare_candidate_name
+print_mode_banner
+
+if [[ "$MODE" == "bump-build" ]]; then
+  cyan "==> 步骤 0: 计算源码版本抬升..."; echo
+  green "✓ PROJECT_VER: ${OLD_SOURCE_VERSION} -> ${VERSION}"; echo
+  if [[ "$DRY_RUN" == "0" ]]; then
+    cyan "==> 步骤 0.1: 写入 firmware/CMakeLists.txt ..."
+    update_source_version "$OLD_SOURCE_VERSION" "$VERSION"
+    green "✓ 已原子更新 PROJECT_VER，并完成回读校验"
+
+    cyan "==> 步骤 0.2: 执行 build ..."
+    (
+      cd "$FIRMWARE_DIR"
+      "${BUILD_CMD[@]}"
+    )
+    green "✓ build 完成"
+  else
+    cyan "    [dry-run] 将原子修改: ${CMAKE_FILE} (${OLD_SOURCE_VERSION} -> ${VERSION})"
+    cyan "    [dry-run] 将执行: (cd ${FIRMWARE_DIR} && ${BUILD_CMD[*]})"
+  fi
+
+  if [[ "$DRY_RUN" == "0" && ! -f "$BIN_PATH" ]]; then
+    red "error: build 完成但未找到产物: $BIN_PATH" >&2
+    exit 1
+  fi
+fi
+
+cyan "==> 步骤 1: 校验固件 app_desc 版本..."
+if [[ "$DRY_RUN" == "0" ]]; then
+  read -r APP_VERSION APP_METHOD < <(get_app_desc_version "$BIN_PATH")
+  APP_METHOD="${APP_METHOD:-unknown}"
+  cyan "    app_desc 版本: ${APP_VERSION} (方法: ${APP_METHOD})"
+  if [[ "$APP_VERSION" != "$VERSION" ]]; then
+    red "✗ 版本不匹配: app_desc=${APP_VERSION}, 目标=${VERSION}" >&2
+    if [[ "$MODE" == "bump-build" ]]; then
+      red "  提示：已更新源码版本为 ${VERSION}，但源码版本不会自动回滚。" >&2
+    fi
+    exit 1
+  fi
+  green "✓ 版本校验通过: ${APP_VERSION} == ${VERSION}"
+else
+  cyan "    [dry-run] 将校验 build/bin 的 app_desc version == ${VERSION}"
+fi
+
+cyan "==> 步骤 2: 计算固件校验值..."
+if [[ "$DRY_RUN" == "0" ]]; then
+  compute_bin_metadata
+  cyan "    size:   ${BIN_SIZE} bytes"
+  cyan "    sha256: ${BIN_SHA256}"
+else
+  cyan "    [dry-run] 将计算: size + sha256 (${BIN_PATH})"
+fi
+
+cyan "==> 步骤 3: 候选目录 = ${CANDIDATE_NAME}"
+if [[ "$DRY_RUN" == "0" ]]; then
+  if [[ -e "$CANDIDATE_DIR" ]]; then
+    red "error: 候选目录已存在，拒绝覆盖: $CANDIDATE_DIR" >&2
+    exit 1
+  fi
+  mkdir -p "$CANDIDATE_DIR"
+  cp "$BIN_PATH" "${CANDIDATE_DIR}/stack-chan.bin"
+  green "✓ 已创建候选目录并复制固件"
+else
+  cyan "    [dry-run] 预期 candidate 路径: ${CANDIDATE_DIR}"
+  cyan "    [dry-run] 将创建: ${CANDIDATE_DIR}/stack-chan.bin"
+fi
 
 cyan "==> 步骤 4: 备份当前状态..."
 backup_old_state
 cyan "    旧版本: ${OLD_VERSION:-unknown}"
 green "✓ 状态已备份"
 
-# ─── 步骤 5: 更新 active-release 软链接 ─────────────────────────────────────
-
 cyan "==> 步骤 5: 更新 active-release 软链接..."
-
 if [[ "$DRY_RUN" == "0" ]]; then
-  # 原子替换: 先建临时链接再 mv
   TMP_LINK="${EXP_DIR}/.active-release.$$"
   rm -f "$TMP_LINK"
-
-  # 判断目标用相对路径还是绝对路径
-  case "$CANDIDATE_DIR" in
-    "${EXP_DIR}"/*) LINK_TARGET="${CANDIDATE_NAME}" ;;
-    *) LINK_TARGET="$CANDIDATE_DIR" ;;
-  esac
-
   ln -s "$LINK_TARGET" "$TMP_LINK"
   mv -Tf "$TMP_LINK" "$ACTIVE_LINK"
   green "✓ active-release -> ${LINK_TARGET}"
@@ -395,10 +507,7 @@ else
   cyan "    [dry-run] 将更新: active-release -> ${CANDIDATE_NAME}"
 fi
 
-# ─── 步骤 6: 写入 active.json ────────────────────────────────────────────────
-
 cyan "==> 步骤 6: 写入 active.json..."
-
 if [[ "$DRY_RUN" == "0" ]]; then
   python3 - "${ACTIVE_JSON}" "${VERSION}" "${FORCE}" "${BIN_SIZE}" "${BIN_SHA256}" <<'PY'
 import json, sys
@@ -422,17 +531,12 @@ else
   cyan "    [dry-run] 将写入 active.json"
 fi
 
-# ─── 步骤 7: 重启 OTA 服务 ──────────────────────────────────────────────────
-
 cyan "==> 步骤 7: 重启 stackchan-ota.service..."
-
 if [[ "$DRY_RUN" == "0" ]]; then
   if ! systemctl --user restart stackchan-ota.service 2>/dev/null; then
     rollback "systemctl --user restart 失败"
   fi
   green "✓ 服务已重启"
-
-  # 等待服务就绪
   cyan "    等待服务就绪..."
   for i in $(seq 1 10); do
     if systemctl --user is-active stackchan-ota.service 2>/dev/null | grep -q '^active$'; then
@@ -449,12 +553,8 @@ else
   cyan "    [dry-run] 将重启 stackchan-ota.service"
 fi
 
-# ─── 步骤 8: 验证 HTTP 端点 ─────────────────────────────────────────────────
-
 verify_http() {
   local ok=1
-
-  # 8a: GET /ota/
   cyan "    GET /ota/ ..."
   local get_body
   if get_body=$(curl -fsS --max-time 5 "${OTA_BASE}/ota/" 2>/dev/null); then
@@ -469,7 +569,6 @@ verify_http() {
     ok=0
   fi
 
-  # 8b: POST /ota/
   cyan "    POST /ota/ ..."
   local post_body
   if post_body=$(curl -fsS --max-time 5 -X POST -H 'Content-Type: application/json' -d '{}' "${OTA_BASE}/ota/" 2>/dev/null); then
@@ -484,7 +583,6 @@ verify_http() {
     ok=0
   fi
 
-  # 8c: HEAD /stack-chan.bin
   cyan "    HEAD /stack-chan.bin ..."
   local head_code
   if head_code=$(curl -fsSI --max-time 5 -o /dev/null -w '%{http_code}' "${OTA_BASE}/stack-chan.bin" 2>/dev/null); then
@@ -503,7 +601,6 @@ verify_http() {
 }
 
 cyan "==> 步骤 8: 验证 HTTP 端点..."
-
 if [[ "$DRY_RUN" == "0" ]]; then
   if ! verify_http; then
     rollback "HTTP 端点验证失败"
@@ -513,17 +610,12 @@ else
   cyan "    [dry-run] 将验证 GET/POST /ota/ 和 HEAD /stack-chan.bin"
 fi
 
-# ─── 步骤 9: stackchan-doctor 一致性检查 ────────────────────────────────────
-
 cyan "==> 步骤 9: stackchan-doctor 一致性检查..."
-
 if [[ "$DRY_RUN" == "0" ]]; then
   if [[ -x "$DOCTOR_BIN" ]]; then
     python3 "$DOCTOR_BIN" --json > /tmp/stackchan-doctor-result.$$.json 2>/dev/null || true
-
     OVERALL=$(python3 -c "import json; d=json.load(open('/tmp/stackchan-doctor-result.$$.json')); print(d.get('overall','error'))" 2>/dev/null || echo "error")
     rm -f /tmp/stackchan-doctor-result.$$.json
-
     if [[ "$OVERALL" == "ok" ]]; then
       green "✓ stackchan-doctor: overall=ok"
     elif [[ "$OVERALL" == "warning" ]]; then
@@ -539,18 +631,14 @@ else
   cyan "    [dry-run] 将运行 stackchan-doctor --json"
 fi
 
-# ─── 步骤 10 (可选): 设备重启 ───────────────────────────────────────────────
-
 if [[ "$REBOOT_DEVICE" == "1" && "$CONFIRMED" == "1" ]]; then
   cyan "==> 步骤 10: 重启设备 (已确认)..."
-
   if [[ "$DRY_RUN" == "0" ]]; then
     if [[ -f "$REMOTE_CONTROL" ]]; then
       if python3 "$REMOTE_CONTROL" reboot --confirm --delay-ms 1500 --reason ota_release 2>&1; then
         green "✓ 设备重启命令已发送 (delay=1500ms, reason=ota_release)"
       else
         yellow "⚠ 设备重启命令执行时出现警告/错误（可能设备当前不可达）"
-        # 不因设备不可达而回退 — OTA 发布本身已成功
       fi
     else
       yellow "    warning: remote_control.py 不存在，跳过设备重启"
@@ -560,26 +648,32 @@ if [[ "$REBOOT_DEVICE" == "1" && "$CONFIRMED" == "1" ]]; then
   fi
 fi
 
-# ─── 完成 ────────────────────────────────────────────────────────────────────
-
 echo ""
 bold "$(green "═══ OTA 发布完成 ═══")"
 echo ""
+cyan "  模式:       ${MODE}"
 cyan "  版本:       ${VERSION}"
+if [[ "$MODE" == "bump-build" ]]; then
+  cyan "  源码版本:   ${OLD_SOURCE_VERSION} -> ${VERSION}"
+fi
 cyan "  候选目录:   ${CANDIDATE_NAME}"
-cyan "  固件大小:   ${BIN_SIZE} bytes"
-cyan "  SHA256:     ${BIN_SHA256}"
+if [[ "$DRY_RUN" == "0" ]]; then
+  cyan "  固件大小:   ${BIN_SIZE} bytes"
+  cyan "  SHA256:     ${BIN_SHA256}"
+else
+  cyan "  预期固件:   ${BIN_PATH}"
+fi
 cyan "  Force:      ${FORCE}"
 cyan "  active.json:${ACTIVE_JSON}"
 cyan "  active-link: ${ACTIVE_LINK} -> $(readlink "$ACTIVE_LINK" 2>/dev/null || echo "${CANDIDATE_NAME}")"
 if [[ "$OLD_VERSION" != "unknown" && "$OLD_VERSION" != "$VERSION" ]]; then
-  cyan "  旧版本:     ${OLD_VERSION}"
-  echo ""
-  yellow "  回退提示:"
-  yellow "    如需手动回退: cd ${EXP_DIR} && ln -sfn candidate-<旧描述>-${OLD_VERSION} active-release"
-  yellow "    并恢复 active.json 后 systemctl --user restart stackchan-ota"
+  cyan "  旧发布版:   ${OLD_VERSION}"
 fi
-
+if [[ "$MODE" == "bump-build" ]]; then
+  echo ""
+  yellow "  源码回滚提示:"
+  yellow "    firmware/CMakeLists.txt 的 PROJECT_VER 已按需要修改；若后续失败，需要人工决定是否改回。"
+fi
 if [[ "$DRY_RUN" == "1" ]]; then
   echo ""
   yellow "  ※ 这是 dry-run，未做任何实际修改。"
