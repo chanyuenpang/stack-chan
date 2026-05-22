@@ -147,7 +147,6 @@ private:
     bool has_server_time_ = false;
     bool aborted_ = false;
     bool assets_version_checked_ = false;
-    bool speaking_display_isolation_enabled_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     std::atomic<int64_t> speaking_start_time_us_{0};
     std::atomic<int64_t> last_speaking_progress_time_us_{0};

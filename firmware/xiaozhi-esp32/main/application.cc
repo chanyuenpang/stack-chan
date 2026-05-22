@@ -28,8 +28,6 @@ constexpr const char* kBootAutoStartOnceKey = "start_once";
 constexpr const char* kBootAutoStartFailCountKey = "fail_count";
 constexpr const char* kBootDefaultXiaozhi = "xiaozhi";
 constexpr int64_t kSpeakingWatchdogTimeoutUs = 30LL * 1000 * 1000;
-constexpr const char* kDebugNamespace = "debug";
-constexpr const char* kDebugSpeakingDisplayIsolationKey = "spk_ui_iso";
 
 void SetXiaozhiBootPolicyAfterOta()
 {
@@ -47,11 +45,6 @@ void SetXiaozhiBootPolicyAfterOta()
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
-    {
-        Settings debug_settings(kDebugNamespace, false);
-        speaking_display_isolation_enabled_ =
-            debug_settings.GetBool(kDebugSpeakingDisplayIsolationKey, false);
-    }
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
 #error "CONFIG_USE_DEVICE_AEC and CONFIG_USE_SERVER_AEC cannot be enabled at the same time"
@@ -553,16 +546,9 @@ void Application::InitializeProtocol() {
     protocol_->OnIncomingJson([this, display](const cJSON* root) {
         // Parse JSON data
         auto type = cJSON_GetObjectItem(root, "type");
-        if (!cJSON_IsString(type) || type->valuestring == nullptr) {
-            ESP_LOGW(TAG, "Incoming JSON missing valid type");
-            return;
-        }
-
         if (strcmp(type->valuestring, "tts") == 0) {
             auto state = cJSON_GetObjectItem(root, "state");
-            if (!cJSON_IsString(state) || state->valuestring == nullptr) {
-                ESP_LOGW(TAG, "TTS message missing valid state");
-            } else if (strcmp(state->valuestring, "start") == 0) {
+            if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
                     aborted_ = false;
                     MarkSpeakingProgress();
@@ -581,25 +567,17 @@ void Application::InitializeProtocol() {
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
                 auto text = cJSON_GetObjectItem(root, "text");
-                MarkSpeakingProgress();
-                if (cJSON_IsString(text) && text->valuestring != nullptr) {
+                if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
-                    if (speaking_display_isolation_enabled_) {
-                        ESP_LOGW(TAG, "Speaking UI isolation active: skip assistant subtitle update");
-                    } else {
-                        Schedule([display, message = std::string(text->valuestring)]() {
-                            display->SetChatMessage("assistant", message.c_str());
-                        });
-                    }
-                } else {
-                    ESP_LOGW(TAG, "TTS sentence_start missing valid text");
+                    MarkSpeakingProgress();
+                    Schedule([display, message = std::string(text->valuestring)]() {
+                        display->SetChatMessage("assistant", message.c_str());
+                    });
                 }
-            } else {
-                ESP_LOGW(TAG, "Unknown TTS state: %s", state->valuestring);
             }
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
-            if (cJSON_IsString(text) && text->valuestring != nullptr) {
+            if (cJSON_IsString(text)) {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([display, message = std::string(text->valuestring)]() {
                     display->SetChatMessage("user", message.c_str());
@@ -607,7 +585,7 @@ void Application::InitializeProtocol() {
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
-            if (cJSON_IsString(emotion) && emotion->valuestring != nullptr) {
+            if (cJSON_IsString(emotion)) {
                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
                     display->SetEmotion(emotion_str.c_str());
                 });
@@ -615,17 +593,11 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "mcp") == 0) {
             auto payload = cJSON_GetObjectItem(root, "payload");
             if (cJSON_IsObject(payload)) {
-                auto payload_str = cJSON_PrintUnformatted(payload);
-                if (payload_str != nullptr) {
-                    McpServer::GetInstance().ParseMessage(std::string(payload_str));
-                    cJSON_free(payload_str);
-                } else {
-                    ESP_LOGW(TAG, "Failed to serialize MCP payload");
-                }
+                McpServer::GetInstance().ParseMessage(payload);
             }
         } else if (strcmp(type->valuestring, "system") == 0) {
             auto command = cJSON_GetObjectItem(root, "command");
-            if (cJSON_IsString(command) && command->valuestring != nullptr) {
+            if (cJSON_IsString(command)) {
                 ESP_LOGI(TAG, "System command: %s", command->valuestring);
                 if (strcmp(command->valuestring, "reboot") == 0) {
                     // Do a reboot if user requests a OTA update
@@ -635,19 +607,15 @@ void Application::InitializeProtocol() {
                 } else {
                     ESP_LOGW(TAG, "Unknown system command: %s", command->valuestring);
                 }
-            } else {
-                ESP_LOGW(TAG, "System message missing valid command");
             }
         } else if (strcmp(type->valuestring, "alert") == 0) {
             auto status = cJSON_GetObjectItem(root, "status");
             auto message = cJSON_GetObjectItem(root, "message");
             auto emotion = cJSON_GetObjectItem(root, "emotion");
-            if (cJSON_IsString(status) && status->valuestring != nullptr &&
-                cJSON_IsString(message) && message->valuestring != nullptr &&
-                cJSON_IsString(emotion) && emotion->valuestring != nullptr) {
+            if (cJSON_IsString(status) && cJSON_IsString(message) && cJSON_IsString(emotion)) {
                 Alert(status->valuestring, message->valuestring, emotion->valuestring, Lang::Sounds::OGG_VIBRATION);
             } else {
-                ESP_LOGW(TAG, "Alert command requires valid status, message and emotion");
+                ESP_LOGW(TAG, "Alert command requires status, message and emotion");
             }
 #if CONFIG_RECEIVE_CUSTOM_MESSAGE
         } else if (strcmp(type->valuestring, "custom") == 0) {
@@ -1017,11 +985,7 @@ void Application::HandleStateChangedEvent() {
             }
             break;
         case kDeviceStateSpeaking:
-            if (speaking_display_isolation_enabled_) {
-                ESP_LOGW(TAG, "Speaking UI isolation active: skip display speaking status transition");
-            } else {
-                display->SetStatus(Lang::Strings::SPEAKING);
-            }
+            display->SetStatus(Lang::Strings::SPEAKING);
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
