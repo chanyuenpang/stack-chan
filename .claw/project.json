@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "stack-chan",
+  "displayName": "stack-chan",
+  "aliases": [],
+  "description": "",
+  "createdAt": "2026-06-05T13:04:54.942Z",
+  "updatedAt": "2026-06-05T13:04:54.942Z",
+  "settings": {
+    "id": "stack-chan",
+    "rootPath": "/home/yankeeting/.openclaw/projects/stack-chan",
+    "gitnexus": {
+      "enabled": true
+    },
+    "memoryStore": {
+      "path": "/home/yankeeting/.openclaw/.projects/stack-chan/memory.sqlite"
+    },
+    "registeredAt": "2026-05-14T15:38:01.439Z",
+    "updatedAt": "2026-05-23T08:54:12.880Z",
+    "sessionLastTasks": {
+      "feishu-engineer": "stackchan-firmware",
+      "agent:feishu-engineer:feishu:direct:ou_845b7186331096e4cc8abab7b2e8cdd1": "force-ota-回退脚本"
+    },
+    "name": "stack-chan",
+    "memory": {
+      "externalDocPaths": []
+    },
+    "truthSource": {
+      "enabled": true,
+      "visibility": "visible",
+      "truthVisible": true,
+      "mode": "internal",
+      "autoAdr": true,
+      "adrThreshold": "high",
+      "excludedAgents": [],
+      "maxReportAge": 86400,
+      "truthDoc": {
+        "enabled": true
+      }
+    },
+    "contextPaths": [],
+    "agent": {
+      "files": [],
+      "skills": [],
+      "commands": [],
+      "mcpServers": {}
+    }
+  },
+  "gitnexus": {
+    "repoId": "stack-chan",
+    "indexed": false
+  },
+  "memory": {
+    "driver": "sqlite",
+    "path": ".claw/memory.sqlite"
+  },
+  "state": {}
+}
