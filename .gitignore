@@ -35,6 +35,17 @@ backup/
 __pycache__/
 *.py[cod]
 
+# Local documentation mirrors
+/docs-local/
+
+# claw-kit local task history and runtime state
+/.claw/archive/
+/.claw/logs/
+/.claw/runtime/
+/.claw/tasks/
+/.claw/memory/
+/.claw/*.sqlite*
+
 # Do not ignore project truth docs; user asked to submit them when present.
 !.claw/
 !.claw/truth/
