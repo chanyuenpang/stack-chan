@@ -9,6 +9,9 @@
 #include <mooncake.h>
 #include <apps/apps.h>
 #include <hal/hal.h>
+#include <board.h>
+#include <display.h>
+#include <stackchan/stackchan.h>
 #include <esp_system.h>
 #include <esp_app_desc.h>
 #include <esp_ota_ops.h>
@@ -16,6 +19,7 @@
 #include <sdkconfig.h>
 #include <settings.h>
 #include <ota.h>
+#include <hal/usb_uac_mvp.h>
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit;
@@ -200,12 +204,33 @@ extern "C" void app_main(void)
     // Confirm the freshly booted OTA app as valid before any Launcher/Xiaozhi path
     // can reboot. Launcher-only boots may never call updateFirmwareEx(), so the
     // rollback state must be handled here, once NVS/board init is ready.
-    bool ota_first_boot = log_running_partition_and_mark_valid_early();
+    [[maybe_unused]] const bool ota_first_boot = log_running_partition_and_mark_valid_early();
 
     // Setup ui hal
     ui_hal::on_delay([](uint32_t ms) { GetHAL().delay(ms); });
     ui_hal::on_get_tick([]() { return GetHAL().millis(); });
 
+#if CONFIG_STACKCHAN_USB_UAC_MVP
+    // The companion owns its neutral face directly; no app runtime is installed
+    // here, so nothing covers the face or starts a WebSocket service.
+    Display* display = Board::GetInstance().GetDisplay();
+    ESP_ERROR_CHECK(display != nullptr ? ESP_OK : ESP_ERR_NOT_FOUND);
+    display->SetupUI();
+    display->SetEmotion("neutral");
+
+    // The MVP owns the codec directly and exposes it as a Windows UAC device.
+    ESP_ERROR_CHECK(start_stackchan_usb_uac_mvp());
+
+    while (1) {
+        GetHAL().feedTheDog();
+        GetHAL().updateHeapStatusLog();
+        {
+            LvglLockGuard lock;
+            GetStackChan().update();
+        }
+        GetHAL().delay(20);
+    }
+#else
     const char* auto_open_ai_agent_source = get_boot_mode_xiaozhi_auto_open_source(ota_first_boot);
 
     // Install apps
@@ -244,4 +269,5 @@ extern "C" void app_main(void)
 
     // Start xiaozhi, never returns
     GetHAL().startXiaozhi();
+#endif
 }

@@ -49,6 +49,9 @@ public:
     virtual void SetStatus(const char* status) override;
     virtual void ShowNotification(const char* notification, int duration_ms = 3000) override;
 
+    bool SetTalkingAnimation(bool enabled);
+    bool IsTalkingAnimationEnabled() const;
+
     void LvglLock();
     void LvglUnlock();
     lv_disp_t* GetLvglDisplay();

@@ -13,6 +13,7 @@
 #include <board.h>
 #include <audio/audio_codec.h>
 #include <hal/board/config.h>
+#include <sdkconfig.h>
 
 static const std::string_view _tag = "HAL-Audio";
 
@@ -33,6 +34,12 @@ struct MicTestFrame {
 
 std::string Hal::startMicTest(std::function<void(MicTestStatus)> onStatusUpdate)
 {
+#if CONFIG_STACKCHAN_USB_UAC_MVP
+    mclog::tagWarn(_tag, "mic test unavailable while USB UAC owns the audio codec");
+    onStatusUpdate(MicTestStatus::Failed);
+    return "USB UAC MVP owns the audio codec";
+#endif
+
     mclog::tagInfo(_tag, "start mic test");
     onStatusUpdate(MicTestStatus::Starting);
 
@@ -118,6 +125,10 @@ void Hal::getMicWaveformFrame(std::vector<int16_t>& data)
 {
     data.assign(_mic_waveform_point_count, 0);
 
+#if CONFIG_STACKCHAN_USB_UAC_MVP
+    return;
+#endif
+
     auto& board      = Board::GetInstance();
     auto audio_codec = board.GetAudioCodec();
     if (!audio_codec) {
@@ -158,6 +169,10 @@ void Hal::getMicWaveformFrame(std::vector<int16_t>& data)
 
 void Hal::clearupMicTest()
 {
+#if CONFIG_STACKCHAN_USB_UAC_MVP
+    return;
+#endif
+
     auto& board      = Board::GetInstance();
     auto audio_codec = board.GetAudioCodec();
     if (!audio_codec) {

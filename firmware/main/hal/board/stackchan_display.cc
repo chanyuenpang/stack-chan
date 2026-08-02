@@ -252,7 +252,7 @@ void StackChanAvatarDisplay::SetupUI()
     ESP_LOGI(TAG, "Creating Stack-chan Avatar...");
 
     auto avatar = std::make_unique<DefaultAvatar>();
-    avatar->init(lv_screen_active());
+    avatar->init(lv_screen_active(), &BUILTIN_TEXT_FONT);
     avatar->getPanel()->onClick().connect([]() {
         if (hal_bridge::is_xiaozhi_ready()) {
             hal_bridge::toggle_xiaozhi_chat_state();
@@ -405,6 +405,33 @@ void StackChanAvatarDisplay::ClearChatMessages()
     stackchan.avatar().clearSpeech();
 
     ESP_LOGI(TAG, "Chat messages cleared");
+}
+
+bool StackChanAvatarDisplay::SetTalkingAnimation(bool enabled)
+{
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar()) {
+        return false;
+    }
+
+    DisplayLockGuard lock(this);
+    if (enabled) {
+        if (speaking_modifier_id_ < 0) {
+            speaking_modifier_id_ = stackchan.addModifier(std::make_unique<SpeakingModifier>(0, 180, false));
+        }
+    } else {
+        if (speaking_modifier_id_ >= 0) {
+            stackchan.removeModifier(speaking_modifier_id_);
+            speaking_modifier_id_ = -1;
+        }
+        stackchan.avatar().mouth().setWeight(0);
+    }
+    return IsTalkingAnimationEnabled() == enabled;
+}
+
+bool StackChanAvatarDisplay::IsTalkingAnimationEnabled() const
+{
+    return speaking_modifier_id_ >= 0;
 }
 
 void StackChanAvatarDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image)

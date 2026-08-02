@@ -115,7 +115,7 @@ set(EMOTE_RESOLUTION "320_240")
 # Set default assets if the board uses partition table V2
 if(CONFIG_BOARD_TYPE_M5STACK_STACK_CHAN)
     set(BOARD_TYPE "m5stack-stack-chan")
-    set(BUILTIN_TEXT_FONT font_puhui_basic_20_4)
+    set(BUILTIN_TEXT_FONT font_puhui_20_4)
     set(BUILTIN_ICON_FONT font_awesome_20_4)
     set(DEFAULT_EMOJI_COLLECTION twemoji_64)
 endif()
@@ -331,6 +331,42 @@ idf_component_register(SRCS ${SOURCES}
                         smooth_ui_toolkit
                         ${DEV_SERIAL_PRIV_REQUIRES}
                     )
+
+# usb_device_uac normally owns TinyUSB's configuration and descriptors.  In
+# composite mode the application owns those pieces, but the component's UAC
+# config headers still define the proven audio class buffers and descriptors.
+if(CONFIG_STACKCHAN_USB_UAC_MVP AND CONFIG_USB_DEVICE_UAC_AS_PART)
+    idf_component_get_property(STACKCHAN_TINYUSB_LIB espressif__tinyusb COMPONENT_LIB)
+    idf_component_get_property(STACKCHAN_TINYUSB_DIR espressif__tinyusb COMPONENT_DIR)
+    idf_component_get_property(STACKCHAN_UAC_LIB espressif__usb_device_uac COMPONENT_LIB)
+    idf_component_get_property(STACKCHAN_UAC_DIR espressif__usb_device_uac COMPONENT_DIR)
+
+    target_include_directories(${STACKCHAN_TINYUSB_LIB} PUBLIC
+        "${STACKCHAN_UAC_DIR}/tusb"
+        "${STACKCHAN_UAC_DIR}/tusb_uac"
+    )
+    target_include_directories(${STACKCHAN_UAC_LIB} PRIVATE
+        "${STACKCHAN_UAC_DIR}/tusb"
+        "${STACKCHAN_UAC_DIR}/tusb_uac"
+    )
+    target_include_directories(${COMPONENT_LIB} PRIVATE
+        "${STACKCHAN_TINYUSB_DIR}/src"
+        "${STACKCHAN_UAC_DIR}/tusb"
+        "${STACKCHAN_UAC_DIR}/tusb_uac"
+    )
+
+    # tusb_option.h defaults CDC to zero.  Define the same class and FIFO
+    # configuration for TinyUSB, usb_device_uac and the application.
+    foreach(STACKCHAN_USB_TARGET ${STACKCHAN_TINYUSB_LIB} ${STACKCHAN_UAC_LIB} ${COMPONENT_LIB})
+        target_compile_definitions(${STACKCHAN_USB_TARGET} PRIVATE
+            CFG_TUSB_MCU=OPT_MCU_ESP32S3
+            CFG_TUD_CDC=1
+            CFG_TUD_CDC_RX_BUFSIZE=512
+            CFG_TUD_CDC_TX_BUFSIZE=512
+            CFG_TUD_CDC_EP_BUFSIZE=64
+        )
+    endforeach()
+endif()
 
 # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME
 # If BOARD_NAME is empty, use BOARD_TYPE

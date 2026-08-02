@@ -1,5 +1,28 @@
 menu "Xiaozhi Assistant"
 
+config STACKCHAN_USB_UAC_MVP
+    bool "Enable Stack-chan USB UAC audio MVP"
+    default n
+    depends on IDF_TARGET_ESP32S3 && BOARD_TYPE_M5STACK_STACK_CHAN
+    help
+        Expose the CoreS3 microphone and speaker as a USB Audio Class device.
+        This MVP owns the audio codec directly, so Xiaozhi voice startup is
+        disabled while this option is enabled.
+
+config STACKCHAN_USB_COMPANION_VID
+    hex "Stack-chan USB Companion vendor ID"
+    default 0x303A
+    depends on STACKCHAN_USB_UAC_MVP
+
+config STACKCHAN_USB_COMPANION_PID
+    hex "Stack-chan USB Companion product ID"
+    default 0x8001
+    depends on STACKCHAN_USB_UAC_MVP
+    help
+        The composite UAC2 + CDC-ACM device intentionally uses a product ID
+        distinct from the earlier UAC-only prototype so Windows does not reuse
+        a cached descriptor set.
+
 config OTA_URL
     string "Default OTA URL"
     default "http://192.168.0.12:8080/ota/"
