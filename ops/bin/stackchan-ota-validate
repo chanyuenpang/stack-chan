@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OTA_RELEASE="$SCRIPT_DIR/stackchan-ota-release"
+SERIAL_CAPTURE="$SCRIPT_DIR/stackchan-serial-capture"
+DOCTOR="$SCRIPT_DIR/stackchan-doctor"
+DEVICE_VERSION="$SCRIPT_DIR/stackchan-device-version"
+
+usage() {
+  cat <<'EOF'
+stackchan-ota-validate — 一键 OTA 验证编排入口（发布 + 证据汇总）
+
+用法:
+  stackchan-ota-validate <bin或release目录> --version <x.y.z> [选项]
+
+必选参数:
+  <bin或release目录>         传给 stackchan-ota-release 的发布输入
+  --version <x.y.z>          目标版本号（传给 stackchan-ota-release）
+
+可选参数:
+  --desc <描述>              透传给 stackchan-ota-release
+  --force <0|1>              透传给 stackchan-ota-release（默认 0）
+  --force-rollback           透传给 stackchan-ota-release
+  --device-ip <ip>           透传给 stackchan-ota-release（force-rollback 常用）
+  --wait-timeout <sec>       透传给 stackchan-ota-release
+  --wait-interval <sec>      透传给 stackchan-ota-release
+  --dry-run                  透传给 stackchan-ota-release
+  --reboot-device            透传给 stackchan-ota-release（需配 --confirm）
+  --confirm                  透传给 stackchan-ota-release
+
+  --capture-duration <sec>   串口抓取时长（默认 20）
+  --usb-device <path>        串口设备（默认 /dev/ttyACM0）
+  --capture-output <path>    指定串口日志输出路径
+  --device-version-http      version 仅执行 HTTP/OTA 检查
+  --device-version-usb       version 仅执行 USB 检查
+  --device-version-all       version 执行 HTTP+USB（默认）
+  --doctor-check-device      doctor 追加设备 /dev/status 检查
+  --doctor-include-usb-logs  doctor 包含 stackchan-usb-logs
+  --doctor-include-celebrate-logs
+                            doctor 包含 celebrate-diagnose
+  --help                     显示帮助
+
+行为说明:
+  - 本脚本只做编排：复用现有发布/诊断脚本，不对“业务成功”做硬断言。
+  - 无设备/串口时会保留失败退出码与错误信息，输出可诊断摘要。
+EOF
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 1
+fi
+
+TARGET=""
+VERSION=""
+CAPTURE_DURATION=20
+USB_DEVICE="/dev/ttyACM0"
+CAPTURE_OUTPUT=""
+DOCTOR_ARGS=(--json)
+VERSION_MODE="--all"
+OTA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --version)
+      VERSION="${2:-}"
+      OTA_ARGS+=("$1" "$VERSION")
+      shift 2
+      ;;
+    --desc|--force|--device-ip|--wait-timeout|--wait-interval)
+      OTA_ARGS+=("$1" "${2:-}")
+      shift 2
+      ;;
+    --force-rollback|--dry-run|--reboot-device|--confirm)
+      OTA_ARGS+=("$1")
+      shift
+      ;;
+    --capture-duration)
+      CAPTURE_DURATION="${2:-20}"
+      shift 2
+      ;;
+    --usb-device)
+      USB_DEVICE="${2:-/dev/ttyACM0}"
+      shift 2
+      ;;
+    --capture-output)
+      CAPTURE_OUTPUT="${2:-}"
+      shift 2
+      ;;
+    --device-version-http)
+      VERSION_MODE="--http"
+      shift
+      ;;
+    --device-version-usb)
+      VERSION_MODE="--usb"
+      shift
+      ;;
+    --device-version-all)
+      VERSION_MODE="--all"
+      shift
+      ;;
+    --doctor-check-device)
+      DOCTOR_ARGS+=(--check-device)
+      shift
+      ;;
+    --doctor-include-usb-logs)
+      DOCTOR_ARGS+=(--include-usb-logs)
+      shift
+      ;;
+    --doctor-include-celebrate-logs)
+      DOCTOR_ARGS+=(--include-celebrate-logs)
+      shift
+      ;;
+    --*)
+      echo "[ERROR] 未知参数: $1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [[ -z "$TARGET" ]]; then
+        TARGET="$1"
+      else
+        echo "[ERROR] 多余的位置参数: $1" >&2
+        usage
+        exit 2
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$TARGET" ]]; then
+  echo "[ERROR] 缺少发布输入（bin 或 release 目录）" >&2
+  usage
+  exit 2
+fi
+
+if [[ -z "$VERSION" ]]; then
+  echo "[ERROR] 缺少 --version <x.y.z>" >&2
+  usage
+  exit 2
+fi
+
+if [[ ! -x "$OTA_RELEASE" ]]; then
+  echo "[ERROR] 找不到可执行脚本: $OTA_RELEASE" >&2
+  exit 127
+fi
+
+ts="$(date +%Y%m%d-%H%M%S)"
+run_dir="/tmp/stackchan-ota-validate-${ts}"
+mkdir -p "$run_dir"
+
+release_log="$run_dir/ota-release.log"
+doctor_log="$run_dir/doctor.json"
+version_log="$run_dir/device-version.json"
+summary_log="$run_dir/summary.txt"
+
+if [[ -n "$CAPTURE_OUTPUT" ]]; then
+  serial_log="$CAPTURE_OUTPUT"
+else
+  serial_log="$run_dir/serial.log"
+fi
+
+serial_pid=""
+serial_rc=125
+
+if [[ -x "$SERIAL_CAPTURE" ]]; then
+  set +e
+  "$SERIAL_CAPTURE" \
+    --usb-device "$USB_DEVICE" \
+    --duration "$CAPTURE_DURATION" \
+    --output "$serial_log" \
+    --json >"$run_dir/serial.json" 2>"$run_dir/serial.stderr" &
+  serial_pid=$!
+  set -e
+else
+  echo "[WARN] 未找到 $SERIAL_CAPTURE，跳过串口抓取" | tee "$run_dir/serial.stderr" >/dev/null
+fi
+
+set +e
+"$OTA_RELEASE" "$TARGET" "${OTA_ARGS[@]}" >"$release_log" 2>&1
+ota_rc=$?
+set -e
+
+if [[ -n "$serial_pid" ]]; then
+  set +e
+  wait "$serial_pid"
+  serial_rc=$?
+  set -e
+else
+  serial_rc=127
+fi
+
+set +e
+"$DOCTOR" "${DOCTOR_ARGS[@]}" >"$doctor_log" 2>"$run_dir/doctor.stderr"
+doctor_rc=$?
+set -e
+
+set +e
+"$DEVICE_VERSION" --json "$VERSION_MODE" >"$version_log" 2>"$run_dir/version.stderr"
+version_rc=$?
+set -e
+
+{
+  echo "stackchan-ota-validate summary"
+  echo "run_dir: $run_dir"
+  echo "publish_target: $TARGET"
+  echo "target_version: $VERSION"
+  echo "usb_device: $USB_DEVICE"
+  echo "capture_duration_sec: $CAPTURE_DURATION"
+  echo ""
+  echo "log_paths:"
+  echo "  ota_release_log: $release_log"
+  echo "  serial_log: $serial_log"
+  echo "  serial_json: $run_dir/serial.json"
+  echo "  doctor_json: $doctor_log"
+  echo "  device_version_json: $version_log"
+  echo ""
+  echo "status:"
+  echo "  ota_release_exit: $ota_rc"
+  echo "  serial_capture_exit: $serial_rc"
+  echo "  doctor_exit: $doctor_rc"
+  echo "  device_version_exit: $version_rc"
+
+  if [[ $serial_rc -ne 0 ]]; then
+    echo ""
+    echo "serial_capture_note: 串口抓取失败或无设备，请检查 $run_dir/serial.stderr"
+  fi
+
+  if [[ $doctor_rc -ne 0 ]]; then
+    echo "doctor_note: doctor 检查失败，请查看 $run_dir/doctor.stderr"
+  fi
+
+  if [[ $version_rc -ne 0 ]]; then
+    echo "version_note: version 检查失败，请查看 $run_dir/version.stderr"
+  fi
+} | tee "$summary_log"
+
+overall_rc=0
+for rc in "$ota_rc" "$serial_rc" "$doctor_rc" "$version_rc"; do
+  if [[ "$rc" -ne 0 ]]; then
+    overall_rc=1
+    break
+  fi
+done
+
+exit "$overall_rc"

@@ -44,6 +44,7 @@ class CaptureSummary:
     duration: float = 0.0
     status: str = "not_started"
     matches: int = 0
+    reconnects: int = 0
     error: str | None = None
     reader: str | None = None
 
@@ -56,6 +57,7 @@ class CaptureSummary:
             "duration": round(self.duration, 3),
             "status": self.status,
             "matches": self.matches,
+            "reconnects": self.reconnects,
         }
         if self.error:
             result["error"] = self.error
@@ -68,6 +70,7 @@ class SerialReader:
     """Small interface for read-only serial readers."""
 
     name = "base"
+    reconnects = 0
 
     def read(self, size: int) -> bytes:  # pragma: no cover - interface only
         raise NotImplementedError
@@ -147,18 +150,52 @@ class PySerialReader(SerialReader):
                 "install pyserial in a virtualenv or run on Linux/POSIX"
             ) from exc
 
-        self._serial = serial.Serial(
-            port=device,
-            baudrate=baudrate,
-            timeout=0.2,
-            write_timeout=0,
-        )
+        self._serial_module = serial
+        self._device = device
+        self._baudrate = baudrate
+        self._serial = None
+        self.reconnects = 0
+        self._open()
+
+    def _open(self) -> None:
+        # Configure modem-control lines while the port is still closed.  The
+        # ESP32-S3 USB serial/JTAG bridge can route DTR/RTS transitions into
+        # reset/download-mode control, so opening with pyserial's asserted
+        # defaults would make a supposedly read-only capture disturb the DUT.
+        serial_port = self._serial_module.Serial(port=None)
+        self._serial = serial_port
+        serial_port.port = self._device
+        serial_port.baudrate = self._baudrate
+        serial_port.timeout = 0.2
+        serial_port.write_timeout = 0
+        serial_port.dtr = False
+        serial_port.rts = False
+        serial_port.open()
 
     def read(self, size: int) -> bytes:
-        return self._serial.read(size)
+        if self._serial is None:
+            try:
+                self._open()
+            except (OSError, self._serial_module.SerialException):
+                self._serial = None
+                time.sleep(0.2)
+                return b""
+
+        try:
+            return self._serial.read(size)
+        except (OSError, self._serial_module.SerialException):
+            self.reconnects += 1
+            try:
+                self._serial.close()
+            except OSError:
+                pass
+            self._serial = None
+            return b""
 
     def close(self) -> None:
-        self._serial.close()
+        if self._serial is not None:
+            self._serial.close()
+            self._serial = None
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -234,7 +271,9 @@ def update_line_and_match_counts(
 
 def capture(args: argparse.Namespace, summary: CaptureSummary) -> int:
     device_path = Path(args.usb_device)
-    if not device_path.exists():
+    # Windows COM ports are device names, not filesystem paths. Path.exists()
+    # is meaningful only for POSIX tty nodes such as /dev/ttyACM0.
+    if os.name == "posix" and not device_path.exists():
         summary.status = "device_not_found"
         summary.error = f"serial device does not exist: {args.usb_device}"
         return EXIT_DEVICE_NOT_FOUND
@@ -278,6 +317,7 @@ def capture(args: argparse.Namespace, summary: CaptureSummary) -> int:
         with output_path.open("wb") as out:
             run_capture_loop(args.duration, reader, out, grep, summary, start, pending_text)
 
+        summary.reconnects = reader.reconnects
         summary.status = "duration_elapsed"
         return EXIT_OK
     except KeyboardInterrupt:
