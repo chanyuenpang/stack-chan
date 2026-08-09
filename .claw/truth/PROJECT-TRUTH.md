@@ -13,6 +13,7 @@
 - [`features/force-ota-download-retry-and-clean-upgrade.md`](features/force-ota-download-retry-and-clean-upgrade.md)：force OTA 下载重试场景的清洁升级规则及固件大小差异诊断信号。
 - [`features/celebrate-servo-bus-health.md`](features/celebrate-servo-bus-health.md)：`celebrate` 触发不等于完成；正常完成必须同时满足 `expected_end_ms`、`min_finish_ms`、`step_index >= kMotionFrameCount`；`duration_complete` / `preflight_bus_dead` / `bus_dead` / `timeout` 的完成/中止语义边界，收尾日志中 `finish_type`、`bus_dead`、`transient_io_error`、`hardware_failure` 的长期语义边界，`ERR_NO_REPLY` 后 ACK missing transient cooldown / 异步单轴 probe 规则，以及 yaw/pitch 双轴 `WritePos` 错峰诊断入口。
 - [`features/voice-injection-celebrate-e2e.md`](features/voice-injection-celebrate-e2e.md)：语音注入庆祝完整链路的黄金入口是 `tools/remote_control/remote_control.py inject-prompt` / `POST /dev/inject_prompt`；它通过内嵌 prompt 注入 XiaoZhi 上行音频触发 `self.robot.celebrate`，不是 `/dev/celebrate`、不是 `/dev/mcp/call`、不是 `/dev/wake`，也不需要用户现场人工说话。
+- [`features/wifi-codex-voice-product-architecture.md`](features/wifi-codex-voice-product-architecture.md)：Wi-Fi Codex Voice 第一版已完成；复用官方 XiaoZhi `Application + AudioService + Opus + WebSocket`，PC Dock 负责本地 server、原生 WASAPI Codex 音频适配和 MCP。无 USB 的语音输入、回复播放和屏幕表情控制均已人工通过；舵机动作明确延期。
 
 ## 迁移补充的项目级长期规则（2026-05-21）
 

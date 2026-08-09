@@ -1,0 +1,1257 @@
+diff --git a/include/tcp.h b/include/tcp.h
+index 92d365b..278ad0a 100644
+--- a/include/tcp.h
++++ b/include/tcp.h
+@@ -1,37 +1,42 @@
+-#ifndef TCP_H
+-#define TCP_H
+-
+-
+-#include <string>
+-#include <functional>
+-
+-class Tcp {
+-public:
+-    virtual ~Tcp() = default;
+-    virtual bool Connect(const std::string& host, int port) = 0;
++#ifndef TCP_H
++#define TCP_H
++
++
++#include <string>
++#include <functional>
++#include <freertos/FreeRTOS.h>
++#include <freertos/task.h>
++
++class Tcp {
++public:
++    virtual ~Tcp() = default;
++    virtual bool Connect(const std::string& host, int port) = 0;
+     virtual void Disconnect() = 0;
+     virtual int Send(const std::string& data) = 0;
+-
+-    virtual void OnStream(std::function<void(const std::string& data)> callback) {
+-        stream_callback_ = callback;
+-    }
+-    
+-    virtual void OnDisconnected(std::function<void()> callback) {
+-        disconnect_callback_ = callback;
+-    }
+-    
+-    // 连接状态查询
+-    bool connected() const { return connected_; }
+-
+-    // 获取最后一次错误码
+-    virtual int GetLastError() = 0;
+-
+-protected:
+-    std::function<void(const std::string& data)> stream_callback_;
+-    std::function<void()> disconnect_callback_;
+-    
+-    // 连接状态管理
+-    bool connected_ = false;         // 是否可以正常读写数据
+-};
+-
+-#endif // TCP_H
++    virtual bool SetSendTimeout(int timeout_ms) { return false; }
++    virtual bool SetNoDelay(bool enabled) { return false; }
++    virtual TaskHandle_t GetReceiveTaskHandle() const { return nullptr; }
++
++    virtual void OnStream(std::function<void(const std::string& data)> callback) {
++        stream_callback_ = callback;
++    }
++    
++    virtual void OnDisconnected(std::function<void()> callback) {
++        disconnect_callback_ = callback;
++    }
++    
++    // 连接状态查询
++    bool connected() const { return connected_; }
++
++    // 获取最后一次错误码
++    virtual int GetLastError() = 0;
++
++protected:
++    std::function<void(const std::string& data)> stream_callback_;
++    std::function<void()> disconnect_callback_;
++    
++    // 连接状态管理
++    bool connected_ = false;         // 是否可以正常读写数据
++};
++
++#endif // TCP_H
+diff --git a/include/web_socket.h b/include/web_socket.h
+index cf7d092..121f067 100644
+--- a/include/web_socket.h
++++ b/include/web_socket.h
+@@ -1,70 +1,77 @@
+-#ifndef WEBSOCKET_H
+-#define WEBSOCKET_H
+-
+-#include <functional>
+-#include <string>
+-#include <map>
+-#include <vector>
+-#include <mutex>
+-#include <memory>
+-#include <freertos/FreeRTOS.h>
+-#include <freertos/event_groups.h>
+-
+-#include "tcp.h"
+-
+-class NetworkInterface;
+-
+-class WebSocket {
+-public:
+-    WebSocket(NetworkInterface* network, int connect_id);
+-    ~WebSocket();
+-
+-    void SetHeader(const char* key, const char* value);
++#ifndef WEBSOCKET_H
++#define WEBSOCKET_H
++
++#include <functional>
++#include <string>
++#include <map>
++#include <vector>
++#include <mutex>
++#include <memory>
++#include <atomic>
++#include <freertos/FreeRTOS.h>
++#include <freertos/event_groups.h>
++
++#include "tcp.h"
++
++class NetworkInterface;
++
++class WebSocket {
++public:
++    WebSocket(NetworkInterface* network, int connect_id);
++    ~WebSocket();
++
++    void SetHeader(const char* key, const char* value);
+     void SetReceiveBufferSize(size_t size);
+-    bool IsConnected() const;
+-    bool Connect(const char* uri);
+-    bool Send(const std::string& data);
+-    bool Send(const void* data, size_t len, bool binary = false, bool fin = true);
+-    void Ping();
+-    void Close();
+-
+-    void OnConnected(std::function<void()> callback);
+-    void OnDisconnected(std::function<void()> callback);
+-    void OnData(std::function<void(const char*, size_t, bool binary)> callback);
+-    void OnError(std::function<void(int)> callback);
+-
+-    // 获取最后一次错误码
+-    int GetLastError();
+-
+-private:
+-    NetworkInterface* network_;
+-    int connect_id_;
+-    std::unique_ptr<Tcp> tcp_;
+-    bool continuation_ = false;
++    void SetSendTimeout(int timeout_ms);
++    void SetNoDelay(bool enabled);
++    TaskHandle_t GetReceiveTaskHandle() const;
++    bool IsConnected() const;
++    bool Connect(const char* uri);
++    bool Send(const std::string& data);
++    bool Send(const void* data, size_t len, bool binary = false, bool fin = true);
++    void Ping();
++    void Close();
++    void Abort();
++
++    void OnConnected(std::function<void()> callback);
++    void OnDisconnected(std::function<void()> callback);
++    void OnData(std::function<void(const char*, size_t, bool binary)> callback);
++    void OnError(std::function<void(int)> callback);
++
++    // 获取最后一次错误码
++    int GetLastError();
++
++private:
++    NetworkInterface* network_;
++    int connect_id_;
++    std::unique_ptr<Tcp> tcp_;
++    bool continuation_ = false;
+     size_t receive_buffer_size_ = 2048;
++    int send_timeout_ms_ = 0;
++    bool no_delay_ = false;
+     std::string receive_buffer_;
+-    bool handshake_completed_ = false;
+-    bool connected_ = false;
+-
+-    // Mutex for sending data and replying pong
+-    std::mutex send_mutex_;
+-    
+-    EventGroupHandle_t handshake_event_group_;
+-    static const EventBits_t HANDSHAKE_SUCCESS_BIT = BIT0;
+-    static const EventBits_t HANDSHAKE_FAILED_BIT = BIT1;
+-
+-    std::map<std::string, std::string> headers_;
+-    std::function<void(const char*, size_t, bool binary)> on_data_;
+-    std::function<void(int)> on_error_;
+-    std::function<void()> on_connected_;
+-    std::function<void()> on_disconnected_;
+-
+-    std::vector<char> current_message_;
+-    bool is_fragmented_ = false;
+-    bool is_binary_ = false;
+-
+-    void OnTcpData(const std::string& data);
+-    bool SendControlFrame(uint8_t opcode, const void* data, size_t len);
+-};
+-
+-#endif // WEBSOCKET_H
++    bool handshake_completed_ = false;
++    std::atomic_bool connected_{false};
++
++    // Mutex for sending data and replying pong
++    std::mutex send_mutex_;
++    
++    EventGroupHandle_t handshake_event_group_;
++    static const EventBits_t HANDSHAKE_SUCCESS_BIT = BIT0;
++    static const EventBits_t HANDSHAKE_FAILED_BIT = BIT1;
++
++    std::map<std::string, std::string> headers_;
++    std::function<void(const char*, size_t, bool binary)> on_data_;
++    std::function<void(int)> on_error_;
++    std::function<void()> on_connected_;
++    std::function<void()> on_disconnected_;
++
++    std::vector<char> current_message_;
++    bool is_fragmented_ = false;
++    bool is_binary_ = false;
++
++    void OnTcpData(const std::string& data);
++    bool SendControlFrame(uint8_t opcode, const void* data, size_t len);
++};
++
++#endif // WEBSOCKET_H
+diff --git a/src/esp/esp_ssl.cc b/src/esp/esp_ssl.cc
+index 6f541e7..4fd01db 100644
+--- a/src/esp/esp_ssl.cc
++++ b/src/esp/esp_ssl.cc
+@@ -1,149 +1,219 @@
+-#include "esp_ssl.h"
+-#include <esp_log.h>
+-#include <esp_crt_bundle.h>
+-#include <cstring>
+-#include <unistd.h>
+-
+-static const char *TAG = "EspSsl";
+-
+-EspSsl::EspSsl() {
+-    event_group_ = xEventGroupCreate();
+-}
+-
+-EspSsl::~EspSsl() {
+-    Disconnect();
+-
+-    if (event_group_ != nullptr) {
+-        vEventGroupDelete(event_group_);
+-        event_group_ = nullptr;
+-    }
++#include "esp_ssl.h"
++#include <esp_log.h>
++#include <esp_crt_bundle.h>
++#include <cstring>
++#include <unistd.h>
++#include <cerrno>
++#include <sys/socket.h>
++#include <netinet/tcp.h>
++
++static const char *TAG = "EspSsl";
++
++EspSsl::EspSsl() {
++    event_group_ = xEventGroupCreate();
++}
++
++EspSsl::~EspSsl() {
++    Disconnect();
++
++    if (event_group_ != nullptr) {
++        vEventGroupDelete(event_group_);
++        event_group_ = nullptr;
++    }
++}
++
++bool EspSsl::Connect(const std::string& host, int port) {
++    if (tls_client_ != nullptr) {
++        ESP_LOGE(TAG, "tls client has been initialized");
++        return false;
++    }
++
++    tls_client_ = esp_tls_init();
++    if (tls_client_ == nullptr) {
++        ESP_LOGE(TAG, "Failed to initialize TLS");
++        return false;
++    }
++
++    esp_tls_cfg_t cfg = {};
++    cfg.crt_bundle_attach = esp_crt_bundle_attach;
++
++    int ret = esp_tls_conn_new_sync(host.c_str(), host.length(), port, &cfg, tls_client_);
++    if (ret != 1) {
++        esp_tls_error_handle_t last_error;
++        if (esp_tls_get_error_handle(tls_client_, &last_error) == ESP_OK) {
++            int error_code, error_flags;
++            esp_err_t err = esp_tls_get_and_clear_last_error(last_error, &error_code, &error_flags);
++            last_error_ = err;
++            ESP_LOGE(TAG, "Failed to connect to %s:%d, code=0x%x", host.c_str(), port, err);
++        } else {
++            last_error_ = -1;
++            ESP_LOGE(TAG, "Failed to get error handle");
++        }
++        esp_tls_conn_destroy(tls_client_);
++        tls_client_ = nullptr;
++        return false;
++    }
++
++    connected_ = true;
++
++    xEventGroupClearBits(event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT);
++    xTaskCreate([](void* arg) {
++        EspSsl* ssl = (EspSsl*)arg;
++        ssl->ReceiveTask();
++        xEventGroupSetBits(ssl->event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT);
++        vTaskDelete(NULL);
++    }, "ssl_receive", 4096, this, 1, &receive_task_handle_);
++    return true;
++}
++
++void EspSsl::Disconnect() {
++    connected_ = false;
++    if (tls_client_ == nullptr) return;
++
++    int socket_fd = -1;
++    const esp_err_t socket_result = esp_tls_get_conn_sockfd(tls_client_, &socket_fd);
++    if (socket_result == ESP_OK && socket_fd >= 0) {
++        shutdown(socket_fd, SHUT_RDWR);
++    } else {
++        last_error_ = socket_result;
++        ESP_LOGW(TAG, "Failed to get TLS socket during disconnect: err=0x%x", socket_result);
++    }
++
++    // Disconnect may be requested from a WebSocket receive callback. Never
++    // wait for (or delete) the current task; its normal loop exit will finish
++    // first and the transport destructor can release the TLS context later.
++    if (receive_task_handle_ == xTaskGetCurrentTaskHandle()) return;
++
++    if (receive_task_handle_ != nullptr) {
++        const EventBits_t bits = xEventGroupWaitBits(
++            event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT, pdFALSE, pdFALSE,
++            pdMS_TO_TICKS(1000));
++        if (!(bits & ESP_SSL_EVENT_RECEIVE_TASK_EXIT)) {
++            ESP_LOGE(TAG, "TLS receive task did not exit within 1 second after shutdown");
++            // Preserve object lifetime and allow ReceiveTask's local C++
++            // objects to unwind before the TLS context is destroyed.
++            xEventGroupWaitBits(event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT,
++                                pdFALSE, pdFALSE, portMAX_DELAY);
++        }
++        receive_task_handle_ = nullptr;
++    }
++
++    esp_tls_conn_destroy(tls_client_);
++    tls_client_ = nullptr;
++}
++
++/* CONFIG_MBEDTLS_SSL_RENEGOTIATION should be disabled in sdkconfig.
++ * Otherwise, invalid memory access may be triggered.
++ */
++int EspSsl::Send(const std::string& data) {
++    if (!connected_) {
++        ESP_LOGE(TAG, "Not connected");
++        return -1;
++    }
++
++    size_t total_sent = 0;
++    size_t data_size = data.size();
++    const char* data_ptr = data.data();
++    
++    while (total_sent < data_size) {
++        int ret = esp_tls_conn_write(tls_client_, data_ptr + total_sent, data_size - total_sent);
++
++        if (ret == ESP_TLS_ERR_SSL_WANT_WRITE) {
++            // With SO_SNDTIMEO configured, WANT_WRITE means the bounded socket
++            // wait expired. Returning lets the sole application writer abort
++            // this possibly partial WebSocket stream and reconnect cleanly.
++            last_error_ = ETIMEDOUT;
++            ESP_LOGE(TAG, "SSL send timed out");
++            return -1;
++        }
++
++        if (ret <= 0) {
++            last_error_ = errno;
++            ESP_LOGE(TAG, "SSL send failed: ret=%d, errno=%d", ret, last_error_);
++            return ret;
++        }
++        
++        total_sent += ret;
++    }
++    
++    return total_sent;
++}
++
++bool EspSsl::SetSendTimeout(int timeout_ms) {
++    if (tls_client_ == nullptr || timeout_ms <= 0) {
++        last_error_ = EINVAL;
++        return false;
++    }
++    int socket_fd = -1;
++    if (esp_tls_get_conn_sockfd(tls_client_, &socket_fd) != ESP_OK || socket_fd < 0) {
++        last_error_ = EINVAL;
++        ESP_LOGE(TAG, "Failed to get TLS socket for send timeout");
++        return false;
++    }
++    timeval timeout{};
++    timeout.tv_sec = timeout_ms / 1000;
++    timeout.tv_usec = (timeout_ms % 1000) * 1000;
++    if (setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
++        last_error_ = errno;
++        ESP_LOGE(TAG, "Failed to set TLS send timeout: errno=%d", last_error_);
++        return false;
++    }
++    return true;
+ }
+ 
+-bool EspSsl::Connect(const std::string& host, int port) {
+-    if (tls_client_ != nullptr) {
+-        ESP_LOGE(TAG, "tls client has been initialized");
++bool EspSsl::SetNoDelay(bool enabled) {
++    if (tls_client_ == nullptr) {
++        last_error_ = EINVAL;
+         return false;
+     }
+-
+-    tls_client_ = esp_tls_init();
+-    if (tls_client_ == nullptr) {
+-        ESP_LOGE(TAG, "Failed to initialize TLS");
++    int socket_fd = -1;
++    if (esp_tls_get_conn_sockfd(tls_client_, &socket_fd) != ESP_OK || socket_fd < 0) {
++        last_error_ = EINVAL;
++        ESP_LOGE(TAG, "Failed to get TLS socket for TCP_NODELAY");
+         return false;
+     }
+-
+-    esp_tls_cfg_t cfg = {};
+-    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+-
+-    int ret = esp_tls_conn_new_sync(host.c_str(), host.length(), port, &cfg, tls_client_);
+-    if (ret != 1) {
+-        esp_tls_error_handle_t last_error;
+-        if (esp_tls_get_error_handle(tls_client_, &last_error) == ESP_OK) {
+-            int error_code, error_flags;
+-            esp_err_t err = esp_tls_get_and_clear_last_error(last_error, &error_code, &error_flags);
+-            last_error_ = err;
+-            ESP_LOGE(TAG, "Failed to connect to %s:%d, code=0x%x", host.c_str(), port, err);
+-        } else {
+-            last_error_ = -1;
+-            ESP_LOGE(TAG, "Failed to get error handle");
+-        }
+-        esp_tls_conn_destroy(tls_client_);
+-        tls_client_ = nullptr;
++    const int value = enabled ? 1 : 0;
++    if (setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value)) != 0) {
++        last_error_ = errno;
++        ESP_LOGE(TAG, "Failed to configure TLS TCP_NODELAY: errno=%d", last_error_);
+         return false;
+     }
+-
+-    connected_ = true;
+-
+-    xEventGroupClearBits(event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT);
+-    xTaskCreate([](void* arg) {
+-        EspSsl* ssl = (EspSsl*)arg;
+-        ssl->ReceiveTask();
+-        xEventGroupSetBits(ssl->event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT);
+-        vTaskDelete(NULL);
+-    }, "ssl_receive", 4096, this, 1, &receive_task_handle_);
+     return true;
+ }
+ 
+-void EspSsl::Disconnect() {
+-    connected_ = false;
+-    
+-    // Close socket if it is open
+-    if (tls_client_ != nullptr) {
+-        int sockfd;
+-        ESP_ERROR_CHECK(esp_tls_get_conn_sockfd(tls_client_, &sockfd));
+-        if (sockfd >= 0) {
+-            close(sockfd);
+-        }
+-    
+-        auto bits = xEventGroupWaitBits(event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(10000));
+-        if (!(bits & ESP_SSL_EVENT_RECEIVE_TASK_EXIT)) {
+-            ESP_LOGE(TAG, "Failed to wait for receive task exit");
+-        }
+-
+-        esp_tls_conn_destroy(tls_client_);
+-        tls_client_ = nullptr;
+-    }
+-}
+-
+-/* CONFIG_MBEDTLS_SSL_RENEGOTIATION should be disabled in sdkconfig.
+- * Otherwise, invalid memory access may be triggered.
+- */
+-int EspSsl::Send(const std::string& data) {
+-    if (!connected_) {
+-        ESP_LOGE(TAG, "Not connected");
+-        return -1;
+-    }
+-
+-    size_t total_sent = 0;
+-    size_t data_size = data.size();
+-    const char* data_ptr = data.data();
+-    
+-    while (total_sent < data_size) {
+-        int ret = esp_tls_conn_write(tls_client_, data_ptr + total_sent, data_size - total_sent);
+-
+-        if (ret == ESP_TLS_ERR_SSL_WANT_WRITE) {
+-            continue;
+-        }
+-
+-        if (ret <= 0) {
+-            ESP_LOGE(TAG, "SSL send failed: ret=%d, errno=%d", ret, errno);
+-            return ret;
+-        }
+-        
+-        total_sent += ret;
+-    }
+-    
+-    return total_sent;
+-}
+-
+-void EspSsl::ReceiveTask() {
+-    std::string data;
+-    while (connected_) {
+-        data.resize(1500);
+-        int ret = esp_tls_conn_read(tls_client_, data.data(), data.size());
+-
+-        if (ret == ESP_TLS_ERR_SSL_WANT_READ) {
+-            continue;
+-        }
+-
+-        if (ret <= 0) {
+-            if (ret < 0) {
+-                ESP_LOGE(TAG, "SSL receive failed: %d", ret);
+-            }
+-            connected_ = false;
+-            // 接收失败或连接断开时调用断连回调
+-            if (disconnect_callback_) {
+-                disconnect_callback_();
+-            }
+-            break;
+-        }
+-        
+-        if (stream_callback_) {
+-            data.resize(ret);
+-            stream_callback_(data);
+-        }
+-    }
+-}
+-
+-int EspSsl::GetLastError() {
+-    return last_error_;
+-}
++TaskHandle_t EspSsl::GetReceiveTaskHandle() const {
++    return receive_task_handle_;
++}
++
++void EspSsl::ReceiveTask() {
++    std::string data;
++    while (connected_) {
++        data.resize(1500);
++        int ret = esp_tls_conn_read(tls_client_, data.data(), data.size());
++
++        if (ret == ESP_TLS_ERR_SSL_WANT_READ) {
++            continue;
++        }
++
++        if (ret <= 0) {
++            if (ret < 0) {
++                ESP_LOGE(TAG, "SSL receive failed: %d", ret);
++            }
++            connected_ = false;
++            // 接收失败或连接断开时调用断连回调
++            if (disconnect_callback_) {
++                disconnect_callback_();
++            }
++            break;
++        }
++        
++        if (stream_callback_) {
++            data.resize(ret);
++            stream_callback_(data);
++        }
++    }
++}
++
++int EspSsl::GetLastError() {
++    return last_error_;
++}
+diff --git a/src/esp/esp_ssl.h b/src/esp/esp_ssl.h
+index cd2bf41..d7ceacf 100644
+--- a/src/esp/esp_ssl.h
++++ b/src/esp/esp_ssl.h
+@@ -1,33 +1,36 @@
+-#ifndef _ESP_SSL_H_
+-#define _ESP_SSL_H_
+-
+-#include "tcp.h"
+-#include <esp_tls.h>
+-
+-#include <freertos/FreeRTOS.h>
+-#include <freertos/event_groups.h>
+-#include <freertos/task.h>
+-
+-#define ESP_SSL_EVENT_RECEIVE_TASK_EXIT 1
+-
+-class EspSsl : public Tcp {
+-public:
+-    EspSsl();
+-    ~EspSsl();
+-
+-    bool Connect(const std::string& host, int port) override;
++#ifndef _ESP_SSL_H_
++#define _ESP_SSL_H_
++
++#include "tcp.h"
++#include <esp_tls.h>
++
++#include <freertos/FreeRTOS.h>
++#include <freertos/event_groups.h>
++#include <freertos/task.h>
++
++#define ESP_SSL_EVENT_RECEIVE_TASK_EXIT 1
++
++class EspSsl : public Tcp {
++public:
++    EspSsl();
++    ~EspSsl();
++
++    bool Connect(const std::string& host, int port) override;
+     void Disconnect() override;
+     int Send(const std::string& data) override;
+-
+-    int GetLastError() override;
+-
+-private:
+-    esp_tls_t* tls_client_ = nullptr;
+-    EventGroupHandle_t event_group_ = nullptr;
+-    TaskHandle_t receive_task_handle_ = nullptr;
+-    int last_error_ = 0;
+-
+-    void ReceiveTask();
+-};
+-
+-#endif // _ESP_SSL_H_
+\ No newline at end of file
++    bool SetSendTimeout(int timeout_ms) override;
++    bool SetNoDelay(bool enabled) override;
++    TaskHandle_t GetReceiveTaskHandle() const override;
++
++    int GetLastError() override;
++
++private:
++    esp_tls_t* tls_client_ = nullptr;
++    EventGroupHandle_t event_group_ = nullptr;
++    TaskHandle_t receive_task_handle_ = nullptr;
++    int last_error_ = 0;
++
++    void ReceiveTask();
++};
++
++#endif // _ESP_SSL_H_
+diff --g…5519 tokens truncated…一个事件位
+-        pdMS_TO_TICKS(10000)  // 10秒超时
+-    );
+-
+-    if (bits & HANDSHAKE_SUCCESS_BIT) {
+-        connected_ = true;
+-        if (on_connected_) {
+-            on_connected_();
+-        }
+-        return true;
+-    } else if (bits & HANDSHAKE_FAILED_BIT) {
+-        ESP_LOGE(TAG, "WebSocket handshake failed");
+-        if (on_error_) {
+-            on_error_(-1);
+-        }
+-        return false;
+-    } else {
+-        ESP_LOGE(TAG, "WebSocket handshake timeout");
++    if (no_delay_ && !tcp_->SetNoDelay(true)) {
++        ESP_LOGE(TAG, "Failed to disable Nagle algorithm");
++        tcp_->Disconnect();
+         return false;
+     }
++    if (send_timeout_ms_ > 0 && !tcp_->SetSendTimeout(send_timeout_ms_)) {
++        ESP_LOGE(TAG, "Failed to configure send timeout");
++        tcp_->Disconnect();
++        return false;
++    }
++
++    // 发送 WebSocket 握手请求
++    std::string request = "GET " + path + " HTTP/1.1\r\n";
++    if (headers_.find("Host") == headers_.end()) {
++        request += "Host: " + host + "\r\n";
++    }
++    for (const auto& header : headers_) {
++        request += header.first + ": " + header.second + "\r\n";
++    }
++    request += "\r\n";
++
++    if (tcp_->Send(request) < 0) {
++        ESP_LOGE(TAG, "Failed to send WebSocket handshake request");
++        return false;
++    }
++
++    // 清除事件位
++    xEventGroupClearBits(handshake_event_group_, HANDSHAKE_SUCCESS_BIT | HANDSHAKE_FAILED_BIT);
++    
++    // 设置数据接收回调来处理握手和后续的WebSocket帧
++    tcp_->OnStream([this](const std::string& data) {
++        this->OnTcpData(data);
++    });
++
++    // 设置断开连接回调
++    tcp_->OnDisconnected([this]() {
++        if (connected_.exchange(false)) {
++            if (on_disconnected_) {
++                on_disconnected_();
++            }
++        }
++    });
++
++    // 等待握手完成，超时时间10秒
++    EventBits_t bits = xEventGroupWaitBits(
++        handshake_event_group_,
++        HANDSHAKE_SUCCESS_BIT | HANDSHAKE_FAILED_BIT,
++        pdFALSE,  // 不清除事件位
++        pdFALSE,  // 等待任意一个事件位
++        pdMS_TO_TICKS(10000)  // 10秒超时
++    );
++
++    if (bits & HANDSHAKE_SUCCESS_BIT) {
++        connected_ = true;
++        if (on_connected_) {
++            on_connected_();
++        }
++        return true;
++    } else if (bits & HANDSHAKE_FAILED_BIT) {
++        ESP_LOGE(TAG, "WebSocket handshake failed");
++        if (on_error_) {
++            on_error_(-1);
++        }
++        return false;
++    } else {
++        ESP_LOGE(TAG, "WebSocket handshake timeout");
++        return false;
++    }
++}
++
++
++bool WebSocket::Send(const std::string& data) {
++    return Send(data.data(), data.size(), false);
++}
++
++bool WebSocket::Send(const void* data, size_t len, bool binary, bool fin) {
++    if (len > 65535) {
++        ESP_LOGE(TAG, "Data too large, maximum supported size is 65535 bytes");
++        return false;
++    }
++
++    std::string frame;
++    frame.reserve(len + 8);  // 最大可能的帧大小（2字节帧头 + 2字节长度 + 4字节mask）
++
++    // 第一个字节：FIN 位 + 操作码
++    uint8_t first_byte = (fin ? 0x80 : 0x00);
++    if (binary) {
++        first_byte |= 0x02;  // 二进制帧
++    } else if (!continuation_) {
++        first_byte |= 0x01;  // 文本帧
++    } // 否则，操作码为0（延续帧）
++
++    frame.push_back(static_cast<char>(first_byte));
++
++    // 第二个字节：MASK 位 + 有效载荷长度
++    if (len < 126) {
++        frame.push_back(static_cast<char>(0x80 | len));  // 设置MASK位
++    } else {
++        frame.push_back(static_cast<char>(0x80 | 126));  // 设置MASK位
++        frame.push_back(static_cast<char>((len >> 8) & 0xFF));
++        frame.push_back(static_cast<char>(len & 0xFF));
++    }
++
++    // 生成随机的4字节mask
++    uint8_t mask[4];
++    for (int i = 0; i < 4; ++i) {
++        mask[i] = rand() & 0xFF;
++    }
++    frame.append(reinterpret_cast<const char*>(mask), 4);
++
++    // 添加并mask处理有效载荷
++    const uint8_t* payload = static_cast<const uint8_t*>(data);
++    for (size_t i = 0; i < len; ++i) {
++        frame.push_back(static_cast<char>(payload[i] ^ mask[i % 4]));
++    }
++
++    // 更新continuation_状态
++    continuation_ = !fin;
++
++    // 发送帧
++    std::lock_guard<std::mutex> lock(send_mutex_);
++    return tcp_->Send(frame) >= 0;
++}
++
++void WebSocket::Ping() {
++    SendControlFrame(0x9, nullptr, 0);
++}
++
++void WebSocket::Close() {
++    if (connected_.load()) {
++        SendControlFrame(0x8, nullptr, 0);
++    }
++}
++
++void WebSocket::Abort() {
++    if (tcp_) {
++        tcp_->Disconnect();
++    }
++    // Some transports do not currently forward an active disconnect. Ensure
++    // the WebSocket state and application callback still converge exactly once.
++    if (connected_.exchange(false)) {
++        if (on_disconnected_) {
++            on_disconnected_();
++        }
++    }
++}
++
++void WebSocket::OnConnected(std::function<void()> callback) {
++    on_connected_ = callback;
++}
++
++void WebSocket::OnDisconnected(std::function<void()> callback) {
++    on_disconnected_ = callback;
++}
++
++void WebSocket::OnData(std::function<void(const char*, size_t, bool binary)> callback) {
++    on_data_ = callback;
++}
++
++void WebSocket::OnError(std::function<void(int)> callback) {
++    on_error_ = callback;
++}
++
++int WebSocket::GetLastError() {
++    if (tcp_) {
++        return tcp_->GetLastError();
++    }
++    return 0;  // No error if TCP connection doesn't exist
++}
++
++void WebSocket::OnTcpData(const std::string& data) {
++    // 将新数据追加到接收缓冲区
++    receive_buffer_.append(data);
++    
++    if (!handshake_completed_) {
++        // 检查握手响应
++        size_t pos = receive_buffer_.find("\r\n\r\n");
++        if (pos != std::string::npos) {
++            std::string handshake_response = receive_buffer_.substr(0, pos + 4);
++            receive_buffer_ = receive_buffer_.substr(pos + 4);
++            
++            if (handshake_response.find("HTTP/1.1 101") != std::string::npos) {
++                handshake_completed_ = true;
++                // 设置握手成功事件
++                xEventGroupSetBits(handshake_event_group_, HANDSHAKE_SUCCESS_BIT);
++            } else {
++                ESP_LOGE(TAG, "WebSocket handshake failed");
++                // 设置握手失败事件
++                xEventGroupSetBits(handshake_event_group_, HANDSHAKE_FAILED_BIT);
++                return;
++            }
++        } else {
++            // 握手响应未完整接收
++            return;
++        }
++    }
++    
++    // 处理WebSocket帧
++    size_t buffer_offset = 0;
++    const uint8_t* buffer = reinterpret_cast<const uint8_t*>(receive_buffer_.data());
++    size_t buffer_size = receive_buffer_.size();
++    
++    while (buffer_offset < buffer_size) {
++        if (buffer_size - buffer_offset < 2) break; // 需要更多数据
++
++        uint8_t opcode = buffer[buffer_offset] & 0x0F;
++        bool fin = (buffer[buffer_offset] & 0x80) != 0;
++        uint8_t mask = buffer[buffer_offset + 1] & 0x80;
++        uint64_t payload_length = buffer[buffer_offset + 1] & 0x7F;
++
++        size_t header_length = 2;
++        if (payload_length == 126) {
++            if (buffer_size - buffer_offset < 4) break; // 需要更多数据
++            payload_length = (static_cast<uint64_t>(buffer[buffer_offset + 2]) << 8) | buffer[buffer_offset + 3];
++            header_length += 2;
++        } else if (payload_length == 127) {
++            if (buffer_size - buffer_offset < 10) break; // 需要更多数据
++            payload_length = 0;
++            for (int i = 0; i < 8; ++i) {
++                payload_length = (payload_length << 8) | buffer[buffer_offset + 2 + i];
++            }
++            header_length += 8;
++        }
++
++        uint8_t mask_key[4] = {0};
++        if (mask) {
++            if (buffer_size - buffer_offset < header_length + 4) break; // 需要更多数据
++            memcpy(mask_key, buffer + buffer_offset + header_length, 4);
++            header_length += 4;
++        }
++
++        if (buffer_size - buffer_offset < header_length + payload_length) break; // 需要更多数据
++
++        // 解码有效载荷
++        std::vector<char> payload(payload_length);
++        if (payload_length > 0) {
++            memcpy(payload.data(), buffer + buffer_offset + header_length, payload_length);
++            if (mask) {
++                for (size_t i = 0; i < payload_length; ++i) {
++                    payload[i] ^= mask_key[i % 4];
++                }
++            }
++        }
++
++        // 处理帧
++        switch (opcode) {
++            case 0x0: // 延续帧
++            case 0x1: // 文本帧
++            case 0x2: // 二进制帧
++                if (opcode != 0x0 && is_fragmented_) {
++                    ESP_LOGE(TAG, "Received new message frame while still fragmenting");
++                    break;
++                }
++                if (opcode != 0x0) {
++                    is_fragmented_ = !fin;
++                    is_binary_ = (opcode == 0x2);
++                    current_message_.clear();
++                }
++                current_message_.insert(current_message_.end(), payload.begin(), payload.end());
++                if (fin) {
++                    if (on_data_) {
++                        on_data_(current_message_.data(), current_message_.size(), is_binary_);
++                    }
++                    current_message_.clear();
++                    is_fragmented_ = false;
++                }
++                break;
++            case 0x8: // 关闭帧
++                // A peer close frame arrives on the TCP receive task. Tear down
++                // the transport from that same task so EspTcp::Disconnect()
++                // takes its non-waiting path. Merely clearing the WebSocket flag
++                // leaves the TCP receiver alive and can deadlock the owner in
++                // EspTcp::DoDisconnect() while replacing the connection.
++                Abort();
++                break;
++            case 0x9: // Ping
++                SendControlFrame(0xA, payload.data(), payload_length);
++                break;
++            case 0xA: // Pong
++                break;
++            default:
++                ESP_LOGE(TAG, "Unknown opcode: %d", opcode);
++                break;
++        }
++
++        buffer_offset += header_length + payload_length;
++    }
++
++    // 保留未处理的数据
++    if (buffer_offset > 0) {
++        receive_buffer_ = receive_buffer_.substr(buffer_offset);
++    }
++}
++
++
++
++bool WebSocket::SendControlFrame(uint8_t opcode, const void* data, size_t len) {
++    if (len > 125) {
++        ESP_LOGE(TAG, "控制帧有效载荷过大");
++        return false;
++    }
++
++    std::string frame;
++    frame.reserve(len + 6);  // 帧头 + 掩码 + 有效载荷
++
++    // 第一个字节：FIN 位 + 操作码
++    frame.push_back(static_cast<char>(0x80 | opcode));
++
++    // 第二个字节：MASK 位 + 有效载荷长度
++    frame.push_back(static_cast<char>(0x80 | len));
++
++    // 生成随机的4字节掩码
++    uint8_t mask[4];
++    for (int i = 0; i < 4; ++i) {
++        mask[i] = rand() & 0xFF;
++    }
++    frame.append(reinterpret_cast<const char*>(mask), 4);
++
++    // 添加并掩码处理有效载荷
++    const uint8_t* payload = static_cast<const uint8_t*>(data);
++    for (size_t i = 0; i < len; ++i) {
++        frame.push_back(static_cast<char>(payload[i] ^ mask[i % 4]));
++    }
++
++    // 发送帧
++    std::lock_guard<std::mutex> lock(send_mutex_);
++    return tcp_->Send(frame) >= 0;
+ }
+-
+-
+-bool WebSocket::Send(const std::string& data) {
+-    return Send(data.data(), data.size(), false);
+-}
+-
+-bool WebSocket::Send(const void* data, size_t len, bool binary, bool fin) {
+-    if (len > 65535) {
+-        ESP_LOGE(TAG, "Data too large, maximum supported size is 65535 bytes");
+-        return false;
+-    }
+-
+-    std::string frame;
+-    frame.reserve(len + 8);  // 最大可能的帧大小（2字节帧头 + 2字节长度 + 4字节mask）
+-
+-    // 第一个字节：FIN 位 + 操作码
+-    uint8_t first_byte = (fin ? 0x80 : 0x00);
+-    if (binary) {
+-        first_byte |= 0x02;  // 二进制帧
+-    } else if (!continuation_) {
+-        first_byte |= 0x01;  // 文本帧
+-    } // 否则，操作码为0（延续帧）
+-
+-    frame.push_back(static_cast<char>(first_byte));
+-
+-    // 第二个字节：MASK 位 + 有效载荷长度
+-    if (len < 126) {
+-        frame.push_back(static_cast<char>(0x80 | len));  // 设置MASK位
+-    } else {
+-        frame.push_back(static_cast<char>(0x80 | 126));  // 设置MASK位
+-        frame.push_back(static_cast<char>((len >> 8) & 0xFF));
+-        frame.push_back(static_cast<char>(len & 0xFF));
+-    }
+-
+-    // 生成随机的4字节mask
+-    uint8_t mask[4];
+-    for (int i = 0; i < 4; ++i) {
+-        mask[i] = rand() & 0xFF;
+-    }
+-    frame.append(reinterpret_cast<const char*>(mask), 4);
+-
+-    // 添加并mask处理有效载荷
+-    const uint8_t* payload = static_cast<const uint8_t*>(data);
+-    for (size_t i = 0; i < len; ++i) {
+-        frame.push_back(static_cast<char>(payload[i] ^ mask[i % 4]));
+-    }
+-
+-    // 更新continuation_状态
+-    continuation_ = !fin;
+-
+-    // 发送帧
+-    std::lock_guard<std::mutex> lock(send_mutex_);
+-    return tcp_->Send(frame) >= 0;
+-}
+-
+-void WebSocket::Ping() {
+-    SendControlFrame(0x9, nullptr, 0);
+-}
+-
+-void WebSocket::Close() {
+-    if (connected_) {
+-        SendControlFrame(0x8, nullptr, 0);
+-    }
+-}
+-
+-void WebSocket::OnConnected(std::function<void()> callback) {
+-    on_connected_ = callback;
+-}
+-
+-void WebSocket::OnDisconnected(std::function<void()> callback) {
+-    on_disconnected_ = callback;
+-}
+-
+-void WebSocket::OnData(std::function<void(const char*, size_t, bool binary)> callback) {
+-    on_data_ = callback;
+-}
+-
+-void WebSocket::OnError(std::function<void(int)> callback) {
+-    on_error_ = callback;
+-}
+-
+-int WebSocket::GetLastError() {
+-    if (tcp_) {
+-        return tcp_->GetLastError();
+-    }
+-    return 0;  // No error if TCP connection doesn't exist
+-}
+-
+-void WebSocket::OnTcpData(const std::string& data) {
+-    // 将新数据追加到接收缓冲区
+-    receive_buffer_.append(data);
+-    
+-    if (!handshake_completed_) {
+-        // 检查握手响应
+-        size_t pos = receive_buffer_.find("\r\n\r\n");
+-        if (pos != std::string::npos) {
+-            std::string handshake_response = receive_buffer_.substr(0, pos + 4);
+-            receive_buffer_ = receive_buffer_.substr(pos + 4);
+-            
+-            if (handshake_response.find("HTTP/1.1 101") != std::string::npos) {
+-                handshake_completed_ = true;
+-                // 设置握手成功事件
+-                xEventGroupSetBits(handshake_event_group_, HANDSHAKE_SUCCESS_BIT);
+-            } else {
+-                ESP_LOGE(TAG, "WebSocket handshake failed");
+-                // 设置握手失败事件
+-                xEventGroupSetBits(handshake_event_group_, HANDSHAKE_FAILED_BIT);
+-                return;
+-            }
+-        } else {
+-            // 握手响应未完整接收
+-            return;
+-        }
+-    }
+-    
+-    // 处理WebSocket帧
+-    size_t buffer_offset = 0;
+-    const uint8_t* buffer = reinterpret_cast<const uint8_t*>(receive_buffer_.data());
+-    size_t buffer_size = receive_buffer_.size();
+-    
+-    while (buffer_offset < buffer_size) {
+-        if (buffer_size - buffer_offset < 2) break; // 需要更多数据
+-
+-        uint8_t opcode = buffer[buffer_offset] & 0x0F;
+-        bool fin = (buffer[buffer_offset] & 0x80) != 0;
+-        uint8_t mask = buffer[buffer_offset + 1] & 0x80;
+-        uint64_t payload_length = buffer[buffer_offset + 1] & 0x7F;
+-
+-        size_t header_length = 2;
+-        if (payload_length == 126) {
+-            if (buffer_size - buffer_offset < 4) break; // 需要更多数据
+-            payload_length = (static_cast<uint64_t>(buffer[buffer_offset + 2]) << 8) | buffer[buffer_offset + 3];
+-            header_length += 2;
+-        } else if (payload_length == 127) {
+-            if (buffer_size - buffer_offset < 10) break; // 需要更多数据
+-            payload_length = 0;
+-            for (int i = 0; i < 8; ++i) {
+-                payload_length = (payload_length << 8) | buffer[buffer_offset + 2 + i];
+-            }
+-            header_length += 8;
+-        }
+-
+-        uint8_t mask_key[4] = {0};
+-        if (mask) {
+-            if (buffer_size - buffer_offset < header_length + 4) break; // 需要更多数据
+-            memcpy(mask_key, buffer + buffer_offset + header_length, 4);
+-            header_length += 4;
+-        }
+-
+-        if (buffer_size - buffer_offset < header_length + payload_length) break; // 需要更多数据
+-
+-        // 解码有效载荷
+-        std::vector<char> payload(payload_length);
+-        if (payload_length > 0) {
+-            memcpy(payload.data(), buffer + buffer_offset + header_length, payload_length);
+-            if (mask) {
+-                for (size_t i = 0; i < payload_length; ++i) {
+-                    payload[i] ^= mask_key[i % 4];
+-                }
+-            }
+-        }
+-
+-        // 处理帧
+-        switch (opcode) {
+-            case 0x0: // 延续帧
+-            case 0x1: // 文本帧
+-            case 0x2: // 二进制帧
+-                if (opcode != 0x0 && is_fragmented_) {
+-                    ESP_LOGE(TAG, "Received new message frame while still fragmenting");
+-                    break;
+-                }
+-                if (opcode != 0x0) {
+-                    is_fragmented_ = !fin;
+-                    is_binary_ = (opcode == 0x2);
+-                    current_message_.clear();
+-                }
+-                current_message_.insert(current_message_.end(), payload.begin(), payload.end());
+-                if (fin) {
+-                    if (on_data_) {
+-                        on_data_(current_message_.data(), current_message_.size(), is_binary_);
+-                    }
+-                    current_message_.clear();
+-                    is_fragmented_ = false;
+-                }
+-                break;
+-            case 0x8: // 关闭帧
+-                connected_ = false;
+-                if (on_disconnected_) {
+-                    on_disconnected_();
+-                }
+-                break;
+-            case 0x9: // Ping
+-                SendControlFrame(0xA, payload.data(), payload_length);
+-                break;
+-            case 0xA: // Pong
+-                break;
+-            default:
+-                ESP_LOGE(TAG, "Unknown opcode: %d", opcode);
+-                break;
+-        }
+-
+-        buffer_offset += header_length + payload_length;
+-    }
+-
+-    // 保留未处理的数据
+-    if (buffer_offset > 0) {
+-        receive_buffer_ = receive_buffer_.substr(buffer_offset);
+-    }
+-}
+-
+-
+-
+-bool WebSocket::SendControlFrame(uint8_t opcode, const void* data, size_t len) {
+-    if (len > 125) {
+-        ESP_LOGE(TAG, "控制帧有效载荷过大");
+-        return false;
+-    }
+-
+-    std::string frame;
+-    frame.reserve(len + 6);  // 帧头 + 掩码 + 有效载荷
+-
+-    // 第一个字节：FIN 位 + 操作码
+-    frame.push_back(static_cast<char>(0x80 | opcode));
+-
+-    // 第二个字节：MASK 位 + 有效载荷长度
+-    frame.push_back(static_cast<char>(0x80 | len));
+-
+-    // 生成随机的4字节掩码
+-    uint8_t mask[4];
+-    for (int i = 0; i < 4; ++i) {
+-        mask[i] = rand() & 0xFF;
+-    }
+-    frame.append(reinterpret_cast<const char*>(mask), 4);
+-
+-    // 添加并掩码处理有效载荷
+-    const uint8_t* payload = static_cast<const uint8_t*>(data);
+-    for (size_t i = 0; i < len; ++i) {
+-        frame.push_back(static_cast<char>(payload[i] ^ mask[i % 4]));
+-    }
+-
+-    // 发送帧
+-    std::lock_guard<std::mutex> lock(send_mutex_);
+-    return tcp_->Send(frame) >= 0;
+-}
+\ No newline at end of file

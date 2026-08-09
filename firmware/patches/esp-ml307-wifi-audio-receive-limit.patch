@@ -1,0 +1,37 @@
+diff --git a/src/web_socket.cc b/src/web_socket.cc
+--- a/src/web_socket.cc
++++ b/src/web_socket.cc
+@@ -370,6 +370,16 @@ void WebSocket::OnTcpData(const std::string& data) {
+             }
+             header_length += 8;
+         }
++
++        if (payload_length > receive_buffer_size_) {
++            ESP_LOGE(TAG, "WebSocket frame exceeds receive limit: payload=%llu limit=%u",
++                     static_cast<unsigned long long>(payload_length),
++                     static_cast<unsigned>(receive_buffer_size_));
++            current_message_.clear();
++            is_fragmented_ = false;
++            Abort();
++            return;
++        }
+ 
+         uint8_t mask_key[4] = {0};
+         if (mask) {
+@@ -404,6 +414,16 @@ void WebSocket::OnTcpData(const std::string& data) {
+                     is_binary_ = (opcode == 0x2);
+                     current_message_.clear();
+                 }
++                if (payload.size() > receive_buffer_size_ - current_message_.size()) {
++                    ESP_LOGE(TAG, "WebSocket fragmented message exceeds receive limit: current=%u next=%u limit=%u",
++                             static_cast<unsigned>(current_message_.size()),
++                             static_cast<unsigned>(payload.size()),
++                             static_cast<unsigned>(receive_buffer_size_));
++                    current_message_.clear();
++                    is_fragmented_ = false;
++                    Abort();
++                    return;
++                }
+                 current_message_.insert(current_message_.end(), payload.begin(), payload.end());
+                 if (fin) {
+                     if (on_data_) {

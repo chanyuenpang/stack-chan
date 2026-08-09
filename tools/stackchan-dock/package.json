@@ -10,18 +10,37 @@
     "./mcp": "./src/mcp.mjs",
     "./transcript": "./src/transcript-presenter.mjs",
     "./codex-voice": "./src/codex-voice-transcript-source.mjs",
-    "./talking": "./src/talking-animation-controller.mjs"
+    "./talking": "./src/talking-animation-controller.mjs",
+    "./wifi-audio": "./src/wifi-audio-receiver.mjs",
+    "./wifi-audio-opus-decoder": "./src/wifi-audio-opus-decoder.mjs",
+    "./wifi-dock": "./src/wifi-dock.mjs",
+    "./wifi-audio-vb-cable": "./src/wifi-audio-vb-cable.mjs",
+    "./wifi-audio-speaker-pipe": "./src/wifi-audio-speaker-pipe.mjs",
+    "./xiaozhi-bootstrap-server": "./src/xiaozhi-bootstrap-server.mjs",
+    "./xiaozhi-websocket-server": "./src/xiaozhi-websocket-server.mjs",
+    "./xiaozhi-wasapi-bridge": "./src/xiaozhi-wasapi-bridge.mjs",
+    "./xiaozhi-dock": "./src/xiaozhi-dock.mjs",
+    "./xiaozhi-runtime": "./src/xiaozhi-runtime.mjs"
+  },
+  "bin": {
+    "stackchan-wifi-audio-dock": "./bin/wifi-audio-dock.mjs",
+    "stackchan-xiaozhi-dock": "./bin/xiaozhi-dock.mjs"
   },
   "scripts": {
     "start": "node src/companion-cli.mjs",
     "start:dock": "node src/cli.mjs",
     "start:mcp": "node src/mcp-cli.mjs",
-    "check": "node --check src/protocol.mjs && node --check src/state-store.mjs && node --check src/transport.mjs && node --check src/serial-adapter.mjs && node --check src/dock.mjs && node --check src/transcript-presenter.mjs && node --check src/talking-animation-controller.mjs && node --check src/codex-voice-transcript-source.mjs && node --check src/cli.mjs && node --check src/companion-cli.mjs && node --check src/mcp.mjs && node --check src/mcp-cli.mjs && node --check scripts/reconnect-bubble-probe.mjs && node --check scripts/bubble-parallel-probe.mjs",
+    "start:wifi-mcp": "node bin/wifi-audio-dock.mjs --mcp-stdio",
+    "start:xiaozhi-mcp": "node bin/xiaozhi-dock.mjs",
+    "start:xiaozhi-standalone": "node bin/xiaozhi-dock.mjs --standalone",
+    "check": "node --check src/protocol.mjs && node --check src/state-store.mjs && node --check src/transport.mjs && node --check src/serial-adapter.mjs && node --check src/dock.mjs && node --check src/transcript-presenter.mjs && node --check src/talking-animation-controller.mjs && node --check src/codex-voice-transcript-source.mjs && node --check src/wifi-audio-opus-decoder.mjs && node --check src/wifi-audio-receiver.mjs && node --check src/wifi-dock.mjs && node --check src/wifi-audio-speaker-pipe.mjs && node --check src/xiaozhi-bootstrap-server.mjs && node --check src/xiaozhi-websocket-server.mjs && node --check src/xiaozhi-wasapi-bridge.mjs && node --check src/xiaozhi-dock.mjs && node --check src/xiaozhi-runtime.mjs && node --check src/cli.mjs && node --check src/companion-cli.mjs && node --check src/mcp.mjs && node --check src/mcp-cli.mjs && node --check bin/wifi-audio-dock.mjs && node --check bin/xiaozhi-dock.mjs && node --check scripts/reconnect-bubble-probe.mjs && node --check scripts/bubble-parallel-probe.mjs",
     "test": "node --test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
+    "opus-decoder": "0.7.11",
     "serialport": "13.0.0",
+    "ws": "^8.21.2",
     "zod": "4.4.3"
   },
   "engines": {

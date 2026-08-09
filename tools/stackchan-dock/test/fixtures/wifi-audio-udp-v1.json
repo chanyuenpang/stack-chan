@@ -1,0 +1,15 @@
+{
+  "pairingKey": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "deviceId": "441bf6e278a8",
+  "nonce": "nonce-for-wifi-audio-poc",
+  "port": 8765,
+  "sessionHex": "00112233445566778899aabbccddeeff",
+  "sequence": 7,
+  "captureTimeUs": "1234",
+  "pcmPattern": "byte_index_mod_256",
+  "pcmBytes": 960,
+  "sessionKeyHex": "5f957120663a1848ce488c9123f631c5c49cc2252c9c6de15696a7d0c20981ec",
+  "readyProofHex": "cc30a9a409d2cf2b16ffef9fa2211500cee446783f98936662cc38663b9fe4fc",
+  "packetBytes": 1012,
+  "packetSha256": "10f59777dfde60914948495c99f3246040efbaad9423662a184e7fa5d30278d2"
+}

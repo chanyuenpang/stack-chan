@@ -13,6 +13,7 @@ import 'package:stack_chan/app_state.dart';
 import 'package:stack_chan/view/home/conversation_page.dart';
 import 'package:stack_chan/view/home/mcp_page.dart';
 import 'package:stack_chan/view/popup/user_info_page.dart';
+import 'package:stack_chan/view/popup/wifi_audio_dock_config.dart';
 
 import '../popup/xiaozhi_welcome_page.dart';
 
@@ -274,7 +275,7 @@ class _SettingsState extends State<Settings> {
 
               //====================== set ======================
               CupertinoListSection.insetGrouped(
-                children: [_buildChangeNameTile()],
+                children: [_buildChangeNameTile(), _configureWiFi()],
               ),
 
               //====================== AIset ======================
@@ -462,8 +463,12 @@ class _SettingsState extends State<Settings> {
 
   Widget _configureWiFi() {
     return CupertinoListTile(
-      title: const Text("Configure Wi-Fi"),
-      onTap: () {},
+      title: const Text("Wi-Fi Audio Dock"),
+      onTap: () {
+        if (_checkDeviceBinding()) {
+          _navigateToPage(const WifiAudioDockConfig());
+        }
+      },
       leading: _buildSectionIcon(
         iconPath: "assets/wifi.svg",
         color: CupertinoColors.activeBlue,

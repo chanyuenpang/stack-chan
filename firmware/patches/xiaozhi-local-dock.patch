@@ -1,0 +1,18 @@
+diff --git a/main/ota.cc b/main/ota.cc
+index bcc0dc5..4dee704 100644
+--- a/main/ota.cc
++++ b/main/ota.cc
+@@ -67,6 +67,13 @@ std::unique_ptr<Http> Ota::SetupHttp() {
+     http->SetHeader("User-Agent", user_agent);
+     http->SetHeader("Accept-Language", Lang::CODE);
+     http->SetHeader("Content-Type", "application/json");
++#if defined(CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK) && CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
++    Settings local_settings("xiaozhi_local", false);
++    const auto local_token = local_settings.GetString("token");
++    if (!local_token.empty()) {
++        http->SetHeader("Authorization", "Bearer " + local_token);
++    }
++#endif
+ 
+     return http;
+ }

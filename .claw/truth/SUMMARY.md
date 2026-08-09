@@ -10,6 +10,7 @@
 | [`adr/force-ota-one-shot-release-and-auto-reset.md`](adr/force-ota-one-shot-release-and-auto-reset.md) | force OTA 一次性下发并自动恢复 | `ops/bin/stackchan-ota-release`、`force=1`、`force=0`、`active.json`、`exp-pkg/active-release`、`GET /ota/`、`POST /ota/`、`ops/bin/stackchan-doctor --json`。 |
 | [`adr/force-ota-roll-back-close-loop.md`](adr/force-ota-roll-back-close-loop.md) | force OTA 回退闭环与完成判定收口 | `ops/bin/stackchan-ota-release`、`/dev/status`、`X-StackChan-Dev-Token`、`18080`、`app_version`、`state=upgrading`、`xiaozhi_ready=true`、`ops/bin/stackchan-doctor --json`。 |
 | [`adr/official-dancemodifier-for-celebrate.md`](adr/official-dancemodifier-for-celebrate.md) | self.robot.celebrate 复用官方 DanceModifier/Timeline | `self.robot.celebrate`、`start_celebrate_modifier`、`CelebrateExecutor`、`DanceModifier::Happy`、`DanceModifier::Celebrate`、`Timeline`、`Medium servo speed`、`speed=260`、`/dev/celebrate`、`/dev/mcp/call`、`action=dance_modifier_celebrate`、`hal_mcp.cpp`、`dance.h`。 |
+| [`adr/reuse-xiaozhi-audio-stack-with-local-pc-dock.md`](adr/reuse-xiaozhi-audio-stack-with-local-pc-dock.md) | 复用 XiaoZhi 设备音频栈并由 PC Dock 提供本地服务；V1 已完成 | `Application`、`AudioService`、`Opus`、`WebSocket v1`、`tts:start/stop`、Rust WASAPI、半双工、Codex Voice、无 USB PASS、舵机延期。 |
 
 ## features
 
@@ -33,6 +34,7 @@
 | [`features/force-ota-download-retry-and-clean-upgrade.md`](features/force-ota-download-retry-and-clean-upgrade.md) | force OTA 下载反复重试时的清洁升级收口规则；OTA 下载成功不等于刷写成功；固件大小差异作为 OTA 刷写失败关键诊断信号 | `force=1`、`force=0`、`ops/bin/stackchan-ota-release`、`ops/bin/stackchan-doctor --json`、`active.json`、`exp-pkg/active-release`、`下载重新开始`、`固件大小差异`、`刷写失败`、`esptool.py image_info`。 |
 | [`features/voice-injection-celebrate-e2e.md`](features/voice-injection-celebrate-e2e.md) | 语音注入庆祝完整链路的黄金入口是 `tools/remote_control/remote_control.py inject-prompt` / `POST /dev/inject_prompt`；它通过内嵌 prompt 注入 XiaoZhi 上行音频触发 `self.robot.celebrate`，不是 `/dev/celebrate`、不是 `/dev/mcp/call`、不是 `/dev/wake`，也不需要用户现场人工说话。 已确认该入口可在 `listening` 状态下成功注入，且前置 `xiaozhi_ready: true`。 || [`features/display-backend-lvgl-vs-emote.md`](display-backend-lvgl-vs-emote.md) | StackChan 显示后端架构：LVGL vs Emote | `emote_display.cc`、`LVGL`、`EmoteDisplay`、`esp_emote_expression`、`EMOTE_MGR_EVT_*`、`emote_set_event_msg`、`USE_EMOTE_MESSAGE_STYLE`、`FLASH_EXPRESSION_ASSETS`、`firmware/main/CMakeLists.txt`。 |
 | [`features/speaking-panic-strtof-and-body-lifetime.md`](features/speaking-panic-strtof-and-body-lifetime.md) | speaking 阶段 panic 的 `strtof` / body 生命周期排查边界 | `LoadProhibited`、`EXCVADDR=0x00000000`、`strtof`、`read_body`、`inject_prompt_task`、`handle_inject_prompt`、`SetStatus(SPEAKING)`、`cJSON->valuestring`、`std::string::c_str()`、不要先怪 `celebrate`。 |
+| [`features/wifi-codex-voice-product-architecture.md`](features/wifi-codex-voice-product-architecture.md) | StackChan Wi-Fi Codex Voice 第一版产品架构与完成验收 | `XiaoZhi Application`、`AudioService`、`Opus`、`WebSocket`、PC Dock、Rust WASAPI、Codex Voice、MCP 屏幕表情、断 USB PASS、舵机延期。 |
 
 ## 2026-05-21 迁移补充 canonical ADR
 

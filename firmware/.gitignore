@@ -63,5 +63,6 @@ obj/
 
 sdkconfig
 sdkconfig.old
+sdkconfig.wifi_audio.private.defaults
 
 xiaozhi-esp32/

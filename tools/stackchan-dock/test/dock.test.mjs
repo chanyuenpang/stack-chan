@@ -27,6 +27,17 @@ const waitFor = async (predicate, timeoutMs = 1000) => {
   }
 };
 
+function responseFrameOfBytes(targetBytes, { id = 1, prefix = "" } = {}) {
+  const value = { v: 1, id, ok: true, result: { diagnostic: prefix } };
+  const base = JSON.stringify(value);
+  const remaining = targetBytes - Buffer.byteLength(base, "utf8");
+  assert.ok(remaining >= 0);
+  value.result.diagnostic += "x".repeat(remaining);
+  const frame = JSON.stringify(value);
+  assert.equal(Buffer.byteLength(frame, "utf8"), targetBytes);
+  return frame;
+}
+
 class FakeTransport extends EventEmitter {
   constructor(statuses) {
     super();
@@ -85,6 +96,11 @@ test("protocol rejects arbitrary commands and unchecked fields", () => {
   assert.throws(() => encodeRequest(1, COMMAND.SET_TALKING, { enabled: 1 }), /boolean/);
   const parsed = parseFrame('{"v":1,"id":2,"ok":true,"result":{"yaw":0,"pitch":20}}');
   assert.equal(parsed.id, 2);
+});
+
+test("shared protocol parser preserves the 1024-byte USB frame boundary", () => {
+  assert.doesNotThrow(() => parseFrame(responseFrameOfBytes(1024, { prefix: "你" })));
+  assert.throws(() => parseFrame(responseFrameOfBytes(1025, { prefix: "你" })), /frame exceeds 1024 bytes/);
 });
 
 test("state store ignores duplicate events and detects a sequence gap", () => {

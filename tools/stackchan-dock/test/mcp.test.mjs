@@ -34,6 +34,24 @@ test("MCP publishes only the six typed Stack-chan tools", async (t) => {
   assert.equal(tools.every(({ inputSchema }) => inputSchema.additionalProperties === false), true);
 });
 
+test("official XiaoZhi route does not publish unsupported legacy audio toggles", async (t) => {
+  const dock = new FakeDock();
+  dock.capabilities = Object.freeze({ audioControl: false });
+  const server = createStackchanMcpServer(dock);
+  const client = new Client({ name: "stackchan-xiaozhi-mcp-test", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  t.after(() => server.close());
+  const { tools } = await client.listTools();
+  assert.deepEqual(tools.map(({ name }) => name).sort(), [
+    MCP_TOOL.GET_HEAD,
+    MCP_TOOL.GET_STATUS,
+    MCP_TOOL.SET_EXPRESSION,
+    MCP_TOOL.SET_HEAD,
+    MCP_TOOL.SET_LED,
+  ].sort());
+});
+
 test("MCP dispatches every allowed tool only through typed Dock methods", async (t) => {
   const { dock, server, client } = await createHarness();
   t.after(() => server.close());

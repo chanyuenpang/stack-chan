@@ -1,0 +1,7 @@
+# Opt-in build profile for the fully wireless companion. It intentionally does
+# not alter the checked-in USB UAC default profile.
+CONFIG_STACKCHAN_USB_UAC_MVP=n
+CONFIG_STACKCHAN_WIFI_AUDIO_MVP=y
+CONFIG_STACKCHAN_WIFI_AUDIO_ALLOW_INSECURE_WS=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8

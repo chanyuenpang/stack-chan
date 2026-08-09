@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 1;
-export const MAX_FRAME_BYTES = 511;
+export const MAX_FRAME_BYTES = 1024;
 export const MAX_SPEECH_TEXT_BYTES = 320;
 
 export const COMMAND = Object.freeze({
@@ -109,9 +109,12 @@ export function encodeRequest(id, command, args = {}) {
   return `${line}\n`;
 }
 
-export function parseFrame(line) {
-  if (typeof line !== "string" || Buffer.byteLength(line, "utf8") > MAX_FRAME_BYTES) {
-    throw new RangeError(`frame exceeds ${MAX_FRAME_BYTES} bytes`);
+export function parseFrame(line, { maxFrameBytes = MAX_FRAME_BYTES } = {}) {
+  if (!Number.isSafeInteger(maxFrameBytes) || maxFrameBytes <= 0) {
+    throw new RangeError("maxFrameBytes must be a positive safe integer");
+  }
+  if (typeof line !== "string" || Buffer.byteLength(line, "utf8") > maxFrameBytes) {
+    throw new RangeError(`frame exceeds ${maxFrameBytes} bytes`);
   }
   let value;
   try {

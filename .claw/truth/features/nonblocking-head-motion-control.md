@@ -4,6 +4,8 @@
 
 StackChan 当前的“不卡顿控制电机/舵机”不是同步执行舵机动作，而是采用 **MCP/HTTP 快速返回 + 独立 `_stackchan_update_task` + `HeadMotionSchedulerModifier` 合并调度 + 舵机总线少读少写 + bus dead 保护** 的异步推进模型。未来修改远控头部、庆祝动作或小智并行逻辑时，应优先保持这条链路，不要把长动作放回 MCP callback 或 HTTP handler 中。
 
+本地 Codex Dock 产品 profile 另有一条当前安全边界：`CONFIG_STACKCHAN_XIAOZHI_DISABLE_IDLE_HEAD_MOTION=y` 时不挂载随机 `IdleMotionModifier`，因为用户已多次确认待机摇头可触发崩溃。该隔离不关闭屏幕 idle expression，也不删除显式 MCP 头部命令；它不能被写成舵机底层根因已修复。
+
 庆祝/调度链路的长期边界是：`submit()` / `moveWithSpeedNoHardwareRead()` 避免启动阶段 `ReadPos`，scheduler release 到达目标后的 `motion.stop()` → `Servo::stopAnimation()` 也必须保持 no-read。当前修复已让 `Servo::stopAnimation()` / `abortAnimationNoRead()` 使用 `_angle_anim.directValue()` 缓存角度，并用 `SERVO-DIAG ... read_hardware=0` 留证；`HeadMotionSchedulerModifier::_update()` 在 release 前记录 `bus_healthy=0|1`，但正常运动 auto sync 在 `allowHardwareSync && _auto_angle_sync_enabled` 时仍保留 `getCurrentAngle()`。
 
 ## 长期行为 / 规则

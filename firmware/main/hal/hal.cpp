@@ -5,6 +5,7 @@
  */
 #include "hal.h"
 #include <memory>
+#include <esp_log.h>
 #include <mooncake_log.h>
 #include <nvs_flash.h>
 
@@ -24,7 +25,14 @@ void Hal::init()
 {
     mclog::tagInfo(_tag, "init");
 
+#if CONFIG_STACKCHAN_WIFI_AUDIO_MVP
+#define WIFI_BOOT_STAGE(stage) ESP_LOGI("WIFI-BOOT", "stage=%s", stage)
+#else
+#define WIFI_BOOT_STAGE(stage) ((void)0)
+#endif
+
     // Initialize NVS
+    WIFI_BOOT_STAGE("nvs_begin");
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -32,14 +40,24 @@ void Hal::init()
     }
     ESP_ERROR_CHECK(ret);
 
+    WIFI_BOOT_STAGE("board_begin");
     xiaozhi_board_init();
+    WIFI_BOOT_STAGE("mcp_begin");
     xiaozhi_mcp_init();
+    WIFI_BOOT_STAGE("head_touch_begin");
     head_touch_init();
+    WIFI_BOOT_STAGE("io_expander_begin");
     io_expander_init();
+    WIFI_BOOT_STAGE("rtc_begin");
     rtc_init();
+    WIFI_BOOT_STAGE("imu_begin");
     imu_init();
+    WIFI_BOOT_STAGE("servo_begin");
     servo_init();
+    WIFI_BOOT_STAGE("lvgl_begin");
     lvgl_init();
+    WIFI_BOOT_STAGE("complete");
+#undef WIFI_BOOT_STAGE
 }
 
 /* -------------------------------------------------------------------------- */

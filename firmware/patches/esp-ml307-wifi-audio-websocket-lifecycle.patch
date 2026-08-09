@@ -1,0 +1,79 @@
+diff --git a/src/web_socket.cc b/src/web_socket.cc
+--- a/src/web_socket.cc
++++ b/src/web_socket.cc
+@@ -48,7 +48,7 @@ WebSocket::WebSocket(NetworkInterface* network, int connect_id) : network_(netw
+ }
+ 
+ WebSocket::~WebSocket() {
+-    if (connected_.load()) {
++    if (tcp_) {
+         tcp_->Disconnect();
+     }
+     if (handshake_event_group_) {
+@@ -157,6 +157,23 @@ bool WebSocket::Connect(const char* uri) {
+         return false;
+     }
+ 
++    // The TCP receive task starts inside Tcp::Connect(). Install the stream
++    // callback before sending the upgrade request so a fast HTTP 101 response
++    // cannot be consumed before WebSocket handshake parsing is ready.
++    handshake_completed_ = false;
++    receive_buffer_.clear();
++    xEventGroupClearBits(handshake_event_group_, HANDSHAKE_SUCCESS_BIT | HANDSHAKE_FAILED_BIT);
++    tcp_->OnStream([this](const std::string& data) {
++        this->OnTcpData(data);
++    });
++    tcp_->OnDisconnected([this]() {
++        if (connected_.exchange(false)) {
++            if (on_disconnected_) {
++                on_disconnected_();
++            }
++        }
++    });
++
+     // 发送 WebSocket 握手请求
+     std::string request = "GET " + path + " HTTP/1.1\r\n";
+     if (headers_.find("Host") == headers_.end()) {
+@@ -171,25 +188,9 @@ bool WebSocket::Connect(const char* uri) {
+     if (tcp_->Send(request) < 0) {
+         ESP_LOGE(TAG, "Failed to send WebSocket handshake request");
++        tcp_->Disconnect();
+         return false;
+     }
+ 
+-    // 清除事件位
+-    xEventGroupClearBits(handshake_event_group_, HANDSHAKE_SUCCESS_BIT | HANDSHAKE_FAILED_BIT);
+-    
+-    // 设置数据接收回调来处理握手和后续的WebSocket帧
+-    tcp_->OnStream([this](const std::string& data) {
+-        this->OnTcpData(data);
+-    });
+-
+-    // 设置断开连接回调
+-    tcp_->OnDisconnected([this]() {
+-        if (connected_.exchange(false)) {
+-            if (on_disconnected_) {
+-                on_disconnected_();
+-            }
+-        }
+-    });
+-
+     // 等待握手完成，超时时间10秒
+     EventBits_t bits = xEventGroupWaitBits(
+         handshake_event_group_,
+@@ -207,6 +208,7 @@ bool WebSocket::Connect(const char* uri) {
+         return true;
+     } else if (bits & HANDSHAKE_FAILED_BIT) {
+         ESP_LOGE(TAG, "WebSocket handshake failed");
++        tcp_->Disconnect();
+         if (on_error_) {
+             on_error_(-1);
+         }
+@@ -214,6 +216,7 @@ bool WebSocket::Connect(const char* uri) {
+         return false;
+     } else {
+         ESP_LOGE(TAG, "WebSocket handshake timeout");
++        tcp_->Disconnect();
+         return false;
+     }
+ }

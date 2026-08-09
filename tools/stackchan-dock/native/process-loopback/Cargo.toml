@@ -1,0 +1,10 @@
+[package]
+name = "stackchan-process-loopback"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Capture one Windows process tree and forward 24 kHz mono PCM to StackChan Dock"
+
+[dependencies]
+opus = "0.3.1"
+wasapi = "0.23.0"

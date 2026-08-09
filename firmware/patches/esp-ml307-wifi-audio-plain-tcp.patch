@@ -1,0 +1,216 @@
+diff --git a/src/esp/esp_tcp.cc b/src/esp/esp_tcp.cc
+index d6e426e..6ede75e 100644
+--- a/src/esp/esp_tcp.cc
++++ b/src/esp/esp_tcp.cc
+@@ -1,9 +1,12 @@
+ #include "esp_tcp.h"
++
+ #include <esp_log.h>
++#include <esp_system.h>
+ #include <unistd.h>
+ #include <cstring>
+ #include <arpa/inet.h>
+ #include <sys/socket.h>
++#include <netinet/tcp.h>
+ #include <netdb.h>
+ #include <errno.h>
+ 
+@@ -21,11 +23,13 @@ EspTcp::~EspTcp() {
+         event_group_ = nullptr;
+     }
+ }
++
+ bool EspTcp::Connect(const std::string& host, int port) {
+     // 确保先断开已有连接
+     if (connected_) {
+         Disconnect();
+     }
++
+     struct sockaddr_in server_addr;
+     bzero(&server_addr, sizeof(server_addr));
+     server_addr.sin_family = AF_INET;
+@@ -38,6 +42,7 @@ bool EspTcp::Connect(const std::string& host, int port) {
+         return false;
+     }
+     memcpy(&server_addr.sin_addr, server->h_addr, server->h_length);
++
+     tcp_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+     if (tcp_fd_ < 0) {
+         last_error_ = errno;
+@@ -54,14 +60,41 @@ bool EspTcp::Connect(const std::string& host, int port) {
+         return false;
+     }
+ 
++    // shutdown() from a different FreeRTOS task does not provide a bounded
++    // wake-up guarantee for a blocking lwIP recv(). Poll connected_ at a low
++    // cadence so an application-side Abort can join this receiver safely.
++    timeval receive_timeout{};
++    receive_timeout.tv_usec = 250 * 1000;
++    if (setsockopt(tcp_fd_, SOL_SOCKET, SO_RCVTIMEO,
++                   &receive_timeout, sizeof(receive_timeout)) != 0) {
++        last_error_ = errno;
++        ESP_LOGE(TAG, "Failed to configure receive timeout: errno=%d", last_error_);
++        shutdown(tcp_fd_, SHUT_RDWR);
++        close(tcp_fd_);
++        tcp_fd_ = -1;
++        return false;
++    }
++
+     connected_ = true;
++
+     xEventGroupClearBits(event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT);
+-    xTaskCreate([](void* arg) {
++    receive_task_handle_ = nullptr;
++    const BaseType_t receive_task_result = xTaskCreate([](void* arg) {
+         EspTcp* tcp = (EspTcp*)arg;
+         tcp->ReceiveTask();
+         xEventGroupSetBits(tcp->event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT);
+         vTaskDelete(NULL);
+     }, "tcp_receive", 4096, this, 1, &receive_task_handle_);
++    if (receive_task_result != pdPASS) {
++        last_error_ = ENOMEM;
++        receive_task_handle_ = nullptr;
++        connected_ = false;
++        shutdown(tcp_fd_, SHUT_RDWR);
++        close(tcp_fd_);
++        tcp_fd_ = -1;
++        ESP_LOGE(TAG, "Failed to create TCP receive task");
++        return false;
++    }
+     return true;
+ }
+ 
+@@ -71,22 +104,33 @@ void EspTcp::Disconnect() {
+         return;
+     }
+ 
+-    // 主动断开，需要等待接收任务退出
+-    DoDisconnect(true);
++    // A WebSocket may abort from a receive callback. Closing the socket is
++    // safe there, but waiting for the current receive task would self-deadlock.
++    DoDisconnect(xTaskGetCurrentTaskHandle() != receive_task_handle_);
+ }
++
+ void EspTcp::DoDisconnect(bool wait_for_task) {
+     connected_ = false;
+ 
+     if (tcp_fd_ != -1) {
++        shutdown(tcp_fd_, SHUT_RDWR);
+         close(tcp_fd_);
+         tcp_fd_ = -1;
++
+         // 只有主动断开时才需要等待接收任务退出
+         // 被动断开时，当前就是接收任务，不需要等待
+-        if (wait_for_task) {
++        if (wait_for_task && receive_task_handle_ != nullptr) {
+-            auto bits = xEventGroupWaitBits(event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(10000));
++            auto bits = xEventGroupWaitBits(event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT,
++                                            pdFALSE, pdFALSE, pdMS_TO_TICKS(1000));
+             if (!(bits & ESP_TCP_EVENT_RECEIVE_TASK_EXIT)) {
+-                ESP_LOGE(TAG, "Failed to wait for receive task exit");
++                ESP_LOGE(TAG, "TCP receive task did not exit within 1 second after shutdown");
++                // Returning would let WebSocket destroy this object while the
++                // receive task still owns `this` and its event group. A
++                // controlled restart is safer than either a permanent wait or
++                // a forced cross-core vTaskDelete that skips C++ unwinding.
++                esp_restart();
+             }
++            receive_task_handle_ = nullptr;
+         }
+     }
+ 
+@@ -95,6 +139,7 @@ void EspTcp::DoDisconnect(bool wait_for_task) {
+         disconnect_callback_();
+     }
+ }
++
+ int EspTcp::Send(const std::string& data) {
+     if (!connected_) {
+         ESP_LOGE(TAG, "Not connected");
+@@ -109,28 +142,71 @@ int EspTcp::Send(const std::string& data) {
+         int ret = send(tcp_fd_, data_ptr + total_sent, data_size - total_sent, 0);
+ 
+         if (ret <= 0) {
+-            ESP_LOGE(TAG, "Send failed: ret=%d, errno=%d", ret, errno);
++            last_error_ = errno;
++            ESP_LOGE(TAG, "Send failed: ret=%d, errno=%d", ret, last_error_);
+             return ret;
+         }
++
+         total_sent += ret;
+     }
+ 
+     return total_sent;
+ }
+ 
++bool EspTcp::SetSendTimeout(int timeout_ms) {
++    if (tcp_fd_ < 0 || timeout_ms <= 0) {
++        last_error_ = EINVAL;
++        return false;
++    }
++    timeval timeout{};
++    timeout.tv_sec = timeout_ms / 1000;
++    timeout.tv_usec = (timeout_ms % 1000) * 1000;
++    if (setsockopt(tcp_fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
++        last_error_ = errno;
++        ESP_LOGE(TAG, "Failed to set send timeout: errno=%d", last_error_);
++        return false;
++    }
++    return true;
++}
++
++bool EspTcp::SetNoDelay(bool enabled) {
++    if (tcp_fd_ < 0) {
++        last_error_ = EINVAL;
++        return false;
++    }
++    const int value = enabled ? 1 : 0;
++    if (setsockopt(tcp_fd_, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value)) != 0) {
++        last_error_ = errno;
++        ESP_LOGE(TAG, "Failed to configure TCP_NODELAY: errno=%d", last_error_);
++        return false;
++    }
++    return true;
++}
++
++TaskHandle_t EspTcp::GetReceiveTaskHandle() const {
++    return receive_task_handle_;
++}
++
+ void EspTcp::ReceiveTask() {
+     std::string data;
+     while (connected_) {
+         data.resize(1500);
+         int ret = recv(tcp_fd_, data.data(), data.size(), 0);
+         if (ret <= 0) {
++            const int receive_error = errno;
++            if (ret < 0 && (receive_error == EAGAIN || receive_error == EWOULDBLOCK)) {
++                if (connected_) continue;
++                break;
++            }
+             if (ret < 0) {
+-                ESP_LOGE(TAG, "TCP receive failed: %d", ret);
++                last_error_ = receive_error;
++                ESP_LOGE(TAG, "TCP receive failed: ret=%d errno=%d", ret, receive_error);
+             }
+             // 被动断开，不需要等待接收任务退出（当前就是接收任务）
+             DoDisconnect(false);
+             break;
+         }
++
+         if (stream_callback_) {
+             data.resize(ret);
+             stream_callback_(data);
+diff --git a/src/esp/esp_tcp.h b/src/esp/esp_tcp.h
+--- a/src/esp/esp_tcp.h
++++ b/src/esp/esp_tcp.h
+@@ -16,6 +16,9 @@ public:
+     bool Connect(const std::string& host, int port) override;
+     void Disconnect() override;
+     int Send(const std::string& data) override;
++    bool SetSendTimeout(int timeout_ms) override;
++    bool SetNoDelay(bool enabled) override;
++    TaskHandle_t GetReceiveTaskHandle() const override;
+ 
+     int GetLastError() override;
+ 

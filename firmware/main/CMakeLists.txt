@@ -332,10 +332,17 @@ idf_component_register(SRCS ${SOURCES}
                         ${DEV_SERIAL_PRIV_REQUIRES}
                     )
 
+if(CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE AUDIO_SERVICE_DIAG_ENABLED=0)
+endif()
+
 # usb_device_uac normally owns TinyUSB's configuration and descriptors.  In
 # composite mode the application owns those pieces, but the component's UAC
 # config headers still define the proven audio class buffers and descriptors.
-if(CONFIG_STACKCHAN_USB_UAC_MVP AND CONFIG_USB_DEVICE_UAC_AS_PART)
+# TinyUSB is pulled in by the board dependency graph even when the USB UAC
+# transport is disabled.  Both companion modes therefore provide its local
+# configuration header; only the USB mode actually enumerates USB classes.
+if((CONFIG_STACKCHAN_USB_UAC_MVP OR CONFIG_STACKCHAN_WIFI_AUDIO_MVP) AND CONFIG_USB_DEVICE_UAC_AS_PART)
     idf_component_get_property(STACKCHAN_TINYUSB_LIB espressif__tinyusb COMPONENT_LIB)
     idf_component_get_property(STACKCHAN_TINYUSB_DIR espressif__tinyusb COMPONENT_DIR)
     idf_component_get_property(STACKCHAN_UAC_LIB espressif__usb_device_uac COMPONENT_LIB)

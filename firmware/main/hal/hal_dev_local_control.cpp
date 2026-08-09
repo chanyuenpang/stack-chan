@@ -28,8 +28,10 @@
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/idf_additions.h>
 #include <freertos/task.h>
 #include <mooncake_log.h>
+#include <settings.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -92,6 +94,122 @@ bool check_token(httpd_req_t* req)
     }
     return std::strcmp(token, STACKCHAN_DEV_LOCAL_CONTROL_TOKEN) == 0;
 }
+
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+bool valid_xiaozhi_local_url(const std::string& url)
+{
+    if (url.empty() || url.size() > 192 || url.find_first_of(" \t\r\n") != std::string::npos) {
+        return false;
+    }
+    if (url.rfind("https://", 0) == 0 && url.size() > std::string_view("https://").size()) {
+        return true;
+    }
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_ALLOW_INSECURE_HTTP
+    return url.rfind("http://", 0) == 0 && url.size() > std::string_view("http://").size();
+#else
+    return false;
+#endif
+}
+
+bool valid_xiaozhi_local_token(const std::string& token)
+{
+    if (token.size() != 64) {
+        return false;
+    }
+    return std::all_of(token.begin(), token.end(), [](const unsigned char ch) {
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+    });
+}
+
+esp_err_t xiaozhi_local_config_handler(httpd_req_t* req)
+{
+    if (!check_token(req)) {
+        send_error(req, 401, "unauthorized");
+        return ESP_OK;
+    }
+    if (req->content_len <= 0 || req->content_len > kMaxBodyBytes) {
+        send_error(req, req->content_len > kMaxBodyBytes ? 413 : 400,
+                   req->content_len > kMaxBodyBytes ? "body_too_large" : "empty_body");
+        return ESP_OK;
+    }
+
+    std::string body(req->content_len, '\0');
+    int received = 0;
+    while (received < req->content_len) {
+        const int ret = httpd_req_recv(req, body.data() + received, req->content_len - received);
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        if (ret <= 0) {
+            send_error(req, 400, "body_read_failed");
+            return ESP_OK;
+        }
+        received += ret;
+    }
+
+    ArduinoJson::JsonDocument doc;
+    if (ArduinoJson::deserializeJson(doc, body) || !doc["url"].is<std::string>() ||
+        !doc["key"].is<std::string>()) {
+        send_error(req, 400, "invalid_configuration");
+        return ESP_OK;
+    }
+    const std::string url = doc["url"].as<std::string>();
+    const std::string key = doc["key"].as<std::string>();
+    if (!valid_xiaozhi_local_url(url) || !valid_xiaozhi_local_token(key)) {
+        send_error(req, 400, "invalid_configuration");
+        return ESP_OK;
+    }
+
+    // The fixed development-control token may bootstrap an unpaired device,
+    // but it must never be enough to replace an established pairing secret.
+    Settings existing_local_settings("xiaozhi_local", false);
+    const std::string existing_key = existing_local_settings.GetString("token");
+    if (!existing_key.empty() && existing_key != key) {
+        send_error(req, 409, "pairing_token_mismatch");
+        return ESP_OK;
+    }
+
+    // Commit the token first. A power loss between commits leaves the old OTA
+    // URL active; it can never switch to the authenticated local URL without
+    // the matching token already being durable.
+    {
+        Settings local_settings("xiaozhi_local", true);
+        local_settings.SetString("token", key);
+    }
+    mclog::tagInfo(TAG, "XiaoZhi local settings committed");
+    {
+        Settings wifi_settings("wifi", true);
+        wifi_settings.SetString("ota_url", url);
+    }
+
+    Settings local_verify("xiaozhi_local", false);
+    Settings wifi_verify("wifi", false);
+    if (local_verify.GetString("token") != key || wifi_verify.GetString("ota_url") != url) {
+        send_error(req, 500, "configuration_verify_failed");
+        return ESP_OK;
+    }
+
+    cJSON* reboot_args = cJSON_CreateObject();
+    if (!reboot_args) {
+        send_error(req, 500, "restart_schedule_failed");
+        return ESP_OK;
+    }
+    cJSON_AddBoolToObject(reboot_args, "confirm", true);
+    cJSON_AddNumberToObject(reboot_args, "delay_ms", 1500);
+    cJSON_AddStringToObject(reboot_args, "reason", "xiaozhi_local_config");
+    std::string reboot_result;
+    const bool reboot_found = stackchan_mcp_dispatch_tool("self.system.reboot", reboot_args, reboot_result);
+    cJSON_Delete(reboot_args);
+    if (!reboot_found || reboot_result.find("\"accepted\":true") == std::string::npos) {
+        send_error(req, 500, "restart_schedule_failed");
+        return ESP_OK;
+    }
+
+    mclog::tagInfo(TAG, "XiaoZhi local Dock configuration verified; restart scheduled");
+    send_json(req, 200, "{\"ok\":true,\"configured\":true,\"restart_scheduled\":true}");
+    return ESP_OK;
+}
+#endif
 
 esp_err_t celebrate_handler(httpd_req_t* req)
 {
@@ -579,7 +697,7 @@ void inject_prompt_task(void*)
     if (!hal_bridge::is_xiaozhi_ready()) {
         ESP_LOGW(TAG, "inject_prompt: xiaozhi is not ready");
         g_inject_active.store(false);
-        vTaskDelete(nullptr);
+        vTaskDeleteWithCaps(nullptr);
         return;
     }
 
@@ -588,7 +706,7 @@ void inject_prompt_task(void*)
     if (!select_prompt_wav(g_inject_request.sample, wav, selected)) {
         ESP_LOGE(TAG, "inject_prompt: failed to select embedded WAV");
         g_inject_active.store(false);
-        vTaskDelete(nullptr);
+        vTaskDeleteWithCaps(nullptr);
         return;
     }
 
@@ -669,7 +787,7 @@ void inject_prompt_task(void*)
              static_cast<unsigned>(rejected_frames));
 
     g_inject_active.store(false);
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 esp_err_t inject_prompt_handler(httpd_req_t* req)
@@ -737,12 +855,13 @@ esp_err_t inject_prompt_handler(httpd_req_t* req)
 
     g_inject_request = request;
 
-    ESP_LOGW(TAG, "inject_prompt: free_heap=%u, internal=%u, attempting xTaskCreate",
+    ESP_LOGW(TAG, "inject_prompt: free_heap=%u, internal=%u, attempting external-stack task create",
              (unsigned)xPortGetFreeHeapSize(),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-    BaseType_t ret = xTaskCreatePinnedToCore(inject_prompt_task, "inject_prompt", 4096,
-                                              nullptr, tskIDLE_PRIORITY + 3, nullptr, 1);
-    ESP_LOGW(TAG, "inject_prompt: xTaskCreate ret=%d", (int)ret);
+    BaseType_t ret = xTaskCreatePinnedToCoreWithCaps(
+        inject_prompt_task, "inject_prompt", 4096, nullptr, tskIDLE_PRIORITY + 3, nullptr, 1,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    ESP_LOGW(TAG, "inject_prompt: external-stack task create ret=%d", (int)ret);
     if (ret != pdPASS) {
         g_inject_active.store(false);
         char errbuf[128];
@@ -819,6 +938,15 @@ static void do_start_server()
     status_uri.user_ctx = nullptr;
     httpd_register_uri_handler(g_server, &status_uri);
 
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+    httpd_uri_t xiaozhi_local_config_uri = {};
+    xiaozhi_local_config_uri.uri = "/dev/xiaozhi-local";
+    xiaozhi_local_config_uri.method = HTTP_POST;
+    xiaozhi_local_config_uri.handler = xiaozhi_local_config_handler;
+    xiaozhi_local_config_uri.user_ctx = nullptr;
+    httpd_register_uri_handler(g_server, &xiaozhi_local_config_uri);
+#endif
+
     httpd_uri_t play_sound_uri = {};
     play_sound_uri.uri = "/dev/play_sound";
     play_sound_uri.method = HTTP_POST;
@@ -833,7 +961,7 @@ static void do_start_server()
     inject_prompt_uri.user_ctx = nullptr;
     httpd_register_uri_handler(g_server, &inject_prompt_uri);
 
-    ESP_LOGW(TAG, "DEV local HTTP control enabled on port %d: /dev/celebrate /dev/mcp/call /dev/wake /dev/stop /dev/status /dev/play_sound /dev/inject_prompt", kDevHttpPort);
+    ESP_LOGW(TAG, "DEV local HTTP control enabled on port %d: /dev/celebrate /dev/mcp/call /dev/wake /dev/stop /dev/status /dev/xiaozhi-local /dev/play_sound /dev/inject_prompt", kDevHttpPort);
 }
 
 static bool sta_has_ip()

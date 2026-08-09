@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "hal.h"
+#include "wifi_audio_dock_mvp.h"
 #include "utils/bleprph/bleprph.h"
 #include "utils/secret_logic/secret_logic.h"
 #include <ArduinoJson.hpp>
@@ -11,6 +12,7 @@
 #include <mooncake.h>
 #include <settings.h>
 #include <esp_mac.h>
+#include <sdkconfig.h>
 
 static const std::string_view _tag = "HAL-BLE";
 
@@ -88,6 +90,8 @@ bool Hal::isBleConnected()
 #include <queue>
 #include <mutex>
 #include <atomic>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 class WifiConfigServer {
 public:
@@ -120,6 +124,15 @@ public:
         });
 
         _wifi_station->Start();
+
+#if CONFIG_STACKCHAN_WIFI_AUDIO_MVP
+        constexpr std::string_view bootstrap_ssid(CONFIG_STACKCHAN_WIFI_AUDIO_BOOTSTRAP_SSID);
+        constexpr std::string_view bootstrap_password(CONFIG_STACKCHAN_WIFI_AUDIO_BOOTSTRAP_PASSWORD);
+        if (!bootstrap_ssid.empty()) {
+            mclog::tagInfo(_tag, "applying private-build Wi-Fi bootstrap configuration");
+            _wifi_station->AddAuth(std::string(bootstrap_ssid), std::string(bootstrap_password));
+        }
+#endif
     }
 
     void update()
@@ -178,8 +191,12 @@ private:
 
         if (doc["cmd"] == "setWifi") {
             handle_set_wifi(doc["data"]);
+        } else if (doc["cmd"] == "setWifiAudio") {
+            handle_set_wifi_audio(doc["data"]);
         } else if (doc["cmd"] == "getWifiStatus") {
             handle_get_wifi_status();
+        } else if (doc["cmd"] == "getWifiAudioStatus") {
+            handle_get_wifi_audio_status();
         } else if (doc["cmd"] == "handshake") {
             std::string data = doc["data"].as<std::string>();
             handle_handshake(data);
@@ -197,6 +214,20 @@ private:
         }
     }
 
+    void handle_get_wifi_audio_status()
+    {
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+        Settings wifi_settings("wifi", false);
+        Settings local_settings("xiaozhi_local", false);
+        const auto bootstrap_url = wifi_settings.GetString("ota_url");
+        const auto local_token = local_settings.GetString("token");
+        notify_state(6, !bootstrap_url.empty() && local_token.size() == 64 ? "xiaozhiLocalConfigured"
+                                                                          : "xiaozhiLocalUnconfigured");
+#else
+        notify_state(6, stackchan_wifi_audio_transport_state());
+#endif
+    }
+
     void handle_set_wifi(ArduinoJson::JsonObject data)
     {
         if (_is_wifi_connecting) {
@@ -207,14 +238,70 @@ private:
 
         const char* ssid     = data["ssid"];
         const char* password = data["password"];
+        if (ssid == nullptr || password == nullptr || ssid[0] == '\0') {
+            mclog::tagWarn(_tag, "rejecting Wi-Fi configuration with missing fields");
+            notify_state(2, "wifiConnectFailed: Invalid configuration");
+            return;
+        }
 
-        mclog::tagInfo(_tag, "get wifi config: {} / {}", ssid, password);
+        mclog::tagInfo(_tag, "received Wi-Fi configuration for ssid={}", ssid);
 
         // Notify state: connecting
         notify_state(0, "wifiConnecting");
         GetHAL().onAppConfigEvent.emit(AppConfigEvent::TryWifiConnect);
 
         connect_wifi(ssid, password);
+    }
+
+    void handle_set_wifi_audio(ArduinoJson::JsonObject data)
+    {
+        const char* url = data["url"];
+        const char* key = data["key"];
+        const std::string_view url_value = url != nullptr ? std::string_view(url) : std::string_view();
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+        const bool secure_endpoint = url_value.rfind("https://", 0) == 0;
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_ALLOW_INSECURE_HTTP
+        const bool development_endpoint = url_value.rfind("http://", 0) == 0;
+#else
+        constexpr bool development_endpoint = false;
+#endif
+#else
+        const bool secure_endpoint = url_value.rfind("wss://", 0) == 0;
+#if CONFIG_STACKCHAN_WIFI_AUDIO_ALLOW_INSECURE_WS
+        const bool development_endpoint = url_value.rfind("ws://", 0) == 0;
+#else
+        constexpr bool development_endpoint = false;
+#endif
+#endif
+        if (url == nullptr || key == nullptr || url_value.size() > 192 || std::string_view(key).size() != 64 ||
+            (!secure_endpoint && !development_endpoint)) {
+            mclog::tagWarn(_tag, "rejecting invalid Wi-Fi Audio configuration");
+            notify_state(5, "wifiAudioConfigFailed");
+            return;
+        }
+        for (const char character : std::string_view(key)) {
+            if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') ||
+                  (character >= 'A' && character <= 'F'))) {
+                mclog::tagWarn(_tag, "rejecting Wi-Fi Audio key with invalid encoding");
+                notify_state(5, "wifiAudioConfigFailed");
+                return;
+            }
+        }
+
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+        Settings wifi_settings("wifi", true);
+        wifi_settings.SetString("ota_url", url);
+        Settings local_settings("xiaozhi_local", true);
+        local_settings.SetString("token", key);
+        mclog::tagInfo(_tag, "XiaoZhi local Dock bootstrap configuration updated");
+#else
+        Settings settings("wifi_audio", true);
+        settings.SetString("url", url);
+        settings.SetString("key", key);
+        settings.SetBool("configured", true);
+        mclog::tagInfo(_tag, "Wi-Fi Audio receiver configuration updated");
+#endif
+        notify_state(5, "wifiAudioConfigured");
     }
 
     void handle_handshake(std::string_view data)
@@ -269,13 +356,41 @@ private:
     uint32_t _last_tick = 0;
 };
 
+#if CONFIG_STACKCHAN_WIFI_AUDIO_MVP
+std::unique_ptr<WifiConfigServer> s_wifi_audio_config_server;
+
+void wifi_audio_config_task(void*)
+{
+    while (true) {
+        if (s_wifi_audio_config_server) {
+            s_wifi_audio_config_server->update();
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+#endif
+
 void Hal::startAppConfigServer()
 {
     mclog::tagInfo(_tag, "start app config server");
 
     ble_init(true);
 
+#if CONFIG_STACKCHAN_WIFI_AUDIO_MVP
+    // The isolated Wi-Fi Audio runtime does not install the regular Mooncake
+    // app loop. Keep configuration independent so BLE writes are processed
+    // while network startup is waiting in its own task.
+    if (!s_wifi_audio_config_server) {
+        s_wifi_audio_config_server = std::make_unique<WifiConfigServer>();
+        s_wifi_audio_config_server->init();
+        if (xTaskCreate(wifi_audio_config_task, "wifi_audio_config", 4096, nullptr, 4, nullptr) != pdPASS) {
+            s_wifi_audio_config_server.reset();
+            mclog::tagError(_tag, "failed to create Wi-Fi Audio config task");
+        }
+    }
+#else
     mooncake::GetMooncake().extensionManager()->createAbility(std::make_unique<AppConfigServerWorker>());
+#endif
 }
 
 bool Hal::isAppConfiged()

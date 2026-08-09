@@ -16,10 +16,12 @@
 #include <esp_app_desc.h>
 #include <esp_ota_ops.h>
 #include <esp_err.h>
+#include <esp_log.h>
 #include <sdkconfig.h>
 #include <settings.h>
 #include <ota.h>
 #include <hal/usb_uac_mvp.h>
+#include <hal/wifi_audio_dock_mvp.h>
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit;
@@ -218,7 +220,7 @@ extern "C" void app_main(void)
     display->SetupUI();
     display->SetEmotion("neutral");
 
-    // The MVP owns the codec directly and exposes it as a Windows UAC device.
+    // USB UAC owns the codec directly in this baseline.
     ESP_ERROR_CHECK(start_stackchan_usb_uac_mvp());
 
     while (1) {
@@ -226,6 +228,39 @@ extern "C" void app_main(void)
         GetHAL().updateHeapStatusLog();
         {
             LvglLockGuard lock;
+            GetStackChan().update();
+        }
+        GetHAL().delay(20);
+    }
+#elif CONFIG_STACKCHAN_WIFI_AUDIO_MVP
+    // Wi-Fi Audio owns the same codec, so it has an equally isolated runtime.
+    ESP_LOGI("WIFI-AUDIO", "boot stage: isolated runtime entered");
+    Display* display = Board::GetInstance().GetDisplay();
+    ESP_ERROR_CHECK(display != nullptr ? ESP_OK : ESP_ERR_NOT_FOUND);
+    ESP_LOGI("WIFI-AUDIO", "boot stage: display acquired");
+    display->SetupUI();
+    display->SetEmotion("neutral");
+    ESP_LOGI("WIFI-AUDIO", "boot stage: display initialized");
+    // The normal Setup app is intentionally absent in this isolated runtime,
+    // so start its BLE provisioning service explicitly before reading the
+    // Wi-Fi Audio endpoint saved by the phone.
+#if CONFIG_STACKCHAN_WIFI_AUDIO_AUTOSTART
+    ESP_LOGI("WIFI-AUDIO", "boot stage: BLE config begin");
+    GetHAL().startAppConfigServer();
+    ESP_LOGI("WIFI-AUDIO", "boot stage: BLE config complete");
+    ESP_LOGI("WIFI-AUDIO", "boot stage: transport begin");
+    ESP_ERROR_CHECK(start_stackchan_wifi_audio_dock_mvp());
+    ESP_LOGI("WIFI-AUDIO", "boot stage: transport scheduled");
+#else
+    mclog::tagWarn("WIFI-AUDIO", "runtime autostart disabled for boot diagnosis");
+#endif
+
+    while (1) {
+        GetHAL().feedTheDog();
+        GetHAL().updateHeapStatusLog();
+        {
+            LvglLockGuard lock;
+            update_stackchan_wifi_audio_volume_gesture();
             GetStackChan().update();
         }
         GetHAL().delay(20);

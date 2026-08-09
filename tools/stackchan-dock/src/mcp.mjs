@@ -56,10 +56,12 @@ export function createStackchanMcpServer(dock) {
     "Read the live Stack-chan device and audio endpoint state.",
     noArguments, { readOnlyHint: true, idempotentHint: true },
     () => dock.getStatus());
-  register(server, MCP_TOOL.SET_AUDIO,
-    "Enable or disable Stack-chan's own microphone and speaker data paths; this does not control a Codex Voice session.",
-    audioArguments, { idempotentHint: true },
-    (args) => dock.setAudioEndpoints(args));
+  if (dock.capabilities?.audioControl !== false) {
+    register(server, MCP_TOOL.SET_AUDIO,
+      "Enable or disable Stack-chan's own microphone and speaker data paths; this does not control a Codex Voice session.",
+      audioArguments, { idempotentHint: true },
+      (args) => dock.setAudioEndpoints(args));
+  }
   register(server, MCP_TOOL.SET_EXPRESSION,
     "Set Stack-chan's screen expression to an allowlisted value.",
     expressionArguments, { idempotentHint: true },

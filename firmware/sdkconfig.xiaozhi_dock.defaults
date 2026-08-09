@@ -1,0 +1,15 @@
+# Official XiaoZhi audio runtime with a local PC Dock bootstrap.
+# This profile deliberately excludes both private codec-owner MVP runtimes.
+CONFIG_STACKCHAN_USB_UAC_MVP=n
+CONFIG_STACKCHAN_WIFI_AUDIO_MVP=n
+CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK=y
+CONFIG_STACKCHAN_XIAOZHI_DISABLE_IDLE_HEAD_MOTION=y
+
+# The retired composite USB MVP made the application own TinyUSB's descriptors.
+# The official XiaoZhi profile does not initialize that transport, so leave the
+# managed UAC component in its normal self-contained build mode.
+CONFIG_USB_DEVICE_UAC_AS_PART=n
+
+# The first local development candidate uses an authenticated LAN endpoint.
+# Production builds should override this to n and provision https://.
+CONFIG_STACKCHAN_XIAOZHI_LOCAL_ALLOW_INSECURE_HTTP=y

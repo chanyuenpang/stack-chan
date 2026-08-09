@@ -26,7 +26,7 @@ test("assistant lifecycle starts and stops the typed talking animation", async (
   assert.deepEqual(dock.calls, [true, false]);
 });
 
-test("microphone disabled and reconnect both fail safe to stopped", async (t) => {
+test("microphone mute stays independent and reconnect fails safe to stopped", async (t) => {
   const dock = new FakeDock();
   const controller = new TalkingAnimationController(dock);
   t.after(() => controller.dispose());
@@ -34,20 +34,20 @@ test("microphone disabled and reconnect both fail safe to stopped", async (t) =>
   await controller.idle();
   controller.handleDeviceState({ audio: { microphone_enabled: false } });
   await controller.idle();
-  assert.deepEqual(dock.calls, [true, false]);
+  assert.deepEqual(dock.calls, [true]);
 
   dock.emit("lifecycle", { state: "disconnected" });
   dock.emit("connected", {});
   await controller.idle();
-  assert.deepEqual(dock.calls, [true, false, false]);
+  assert.deepEqual(dock.calls, [true, false]);
 });
 
-test("animation never starts while the robot microphone path is disabled", async (t) => {
+test("speaker talking lifecycle remains independent while microphone is disabled", async (t) => {
   const dock = new FakeDock();
   dock.state.audio.microphone_enabled = false;
   const controller = new TalkingAnimationController(dock);
   t.after(() => controller.dispose());
   controller.start();
   await controller.idle();
-  assert.deepEqual(dock.calls, []);
+  assert.deepEqual(dock.calls, [true]);
 });

@@ -31,7 +31,6 @@ export class TalkingAnimationController extends EventEmitter {
   }
 
   start() {
-    if (this.#dock.state?.audio?.microphone_enabled === false) return;
     this.#desired = true;
     this.#queue();
   }
@@ -42,7 +41,9 @@ export class TalkingAnimationController extends EventEmitter {
   }
 
   handleDeviceState(state) {
-    if (state?.audio?.microphone_enabled === false) this.stop();
+    // Microphone mute is independent from speaker replies. A head swipe may
+    // mute capture while the talking lifecycle and speaker remain active.
+    void state;
   }
 
   async idle() {

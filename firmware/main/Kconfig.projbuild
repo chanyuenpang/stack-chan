@@ -9,6 +9,111 @@ config STACKCHAN_USB_UAC_MVP
         This MVP owns the audio codec directly, so Xiaozhi voice startup is
         disabled while this option is enabled.
 
+config STACKCHAN_WIFI_AUDIO_MVP
+    bool "Enable Stack-chan Wi-Fi Audio and Dock MVP"
+    default n
+    depends on IDF_TARGET_ESP32S3 && BOARD_TYPE_M5STACK_STACK_CHAN && !STACKCHAN_USB_UAC_MVP
+    help
+        Send CoreS3 microphone PCM and accept the authenticated Dock control
+        protocol on the same Wi-Fi WebSocket. This mode owns the audio codec
+        directly and is deliberately mutually exclusive with USB UAC.
+
+config STACKCHAN_XIAOZHI_LOCAL_DOCK
+    bool "Use the official XiaoZhi audio stack with a local PC Dock"
+    default n
+    depends on BOARD_TYPE_M5STACK_STACK_CHAN && !STACKCHAN_USB_UAC_MVP && !STACKCHAN_WIFI_AUDIO_MVP
+    help
+        Keep Application, AudioService, the StackChan codec, and XiaoZhi
+        WebSocket v1 as the only device audio runtime. BLE provisioning stores
+        a local OTA bootstrap URL and pairing token; the bootstrap response
+        supplies the WebSocket URL/token/version to the existing protocol.
+
+config STACKCHAN_XIAOZHI_LOCAL_ALLOW_INSECURE_HTTP
+    bool "Allow an http:// local XiaoZhi bootstrap endpoint (development only)"
+    default n
+    depends on STACKCHAN_XIAOZHI_LOCAL_DOCK
+    help
+        Permit an authenticated local-LAN bootstrap endpoint without TLS.
+        Production deployments should use https:// and leave this disabled.
+
+config STACKCHAN_XIAOZHI_DISABLE_IDLE_HEAD_MOTION
+    bool "Disable automatic idle head motion in local Dock mode"
+    default n
+    depends on STACKCHAN_XIAOZHI_LOCAL_DOCK
+    help
+        Keep idle facial expressions active, but do not attach the random
+        IdleMotionModifier while the local Codex Dock product is running.
+        Explicit MCP head commands remain available. Enable this containment
+        when automatic standby motion can destabilize the servo bus.
+
+config STACKCHAN_WIFI_AUDIO_AUTOSTART
+    bool "Start Wi-Fi Audio runtime at boot"
+    default y
+    depends on STACKCHAN_WIFI_AUDIO_MVP
+    help
+        Enable the isolated BLE provisioning and Wi-Fi Audio runtime after
+        the board has initialized. This is retained as a diagnostic switch so
+        the exact same linked firmware can be checked without starting it.
+
+config STACKCHAN_WIFI_AUDIO_ALLOW_INSECURE_WS
+    bool "Allow insecure ws:// Wi-Fi Audio endpoint (development only)"
+    default n
+    depends on STACKCHAN_WIFI_AUDIO_MVP
+    help
+        Permit a local non-TLS WebSocket receiver only for physical MVP
+        validation. Production pairing must leave this disabled and use wss://
+        with a certificate trusted by the device.
+
+config STACKCHAN_WIFI_AUDIO_CAPTURE_MIC
+    int "Physical microphone exported by Wi-Fi Audio (0=MIC1, 1=MIC2)"
+    range 0 1
+    default 0
+    depends on STACKCHAN_WIFI_AUDIO_MVP
+    help
+        Select which of the two physical CoreS3 microphones is exported as the
+        mono Wi-Fi Audio stream. The codec keeps the ES7210 receiver in four-slot
+        TDM mode and packs slot0 (MIC1) plus slot2 (MIC2) into logical channels
+        0 and 1. This option selects between those packed logical channels.
+
+config STACKCHAN_WIFI_AUDIO_RX_ONLY_DIAGNOSTIC
+    bool "Enable RX-only four-slot ES7210 diagnostic"
+    default n
+    depends on STACKCHAN_WIFI_AUDIO_MVP
+    help
+        Build the one-shot CoreS3 microphone diagnostic. This mode creates no
+        speaker/TX I2S channel, captures all four ES7210 TDM slots, validates
+        every I2S read, and mirrors raw interleaved PCM to a dedicated UDP
+        diagnostic port while the normal mono Dock stream remains available
+        for end-to-end comparison.
+
+config STACKCHAN_WIFI_AUDIO_DIAGNOSTIC_UDP_PORT
+    int "RX-only diagnostic UDP port"
+    range 1024 65535
+    default 8766
+    depends on STACKCHAN_WIFI_AUDIO_RX_ONLY_DIAGNOSTIC
+    help
+        UDP port used by the temporary four-slot raw PCM capture. The
+        destination IPv4 address is derived from the configured Dock URL, so
+        no pairing secret or additional host credential is embedded.
+
+config STACKCHAN_WIFI_AUDIO_BOOTSTRAP_SSID
+    string "Wi-Fi Audio first-boot SSID"
+    default ""
+    depends on STACKCHAN_WIFI_AUDIO_MVP
+    help
+        Optional private-build SSID written to the platform Wi-Fi credential
+        store before the Wi-Fi Audio Dock connects. Keep deployment values in
+        an ignored sdkconfig.wifi_audio.private.defaults file.
+
+config STACKCHAN_WIFI_AUDIO_BOOTSTRAP_PASSWORD
+    string "Wi-Fi Audio first-boot password"
+    default ""
+    depends on STACKCHAN_WIFI_AUDIO_MVP
+    help
+        Optional private-build password paired with the first-boot SSID.
+        This value becomes part of the flashed image; do not place it in a
+        tracked configuration file.
+
 config STACKCHAN_USB_COMPANION_VID
     hex "Stack-chan USB Companion vendor ID"
     default 0x303A

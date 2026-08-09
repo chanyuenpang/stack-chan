@@ -18,6 +18,7 @@
 
 import argparse
 import json
+import os
 import sys
 
 try:
@@ -160,6 +161,13 @@ class StackChanClient:
         """唤醒小智并注入嵌入式语音 prompt"""
         return self._post("/dev/inject_prompt")
 
+    def configure_xiaozhi_local(self, bootstrap_url, pairing_token):
+        """配置本地 XiaoZhi bootstrap；pairing token 仅存在于请求体。"""
+        return self._post(
+            "/dev/xiaozhi-local",
+            {"url": str(bootstrap_url), "key": str(pairing_token)},
+        )
+
     def reboot(self, delay_ms=1500, reason="remote_control"):
         """通过完整 MCP 工具名请求系统重启。"""
         return self.mcp_call(
@@ -295,6 +303,22 @@ def cmd_reboot(client, args):
     print(cyan(json.dumps(resp, indent=2, ensure_ascii=False)))
 
 
+def cmd_configure_xiaozhi_local(client, args):
+    pairing_token = os.environ.get("STACKCHAN_WIFI_PAIRING_KEY", "")
+    if len(pairing_token) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in pairing_token):
+        print(red("✗ STACKCHAN_WIFI_PAIRING_KEY 必须是 64 位十六进制值"))
+        sys.exit(1)
+    if not (args.bootstrap_url.startswith("https://") or args.bootstrap_url.startswith("http://")):
+        print(red("✗ bootstrap URL 必须使用 http:// 或 https://"))
+        sys.exit(1)
+    resp = client.configure_xiaozhi_local(args.bootstrap_url, pairing_token)
+    if resp.get("ok") and resp.get("configured") and resp.get("restart_scheduled"):
+        print(green("✓ 本地 XiaoZhi Dock 配置已写入，机器人将延迟重启"))
+    else:
+        print(red(f"✗ 本地 XiaoZhi Dock 配置失败: {resp.get('error', '未知错误')}"))
+        sys.exit(1)
+
+
 # ─── 主入口 ──────────────────────────────────────────────────────────────────
 
 def main():
@@ -394,6 +418,11 @@ def main():
     # inject-prompt
     sub = subparsers.add_parser("inject-prompt", help="Wake XiaoZhi and inject embedded voice prompt")
     sub.set_defaults(func=cmd_inject_prompt)
+
+    # configure-xiaozhi-local
+    sub = subparsers.add_parser("configure-xiaozhi-local", help="Configure the authenticated local XiaoZhi Dock")
+    sub.add_argument("--bootstrap-url", required=True, help="Local XiaoZhi HTTP(S) bootstrap URL")
+    sub.set_defaults(func=cmd_configure_xiaozhi_local)
 
     # reboot
     sub = subparsers.add_parser("reboot", help="Reboot device via self.system.reboot MCP tool (requires --confirm)")
