@@ -1,4 +1,4 @@
-# StackChan Canonical Truth 索引
+﻿# StackChan Canonical Truth 索引
 
 ## adr
 
@@ -10,6 +10,7 @@
 | [`adr/force-ota-one-shot-release-and-auto-reset.md`](adr/force-ota-one-shot-release-and-auto-reset.md) | force OTA 一次性下发并自动恢复 | `ops/bin/stackchan-ota-release`、`force=1`、`force=0`、`active.json`、`exp-pkg/active-release`、`GET /ota/`、`POST /ota/`、`ops/bin/stackchan-doctor --json`。 |
 | [`adr/force-ota-roll-back-close-loop.md`](adr/force-ota-roll-back-close-loop.md) | force OTA 回退闭环与完成判定收口 | `ops/bin/stackchan-ota-release`、`/dev/status`、`X-StackChan-Dev-Token`、`18080`、`app_version`、`state=upgrading`、`xiaozhi_ready=true`、`ops/bin/stackchan-doctor --json`。 |
 | [`adr/official-dancemodifier-for-celebrate.md`](adr/official-dancemodifier-for-celebrate.md) | self.robot.celebrate 复用官方 DanceModifier/Timeline | `self.robot.celebrate`、`start_celebrate_modifier`、`CelebrateExecutor`、`DanceModifier::Happy`、`DanceModifier::Celebrate`、`Timeline`、`Medium servo speed`、`speed=260`、`/dev/celebrate`、`/dev/mcp/call`、`action=dance_modifier_celebrate`、`hal_mcp.cpp`、`dance.h`。 |
+| [`adr/retain-one-second-prebuffer-with-paced-release.md`](adr/retain-one-second-prebuffer-with-paced-release.md) | 保留一秒语音预缓冲，以节奏化/背压感知释放取代原始 17 帧突发 | `Stable Voice Baseline — Priority 2`、`EA079E...F24699`、`B7B29D...E49BF`、`646221...0528E`、`prebuffer_frames=17`、`prebuffer_frames=0`、60 ms pacing、WebSocket backpressure、三次崩溃相关、1–3 秒中段静音、轻微机器人感、Speaking 断连恢复。 |
 | [`adr/reuse-xiaozhi-audio-stack-with-local-pc-dock.md`](adr/reuse-xiaozhi-audio-stack-with-local-pc-dock.md) | 复用 XiaoZhi 设备音频栈并由 PC Dock 提供本地服务；V1 已完成 | `Application`、`AudioService`、`Opus`、`WebSocket v1`、`tts:start/stop`、Rust WASAPI、半双工、Codex Voice、无 USB PASS、舵机延期。 |
 
 ## features

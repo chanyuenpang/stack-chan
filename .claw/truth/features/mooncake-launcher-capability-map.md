@@ -1,4 +1,4 @@
-# StackChan MoonCake Launcher 能力地图
+﻿# StackChan MoonCake Launcher 能力地图
 
 ## 结论
 

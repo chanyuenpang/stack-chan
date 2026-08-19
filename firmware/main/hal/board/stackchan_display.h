@@ -41,6 +41,12 @@ public:
     // Override Display methods to control Robot
     virtual void SetEmotion(const char* emotion) override;
     virtual void SetChatMessage(const char* role, const char* content) override;
+    virtual bool BeginStreamingAssistantSubtitle(uint32_t subtitle_id, const char* content) override;
+    virtual bool AppendStreamingAssistantSubtitle(uint32_t subtitle_id, const char* text, bool trim_after_append = false) override;
+    virtual bool TrimStreamingAssistantSubtitle(uint32_t subtitle_id) override;
+    virtual bool EndStreamingAssistantSubtitle(uint32_t subtitle_id) override;
+    virtual bool CancelStreamingAssistantSubtitle(uint32_t subtitle_id) override;
+    virtual bool EnqueueStreamingAssistantSubtitle(uint32_t subtitle_id, const char* text) override;
     virtual void ClearChatMessages() override;
     virtual void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
     virtual void UpdateStatusBar(bool update_all = false) override;

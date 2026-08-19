@@ -1,4 +1,4 @@
-# StackChan App 进入阶段更新稳定窗口
+﻿# StackChan App 进入阶段更新稳定窗口
 
 ## 结论
 

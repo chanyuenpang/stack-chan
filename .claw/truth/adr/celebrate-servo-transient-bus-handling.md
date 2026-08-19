@@ -1,4 +1,4 @@
-# ADR: celebrate 舵机 transient 与 bus_dead 分级处理
+﻿# ADR: celebrate 舵机 transient 与 bus_dead 分级处理
 
 ## Status
 

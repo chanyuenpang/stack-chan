@@ -1,0 +1,20 @@
+{
+  "name": "stackchan-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Windows Electron control console that hosts the single StackChan XiaoZhi Dock runtime.",
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/console-controller.mjs && node --check src/local-dock-status-client.mjs && node --check src/speaker-volume-state.mjs && node --check src/speaker-volume-controller.mjs && node --check src/speaker-mode-state.mjs && node --check src/speaker-mode-controller.mjs && node --check src/subtitle-trace.mjs && node --check src/dock-event-journal.mjs && node --check src/broken-pipe-guard.mjs && node --check src/codex-voice-status-indicator.mjs && node --check src/owner-led-arbiter.mjs && node --check src/main.mjs && node --check src/preload.cjs && node --check src/renderer.mjs",
+    "test": "node --test",
+    "build:launcher": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File launcher/build-stackchan-dock-launcher.ps1"
+  },
+  "devDependencies": {
+    "electron": "37.2.6"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

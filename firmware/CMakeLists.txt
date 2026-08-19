@@ -34,8 +34,26 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${STACKCHAN_ESP_ML307_PATCHES})
 set(STACKCHAN_XIAOZHI_LOCAL_DOCK_PATCH
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/xiaozhi-local-dock.patch")
+set(STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/xiaozhi-audio-performance-diagnostics.patch")
+set(STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/xiaozhi-local-dock-audio-output-priority.patch")
+set(STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/xiaozhi-local-dock-audio-codec-priority.patch")
+set(STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_PATCH
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp-ml307-local-dock-websocket-safety.patch")
+set(STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_PATCH
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp-ml307-local-dock-websocket-lifecycle.patch")
+set(STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_PATCH
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/xiaozhi-local-dock-websocket-owner-lifecycle.patch")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${STACKCHAN_XIAOZHI_LOCAL_DOCK_PATCH}")
+    "${STACKCHAN_XIAOZHI_LOCAL_DOCK_PATCH}"
+    "${STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH}"
+    "${STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH}"
+    "${STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH}"
+    "${STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_PATCH}"
+    "${STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_PATCH}"
+    "${STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_PATCH}")
 if(CONFIG_STACKCHAN_WIFI_AUDIO_MVP)
     find_package(Git REQUIRED)
     foreach(STACKCHAN_ESP_ML307_PATCH IN LISTS STACKCHAN_ESP_ML307_PATCHES)
@@ -114,6 +132,88 @@ elseif(CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK)
         message(FATAL_ERROR "esp-ml307 WebSocket source/header are in a mixed private/official state")
     endif()
 
+    # P0-3 is a separate lifecycle layer on top of the already verified P0-2
+    # frame-safety patch. It drains the receive worker independently of the
+    # logical WebSocket connected state. Check the top layer first because its
+    # WebSocket hunks intentionally overlap P0-2; reversing P0-2 through an
+    # applied P0-3 layer would be a false mixed-state failure.
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply "--directory=${STACKCHAN_ESP_ML307_DIR}"
+                --reverse --check "${STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_PATCH}"
+        WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+        RESULT_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_APPLIED
+        OUTPUT_QUIET ERROR_QUIET)
+
+    if(NOT STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_APPLIED EQUAL 0)
+        # Keep Local-Dock on the official transport plus the independently
+        # verified fast-101 and receive-limit safety patch. The retired private
+        # lifecycle patch group is deliberately not restored here.
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply "--directory=${STACKCHAN_ESP_ML307_DIR}"
+                    --reverse --check "${STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_APPLIED
+            OUTPUT_QUIET ERROR_QUIET)
+        if(NOT STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_APPLIED EQUAL 0)
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply "--directory=${STACKCHAN_ESP_ML307_DIR}"
+                        --check "${STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_PATCH}"
+                WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+                RESULT_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_CHECK
+                OUTPUT_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_CHECK_OUT
+                ERROR_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_CHECK_ERR)
+            if(NOT STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_CHECK EQUAL 0)
+                message(FATAL_ERROR
+                    "esp-ml307 Local-Dock WebSocket safety patch no longer applies cleanly.\n"
+                    "${STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_CHECK_OUT}${STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_CHECK_ERR}")
+            endif()
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply "--directory=${STACKCHAN_ESP_ML307_DIR}"
+                        "${STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_PATCH}"
+                WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+                RESULT_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_RESULT)
+            if(NOT STACKCHAN_ESP_ML307_LOCAL_DOCK_SAFETY_RESULT EQUAL 0)
+                message(FATAL_ERROR "Failed to apply esp-ml307 Local-Dock WebSocket safety patch")
+            endif()
+        endif()
+
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply "--directory=${STACKCHAN_ESP_ML307_DIR}"
+                    --check "${STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_CHECK
+            OUTPUT_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_CHECK_OUT
+            ERROR_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_CHECK_ERR)
+        if(NOT STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_CHECK EQUAL 0)
+            message(FATAL_ERROR
+                "esp-ml307 Local-Dock WebSocket lifecycle patch no longer applies cleanly.\n"
+                "${STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_CHECK_OUT}${STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_CHECK_ERR}")
+        endif()
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply "--directory=${STACKCHAN_ESP_ML307_DIR}"
+                    "${STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_RESULT)
+        if(NOT STACKCHAN_ESP_ML307_LOCAL_DOCK_LIFECYCLE_RESULT EQUAL 0)
+            message(FATAL_ERROR "Failed to apply esp-ml307 Local-Dock WebSocket lifecycle patch")
+        endif()
+    endif()
+
+    # The P0-3 reverse check proves its own base hunks, while these markers
+    # independently prove that the non-overlapping P0-2 frame limits remain.
+    file(READ "${STACKCHAN_ESP_ML307_WEBSOCKET_SOURCE}" STACKCHAN_ESP_ML307_LOCAL_DOCK_SOURCE_TEXT)
+    string(FIND "${STACKCHAN_ESP_ML307_LOCAL_DOCK_SOURCE_TEXT}"
+        "Install receive callbacks before Send()" STACKCHAN_ESP_ML307_FAST_101_MARKER)
+    string(FIND "${STACKCHAN_ESP_ML307_LOCAL_DOCK_SOURCE_TEXT}"
+        "WebSocket frame exceeds receive limit" STACKCHAN_ESP_ML307_FRAME_LIMIT_MARKER)
+    string(FIND "${STACKCHAN_ESP_ML307_LOCAL_DOCK_SOURCE_TEXT}"
+        "WebSocket fragmented message exceeds receive limit" STACKCHAN_ESP_ML307_MESSAGE_LIMIT_MARKER)
+    if(STACKCHAN_ESP_ML307_FAST_101_MARKER LESS 0 OR
+       STACKCHAN_ESP_ML307_FRAME_LIMIT_MARKER LESS 0 OR
+       STACKCHAN_ESP_ML307_MESSAGE_LIMIT_MARKER LESS 0)
+        message(FATAL_ERROR "esp-ml307 Local-Dock P0-2 safety markers are missing under P0-3")
+    endif()
+
     execute_process(
         COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
                 --reverse --check "${STACKCHAN_XIAOZHI_LOCAL_DOCK_PATCH}"
@@ -140,6 +240,133 @@ elseif(CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK)
             RESULT_VARIABLE STACKCHAN_XIAOZHI_LOCAL_PATCH_RESULT)
         if(NOT STACKCHAN_XIAOZHI_LOCAL_PATCH_RESULT EQUAL 0)
             message(FATAL_ERROR "Failed to apply XiaoZhi local-Dock authentication patch")
+        endif()
+    endif()
+
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                --reverse --check "${STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_PATCH}"
+        WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+        RESULT_VARIABLE STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_APPLIED
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_APPLIED EQUAL 0)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                    --check "${STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_CHECK
+            OUTPUT_VARIABLE STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_CHECK_OUT
+            ERROR_VARIABLE STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_CHECK_ERR)
+        if(NOT STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_CHECK EQUAL 0)
+            message(FATAL_ERROR
+                "XiaoZhi WebSocket owner lifecycle patch no longer applies cleanly.\n"
+                "${STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_CHECK_OUT}${STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_CHECK_ERR}")
+        endif()
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                    "${STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_RESULT)
+        if(NOT STACKCHAN_XIAOZHI_WEBSOCKET_OWNER_LIFECYCLE_RESULT EQUAL 0)
+            message(FATAL_ERROR "Failed to apply XiaoZhi WebSocket owner lifecycle patch")
+        endif()
+    endif()
+
+    # The codec-priority experiment is the top AudioService layer. Check it
+    # first so repeated configuration never asks Git to reverse a lower layer
+    # through an already-applied upper layer.
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                --reverse --check "${STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH}"
+        WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+        RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_APPLIED
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_APPLIED EQUAL 0)
+    # The output-priority hook is layered over the diagnostic hook. Check it
+    # before the diagnostic layer for a fresh or partially configured tree.
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                --reverse --check "${STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH}"
+        WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+        RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_APPLIED
+        OUTPUT_QUIET ERROR_QUIET)
+    if(NOT STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_APPLIED EQUAL 0)
+        # Install the diagnostic hooks independently of their default-off
+        # Kconfig gate so normal and opt-in builds use the same reproducible
+        # XiaoZhi tree.
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                    --reverse --check "${STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_APPLIED
+            OUTPUT_QUIET ERROR_QUIET)
+        if(NOT STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_APPLIED EQUAL 0)
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                        --check "${STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH}"
+                WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+                RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_CHECK
+                OUTPUT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_CHECK_OUT
+                ERROR_VARIABLE STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_CHECK_ERR)
+            if(NOT STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_CHECK EQUAL 0)
+                message(FATAL_ERROR
+                    "XiaoZhi audio performance diagnostics patch no longer applies cleanly.\n"
+                    "${STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_CHECK_OUT}${STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_CHECK_ERR}")
+            endif()
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                        "${STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH}"
+                WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+                RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_RESULT)
+            if(NOT STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_PATCH_RESULT EQUAL 0)
+                message(FATAL_ERROR "Failed to apply XiaoZhi audio performance diagnostics patch")
+            endif()
+        endif()
+
+        # Install the opt-in output-priority hook after the diagnostic hook
+        # because both deliberately touch AudioService while remaining
+        # independently gated.
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                    --check "${STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_CHECK
+            OUTPUT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_CHECK_OUT
+            ERROR_VARIABLE STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_CHECK_ERR)
+        if(NOT STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_CHECK EQUAL 0)
+            message(FATAL_ERROR
+                "XiaoZhi audio output priority patch no longer applies cleanly.\n"
+                "${STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_CHECK_OUT}${STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_CHECK_ERR}")
+        endif()
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                    "${STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_RESULT)
+        if(NOT STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_PATCH_RESULT EQUAL 0)
+            message(FATAL_ERROR "Failed to apply XiaoZhi audio output priority patch")
+        endif()
+    endif()
+
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                    --check "${STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_CHECK
+            OUTPUT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_CHECK_OUT
+            ERROR_VARIABLE STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_CHECK_ERR)
+        if(NOT STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_CHECK EQUAL 0)
+            message(FATAL_ERROR
+                "XiaoZhi audio codec priority patch no longer applies cleanly.\n"
+                "${STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_CHECK_OUT}${STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_CHECK_ERR}")
+        endif()
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --directory=firmware/xiaozhi-esp32
+                    "${STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH}"
+            WORKING_DIRECTORY "${STACKCHAN_REPOSITORY_ROOT}"
+            RESULT_VARIABLE STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_RESULT)
+        if(NOT STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_PATCH_RESULT EQUAL 0)
+            message(FATAL_ERROR "Failed to apply XiaoZhi audio codec priority patch")
         endif()
     endif()
 endif()

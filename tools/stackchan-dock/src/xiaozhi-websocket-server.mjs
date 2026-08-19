@@ -3,7 +3,16 @@ import { EventEmitter } from "node:events";
 
 import { WebSocket, WebSocketServer } from "ws";
 
+import {
+  AUDIO_PERFORMANCE_SUMMARY_TYPE,
+  AUDIO_PERFORMANCE_SUMMARY_METHOD,
+  DEFAULT_AUDIO_PERFORMANCE_MIN_INTERVAL_MS,
+  extractAudioPerformanceSummaryNotification,
+} from "./xiaozhi-audio-performance-summary.mjs";
+
 export const XIAOZHI_PROTOCOL_VERSION = 1;
+const TIMING_DIAGNOSTICS_ENABLED = process.env.STACKCHAN_TIMING_DIAGNOSTICS === "1";
+const SUBTITLE_TRACE_ENABLED = process.env.STACKCHAN_SUBTITLE_TRACE === "1";
 export const XIAOZHI_UPLINK_AUDIO = Object.freeze({
   format: "opus",
   sample_rate: 16_000,
@@ -72,6 +81,9 @@ export class XiaozhiWebSocketServer extends EventEmitter {
   #deviceId = null;
   #sessionId = null;
   #handshakeTimer = null;
+  #audioPerformanceMinIntervalMs;
+  #audioPerformanceNow;
+  #lastAudioPerformanceAt = null;
   #stats = {
     connections: 0,
     authenticatedConnections: 0,
@@ -82,22 +94,39 @@ export class XiaozhiWebSocketServer extends EventEmitter {
     downlinkOpusBytes: 0,
     jsonMessages: 0,
     protocolErrors: 0,
+    audioPerformanceAccepted: 0,
+    audioPerformanceRejected: 0,
+    audioPerformanceRateDropped: 0,
   };
 
-  constructor({ token, expectedDeviceId, handshakeTimeoutMs = 10_000 } = {}) {
+  constructor({
+    token,
+    expectedDeviceId,
+    handshakeTimeoutMs = 10_000,
+    audioPerformanceMinIntervalMs = DEFAULT_AUDIO_PERFORMANCE_MIN_INTERVAL_MS,
+    audioPerformanceNow = Date.now,
+  } = {}) {
     super();
     if (typeof token !== "string" || token.length < 32) reject("XiaoZhi bearer token must contain at least 32 characters");
     if (expectedDeviceId !== undefined && (typeof expectedDeviceId !== "string" || expectedDeviceId.length === 0)) {
       reject("expectedDeviceId must be a non-empty string");
     }
     if (!Number.isInteger(handshakeTimeoutMs) || handshakeTimeoutMs < 1) reject("handshakeTimeoutMs must be positive");
+    if (!Number.isInteger(audioPerformanceMinIntervalMs) || audioPerformanceMinIntervalMs < 1) reject("audioPerformanceMinIntervalMs must be positive");
+    if (typeof audioPerformanceNow !== "function") reject("audioPerformanceNow must be a function");
     this.#token = token;
     this.#expectedDeviceId = expectedDeviceId;
     this.#handshakeTimeoutMs = handshakeTimeoutMs;
+    this.#audioPerformanceMinIntervalMs = audioPerformanceMinIntervalMs;
+    this.#audioPerformanceNow = audioPerformanceNow;
   }
 
   get connected() {
     return this.#socket?.readyState === WebSocket.OPEN && this.#sessionId !== null;
+  }
+
+  get downlinkBufferedAmount() {
+    return this.connected ? this.#socket.bufferedAmount : 0;
   }
 
   get sessionId() { return this.#sessionId; }
@@ -144,13 +173,72 @@ export class XiaozhiWebSocketServer extends EventEmitter {
     this.sendJson({ type: "tts", state: "start" });
   }
 
-  sendTtsSentence(text) {
+  sendTtsSentence(text, subtitleId = undefined) {
     if (typeof text !== "string" || text.length === 0) reject("TTS sentence text is required");
-    this.sendJson({ type: "tts", state: "sentence_start", text });
+    if (subtitleId !== undefined && (!Number.isSafeInteger(subtitleId) || subtitleId < 1)) reject("subtitle id is invalid");
+    this.#sendSubtitle("sentence_start", subtitleId, text, {
+      ...(subtitleId === undefined ? {} : { subtitle_id: subtitleId }),
+      text,
+    });
+    this.#subtitleTiming("sentence_start", subtitleId, text);
+    this.emit("subtitleReady", { subtitleId, text });
+  }
+
+  sendTtsSentenceAppend(subtitleId, text, { trimAfterAppend = false } = {}) {
+    if (!Number.isSafeInteger(subtitleId) || subtitleId < 1) reject("subtitle id is invalid");
+    if (typeof text !== "string" || text.length === 0) reject("TTS sentence text is required");
+    if (typeof trimAfterAppend !== "boolean") reject("trimAfterAppend must be a boolean");
+    this.#sendSubtitle("sentence_append", subtitleId, text, {
+      subtitle_id: subtitleId,
+      text,
+      ...(trimAfterAppend ? { trim_after_append: true } : {}),
+    });
+  }
+
+  sendTtsSubtitleTrim(subtitleId) {
+    if (!Number.isSafeInteger(subtitleId) || subtitleId < 1) reject("subtitle id is invalid");
+    this.#sendSubtitle("subtitle_trim", subtitleId, "", { subtitle_id: subtitleId });
+  }
+
+  sendTtsResponseEnd(subtitleId) {
+    if (!Number.isSafeInteger(subtitleId) || subtitleId < 1) reject("subtitle id is invalid");
+    this.#sendSubtitle("response_end", subtitleId, "", { subtitle_id: subtitleId });
+  }
+
+  sendTtsSubtitleCancel(subtitleId) {
+    if (!Number.isSafeInteger(subtitleId) || subtitleId < 1) reject("subtitle id is invalid");
+    this.#sendSubtitle("subtitle_cancel", subtitleId, "", { subtitle_id: subtitleId });
+  }
+
+  sendTtsSentenceEnqueue(subtitleId, text) {
+    if (!Number.isInteger(subtitleId) || subtitleId < 1) throw new TypeError("subtitleId must be a positive integer");
+    if (typeof text !== "string" || !text.isWellFormed() || !text) throw new TypeError("text must be non-empty well-formed Unicode");
+    this.#sendSubtitle("sentence_enqueue", subtitleId, text, { subtitle_id: subtitleId, text });
+    this.#subtitleTiming("sentence_enqueue", subtitleId, text);
   }
 
   sendTtsStop() {
     this.sendJson({ type: "tts", state: "stop" });
+  }
+
+  #subtitleTiming(state, subtitleId, text) {
+    if (TIMING_DIAGNOSTICS_ENABLED) this.emit("subtitleTransport", {
+      event: "ws_send", state, subtitleId, bytes: Buffer.byteLength(text, "utf8"), at: Date.now(),
+    });
+  }
+
+  #sendSubtitle(state, subtitleId, text, message) {
+    const details = { source: "websocket", state, subtitleId, bytes: Buffer.byteLength(text, "utf8") };
+    try {
+      this.#send(JSON.stringify({ session_id: this.#sessionId, type: "tts", state, ...message,
+        ...(SUBTITLE_TRACE_ENABLED ? { subtitle_trace: true } : {}) }), false, (error) => {
+        if (SUBTITLE_TRACE_ENABLED) this.emit("subtitleTrace", { ...details, event: error ? "ws_error" : "ws_flushed", at: Date.now(), ...(error ? { error: error.message } : {}) });
+      });
+      if (SUBTITLE_TRACE_ENABLED) this.emit("subtitleTrace", { ...details, event: "ws_queued", at: Date.now() });
+    } catch (error) {
+      if (SUBTITLE_TRACE_ENABLED) this.emit("subtitleTrace", { ...details, event: "ws_throw", at: Date.now(), error: error.message });
+      throw error;
+    }
   }
 
   sendEmotion(emotion, text = undefined) {
@@ -163,17 +251,18 @@ export class XiaozhiWebSocketServer extends EventEmitter {
     this.sendJson({ type: "mcp", payload });
   }
 
-  sendDownlinkOpus(opus) {
+  sendDownlinkOpus(opus, callback = undefined) {
     const packet = Buffer.from(opus ?? []);
     if (packet.length === 0) reject("downlink Opus packet must not be empty");
-    this.#send(packet, true);
+    if (callback !== undefined && typeof callback !== "function") reject("downlink send callback must be a function");
+    this.#send(packet, true, callback);
     this.#stats.downlinkOpusFrames += 1;
     this.#stats.downlinkOpusBytes += packet.length;
   }
 
-  #send(payload, binary) {
+  #send(payload, binary, callback = undefined) {
     if (!this.connected) throw new Error("XiaoZhi device is not authenticated");
-    this.#socket.send(payload, { binary });
+    this.#socket.send(payload, { binary }, callback);
   }
 
   #onConnection = (socket, request) => {
@@ -219,6 +308,7 @@ export class XiaozhiWebSocketServer extends EventEmitter {
         const capabilities = validateXiaozhiDeviceHello(hello);
         const sessionId = randomUUID();
         this.#sessionId = sessionId;
+        this.#lastAudioPerformanceAt = null;
         clearTimeout(this.#handshakeTimer);
         this.#handshakeTimer = null;
         socket.send(JSON.stringify(createXiaozhiServerHello(sessionId)));
@@ -247,13 +337,48 @@ export class XiaozhiWebSocketServer extends EventEmitter {
       if (!isPlainObject(value) || typeof value.type !== "string") reject("invalid XiaoZhi JSON message");
       if (value.session_id !== undefined && value.session_id !== this.#sessionId) reject("stale XiaoZhi session id");
       this.#stats.jsonMessages += 1;
+      if (value.type === "mcp" && value.payload?.method === AUDIO_PERFORMANCE_SUMMARY_METHOD) {
+        this.#handleAudioPerformanceSummary(value.payload);
+        return;
+      }
+      if (value.type === AUDIO_PERFORMANCE_SUMMARY_TYPE) {
+        this.#stats.audioPerformanceRejected += 1;
+        this.emit("audioPerformanceRejected", { reason: "audio performance summary requires the authenticated MCP notification envelope" });
+        return;
+      }
       this.emit("message", value);
       if (value.type === "listen") this.emit("listen", value);
       if (value.type === "mcp") this.emit("mcp", value.payload);
+      if (value.type === "subtitle_ack") this.emit("subtitleAck", value);
       if (value.type === "abort") this.emit("abort", value);
     } catch (error) {
       this.#protocolError(socket, error.message);
     }
+  }
+
+  #handleAudioPerformanceSummary(value) {
+    let summary;
+    try {
+      summary = extractAudioPerformanceSummaryNotification(value);
+    } catch (error) {
+      this.#stats.audioPerformanceRejected += 1;
+      this.emit("audioPerformanceRejected", { reason: error.message });
+      return;
+    }
+    const now = this.#audioPerformanceNow();
+    if (!Number.isSafeInteger(now) || now < 0) {
+      this.#stats.audioPerformanceRejected += 1;
+      this.emit("audioPerformanceRejected", { reason: "audio performance clock is invalid" });
+      return;
+    }
+    if (this.#lastAudioPerformanceAt !== null && now - this.#lastAudioPerformanceAt < this.#audioPerformanceMinIntervalMs) {
+      this.#stats.audioPerformanceRateDropped += 1;
+      this.emit("audioPerformanceDropped", { reason: "rate_limit" });
+      return;
+    }
+    this.#lastAudioPerformanceAt = now;
+    this.#stats.audioPerformanceAccepted += 1;
+    this.emit("audioPerformanceSummary", summary);
   }
 
   #protocolError(socket, message) {
@@ -270,5 +395,6 @@ export class XiaozhiWebSocketServer extends EventEmitter {
     this.#socket = null;
     this.#deviceId = null;
     this.#sessionId = null;
+    this.#lastAudioPerformanceAt = null;
   }
 }

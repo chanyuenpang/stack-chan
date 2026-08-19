@@ -1,4 +1,4 @@
-# StackChan 语音注入触发 XiaoZhi Celebrate E2E 链路
+﻿# StackChan 语音注入触发 XiaoZhi Celebrate E2E 链路
 
 ## 结论
 

@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::env;
 use std::io::{self, Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -11,6 +11,11 @@ use wasapi::{
     initialize_mta, AudioClient, Device, DeviceEnumerator, Direction, SampleType, StreamMode,
     WaveFormat,
 };
+use windows::core::{GUID, HSTRING, HRESULT, IInspectable_Vtbl, IUnknown, Interface};
+use windows::Win32::Media::Audio::{eMultimedia, eRender, IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator, MMDeviceEnumerator};
+use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
+use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS};
+use windows::Win32::System::WinRT::RoGetActivationFactory;
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -21,6 +26,104 @@ const RENDER_SAMPLE_RATE: u32 = 16_000;
 const RENDER_FRAME_SAMPLES: usize = 960;
 const MAX_OPUS_PACKET_BYTES: usize = 1_500;
 const DEFAULT_RENDER_DEVICE: &str = "CABLE Input";
+const CONTROL_ROUTE: &[u8] = b"STACKCHAN:route";
+const CONTROL_RESTORE_ROUTE: &[u8] = b"STACKCHAN:restore_route";
+const CONTROL_OUTPUT_GAIN_PREFIX: &[u8] = b"STACKCHAN:output_gain_percent=";
+
+#[repr(transparent)] #[derive(Clone, PartialEq, Eq)] struct AudioPolicyConfigFactory(IUnknown);
+unsafe impl Interface for AudioPolicyConfigFactory { type Vtable = AudioPolicyConfigFactoryVtbl; const IID: GUID = GUID::from_u128(0xab3d4648_e242_459f_b02f_541c70306324); }
+#[repr(C)] struct AudioPolicyConfigFactoryVtbl { base: IInspectable_Vtbl, reserved: [usize; 19], set_endpoint: unsafe extern "system" fn(*mut core::ffi::c_void, u32, i32, u32, *mut core::ffi::c_void) -> HRESULT }
+
+fn redact_endpoint(endpoint: Option<&str>) -> String {
+    match endpoint {
+        None => "<system-default>".to_owned(),
+        Some(value) => format!("<endpoint …{}>", value.chars().rev().take(8).collect::<String>().chars().rev().collect::<String>()),
+    }
+}
+
+fn audio_policy_endpoint_path(device_id: &str) -> String {
+    format!("\\\\?\\SWD#MMDEVAPI#{device_id}#{{e6327cad-dcec-4949-ae8a-991e976a79d2}}")
+}
+
+fn process_tree_pids(root_pid: u32) -> Result<HashSet<u32>, DynError> {
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)? };
+    let mut entries = Vec::new();
+    let mut entry = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+    if unsafe { Process32FirstW(snapshot, &mut entry).is_ok() } {
+        loop {
+            entries.push((entry.th32ProcessID, entry.th32ParentProcessID));
+            entry = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+            if unsafe { Process32NextW(snapshot, &mut entry).is_err() } { break; }
+        }
+    }
+    let mut descendants = HashSet::from([root_pid]);
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (pid, parent) in &entries {
+            if descendants.contains(parent) && descendants.insert(*pid) { changed = true; }
+        }
+    }
+    Ok(descendants)
+}
+
+fn default_render_session_pids() -> Result<Vec<u32>, DynError> {
+    let enumerator: IMMDeviceEnumerator = unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)? };
+    let device = unsafe { enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)? };
+    let manager: IAudioSessionManager2 = unsafe { device.Activate(CLSCTX_ALL, None)? };
+    let sessions = unsafe { manager.GetSessionEnumerator()? };
+    let mut pids = Vec::new();
+    for index in 0..unsafe { sessions.GetCount()? } {
+        let control = unsafe { sessions.GetSession(index)? };
+        let control2: IAudioSessionControl2 = control.cast()?;
+        pids.push(unsafe { control2.GetProcessId()? });
+    }
+    Ok(pids)
+}
+
+fn select_audio_policy_target(root_pid: u32, descendants: &HashSet<u32>, session_pids: &[u32]) -> Result<u32, DynError> {
+    let candidates = session_pids.iter().copied().filter(|pid| *pid != root_pid && descendants.contains(pid)).collect::<HashSet<_>>();
+    if candidates.len() != 1 {
+        return Err(format!("AudioPolicy target is ambiguous: root_pid={root_pid} session_pids={session_pids:?} candidates={candidates:?}").into());
+    }
+    Ok(*candidates.iter().next().expect("one candidate"))
+}
+
+fn live_audio_policy_target(root_pid: u32) -> Result<u32, DynError> {
+    initialize_mta().ok()?;
+    let descendants = process_tree_pids(root_pid)?;
+    let session_pids = default_render_session_pids()?;
+    let target = select_audio_policy_target(root_pid, &descendants, &session_pids)?;
+    eprintln!("WASAPI AudioPolicy target root_pid={root_pid} target_pid={target} session_pids={session_pids:?} reason=unique_default_render_session_descendant");
+    Ok(target)
+}
+
+fn set_codex_audio_route(root_pid: u32, target_pid: u32, render_device: &str, routed: bool) -> Result<(), DynError> {
+    initialize_mta().ok()?;
+    let factory: AudioPolicyConfigFactory = unsafe { RoGetActivationFactory(&HSTRING::from("Windows.Media.Internal.AudioPolicyConfig"))? };
+    // Preserve the endpoint form that was verified in the last known-good
+    // Owner runtime. This is a per-process policy; it does not change the
+    // global default render device.
+    let path = if routed {
+        let id = find_render_device(render_device)?.get_id()?;
+        Some(audio_policy_endpoint_path(&id))
+    } else { None };
+    let text = path.as_ref().map(HSTRING::from);
+    let this = unsafe { core::mem::transmute_copy::<AudioPolicyConfigFactory, *mut core::ffi::c_void>(&factory) };
+    let vtable = unsafe { *(this as *const *const AudioPolicyConfigFactoryVtbl) };
+    let value = text.as_ref().map_or(core::ptr::null_mut(), |s| unsafe { core::mem::transmute_copy::<HSTRING, *mut core::ffi::c_void>(s) });
+    let endpoint = redact_endpoint(path.as_deref());
+    for role in [0_u32, 1_u32] {
+        match unsafe { ((*vtable).set_endpoint)(this, target_pid, 0, role, value).ok() } {
+            Ok(()) => eprintln!("WASAPI Codex output route {} root_pid={root_pid} target_pid={target_pid} role={role} endpoint={endpoint} result=ok", if routed { "set" } else { "restored" }),
+            Err(error) => {
+                eprintln!("WASAPI Codex output route {} root_pid={root_pid} target_pid={target_pid} role={role} endpoint={endpoint} result=error error={error}", if routed { "set" } else { "restored" });
+                return Err(error.into());
+            }
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 struct Config {
@@ -30,6 +133,7 @@ struct Config {
     gate_threshold: i16,
     pre_roll_frames: usize,
     hangover_frames: usize,
+    output_gain_percent: u16,
 }
 
 fn parse_args() -> Result<Config, String> {
@@ -40,6 +144,7 @@ fn parse_args() -> Result<Config, String> {
     let mut gate_threshold = 64_i16;
     let mut pre_roll_ms = 60_u64;
     let mut hangover_ms = 300_u64;
+    let mut output_gain_percent = 100_u16;
     while let Some(arg) = args.next() {
         let value = |args: &mut std::iter::Skip<env::Args>, name: &str| {
             args.next()
@@ -81,6 +186,14 @@ fn parse_args() -> Result<Config, String> {
                     .parse()
                     .map_err(|_| "--hangover-ms must be an integer")?;
             }
+            "--output-gain-percent" => {
+                output_gain_percent = value(&mut args, "--output-gain-percent")?
+                    .parse()
+                    .map_err(|_| "--output-gain-percent must be an integer")?;
+                if !(100..=150).contains(&output_gain_percent) {
+                    return Err("--output-gain-percent must be in range 100..150".into());
+                }
+            }
             "--help" | "-h" => {
                 return Err("usage: stackchan-wasapi-broker --pid PID [--render-device NAME] [--duration SECONDS] [--gate-threshold N] [--pre-roll-ms N] [--hangover-ms N]".into());
             }
@@ -101,6 +214,7 @@ fn parse_args() -> Result<Config, String> {
         gate_threshold,
         pre_roll_frames: (pre_roll_ms / 60) as usize,
         hangover_frames: (hangover_ms / 60) as usize,
+        output_gain_percent,
     })
 }
 
@@ -219,6 +333,27 @@ fn samples_to_bytes(samples: &[i16]) -> Vec<u8> {
         .collect()
 }
 
+// Unity is deliberately byte-for-byte unchanged.  Above unity, preserve the
+// requested linear gain through 28,000 then use an exponential soft knee that
+// approaches, but never exceeds, s16 full scale.  That avoids uncontrolled
+// integer overflow and hard clipping before Opus encoding.
+fn apply_output_gain(samples: &[i16], gain_percent: u16) -> Vec<i16> {
+    if gain_percent == 100 { return samples.to_vec(); }
+    let gain = gain_percent as f32 / 100.0;
+    const KNEE: f32 = 28_000.0;
+    const FULL_SCALE: f32 = 32_767.0;
+    samples.iter().map(|sample| {
+        let amplified = *sample as f32 * gain;
+        let magnitude = amplified.abs();
+        let limited = if magnitude <= KNEE {
+            magnitude
+        } else {
+            KNEE + (FULL_SCALE - KNEE) * (1.0 - (-(magnitude - KNEE) / (FULL_SCALE - KNEE)).exp())
+        };
+        (amplified.signum() * limited).round() as i16
+    }).collect()
+}
+
 fn find_render_device(name: &str) -> Result<Device, DynError> {
     let enumerator = DeviceEnumerator::new()?;
     let collection = enumerator.get_device_collection(&Direction::Render)?;
@@ -247,14 +382,57 @@ fn find_render_device(name: &str) -> Result<Device, DynError> {
     )
 }
 
-fn stdin_decoder(sender: mpsc::SyncSender<Vec<u8>>, stop: Arc<AtomicBool>) -> Result<(), DynError> {
+#[cfg(test)]
+fn apply_audio_route_control(action: &str, route: impl FnOnce() -> Result<(), DynError>) {
+    // Routing is best-effort policy cleanup. A stale persisted endpoint must
+    // not tear down capture or robot speaker rendering.
+    if let Err(error) = route() {
+        eprintln!("WASAPI audio route {action} failed (nonfatal): {error}");
+    }
+}
+
+fn apply_live_audio_route(action: &str, root_pid: u32, render_device: &str, routed: bool, last_target_pid: &mut Option<u32>) {
+    let target = if routed {
+        live_audio_policy_target(root_pid)
+    } else if let Some(pid) = *last_target_pid {
+        Ok(pid)
+    } else {
+        live_audio_policy_target(root_pid)
+    };
+    match target.and_then(|target_pid| {
+        set_codex_audio_route(root_pid, target_pid, render_device, routed)?;
+        Ok(target_pid)
+    }) {
+        Ok(target_pid) if routed => *last_target_pid = Some(target_pid),
+        Ok(_) => *last_target_pid = None,
+        Err(error) => eprintln!("WASAPI audio route {action} failed (nonfatal): {error}"),
+    }
+}
+
+fn stdin_decoder(sender: mpsc::SyncSender<Vec<u8>>, stop: Arc<AtomicBool>, root_pid: u32, render_device: String, output_gain_percent: Arc<AtomicU16>) -> Result<(), DynError> {
     let mut decoder = Decoder::new(RENDER_SAMPLE_RATE, Channels::Mono)?;
     let mut stdin = io::stdin().lock();
     let mut decoded = vec![0_i16; RENDER_FRAME_SAMPLES];
+    let mut last_target_pid = None;
     while !stop.load(Ordering::Relaxed) {
         let Some(packet) = read_packet(&mut stdin)? else {
             break;
         };
+        if packet == CONTROL_ROUTE {
+            apply_live_audio_route("set", root_pid, &render_device, true, &mut last_target_pid);
+            continue;
+        }
+        if packet == CONTROL_RESTORE_ROUTE {
+            apply_live_audio_route("restore", root_pid, &render_device, false, &mut last_target_pid);
+            continue;
+        }
+        if let Some(value) = packet.strip_prefix(CONTROL_OUTPUT_GAIN_PREFIX) {
+            let percent = std::str::from_utf8(value)?.parse::<u16>()?;
+            if !(100..=150).contains(&percent) { return Err("output gain control must be in range 100..150".into()); }
+            output_gain_percent.store(percent, Ordering::Release);
+            eprintln!("WASAPI output gain percent={percent} limiter=soft_knee");
+            continue;
+        }
         if packet.is_empty() {
             decoder.reset_state()?;
             continue;
@@ -267,6 +445,7 @@ fn stdin_decoder(sender: mpsc::SyncSender<Vec<u8>>, stop: Arc<AtomicBool>) -> Re
         }
         sender.send(samples_to_bytes(&decoded[..samples]))?;
     }
+    apply_live_audio_route("restore_on_exit", root_pid, &render_device, false, &mut last_target_pid);
     stop.store(true, Ordering::Relaxed);
     Ok(())
 }
@@ -336,7 +515,7 @@ fn render_loop(
     Ok(())
 }
 
-fn capture_loop(config: &Config, stop: Arc<AtomicBool>) -> Result<(), DynError> {
+fn capture_loop(config: &Config, stop: Arc<AtomicBool>, output_gain_percent: Arc<AtomicU16>) -> Result<(), DynError> {
     initialize_mta().ok()?;
     let format = WaveFormat::new(
         16,
@@ -404,7 +583,8 @@ fn capture_loop(config: &Config, stop: Arc<AtomicBool>) -> Result<(), DynError> 
                 captured_frames += 1;
                 let decision = gate.push(samples);
                 for frame in decision.frames {
-                    let packet = encoder.encode_vec(&frame, MAX_OPUS_PACKET_BYTES)?;
+                    let gained = apply_output_gain(&frame, output_gain_percent.load(Ordering::Acquire));
+                    let packet = encoder.encode_vec(&gained, MAX_OPUS_PACKET_BYTES)?;
                     write_packet(&mut stdout, &packet)?;
                     emitted_frames += 1;
                 }
@@ -430,10 +610,13 @@ fn capture_loop(config: &Config, stop: Arc<AtomicBool>) -> Result<(), DynError> 
 fn run(config: Config) -> Result<(), DynError> {
     let stop = Arc::new(AtomicBool::new(false));
     let (render_sender, render_receiver) = mpsc::sync_channel::<Vec<u8>>(8);
+    let output_gain_percent = Arc::new(AtomicU16::new(config.output_gain_percent));
 
     let decoder_stop = Arc::clone(&stop);
+    let decoder_render_device = config.render_device.clone();
+    let decoder_output_gain_percent = Arc::clone(&output_gain_percent);
     thread::spawn(move || {
-        if let Err(error) = stdin_decoder(render_sender, Arc::clone(&decoder_stop)) {
+        if let Err(error) = stdin_decoder(render_sender, Arc::clone(&decoder_stop), config.pid, decoder_render_device, decoder_output_gain_percent) {
             eprintln!("WASAPI stdin decoder failed: {error}");
             decoder_stop.store(true, Ordering::Relaxed);
         }
@@ -444,7 +627,7 @@ fn run(config: Config) -> Result<(), DynError> {
     let render_thread =
         thread::spawn(move || render_loop(render_device, render_receiver, render_stop));
 
-    let capture_result = capture_loop(&config, Arc::clone(&stop));
+    let capture_result = capture_loop(&config, Arc::clone(&stop), Arc::clone(&output_gain_percent));
     stop.store(true, Ordering::Relaxed);
     let render_result = render_thread
         .join()
@@ -496,6 +679,17 @@ mod tests {
     }
 
     #[test]
+    fn output_gain_preserves_unity_and_soft_limits_boost() {
+        let source = vec![12_000, 20_000, i16::MAX, i16::MIN];
+        assert_eq!(apply_output_gain(&source, 100), source);
+        let boosted = apply_output_gain(&source, 150);
+        assert_eq!(boosted[0], 18_000);
+        assert!(boosted[1] > 27_000 && boosted[1] < i16::MAX);
+        assert!(boosted[2] <= i16::MAX && boosted[2] > 27_000);
+        assert!(boosted[3] >= -i16::MAX && boosted[3] < -27_000);
+    }
+
+    #[test]
     fn opus_downlink_frame_is_24khz_mono_60ms_and_decodable() {
         let source = (0..CAPTURE_FRAME_SAMPLES)
             .map(|index| {
@@ -515,5 +709,30 @@ mod tests {
         let samples = decoder.decode(&packet, &mut decoded, false).unwrap();
         assert_eq!(samples, CAPTURE_FRAME_SAMPLES);
         assert!(pcm_peak(&decoded) > 1_000);
+    }
+
+    #[test]
+    fn route_policy_failure_is_nonfatal_and_does_not_block_following_audio_work() {
+        let (sender, receiver) = mpsc::sync_channel::<Vec<u8>>(1);
+        apply_audio_route_control("restore", || Err("simulated AudioPolicy E_INVALIDARG".into()));
+        sender.send(vec![1, 2, 3]).unwrap();
+        assert_eq!(receiver.recv().unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn audio_policy_preserves_last_known_good_endpoint_path_and_redacts_it() {
+        let endpoint = "{0.0.0.00000000}.{12345678-1234-1234-1234-123456789abc}";
+        let path = audio_policy_endpoint_path(endpoint);
+        assert_eq!(path, "\\\\?\\SWD#MMDEVAPI#{0.0.0.00000000}.{12345678-1234-1234-1234-123456789abc}#{e6327cad-dcec-4949-ae8a-991e976a79d2}");
+        assert!(!redact_endpoint(Some(&path)).contains(endpoint));
+        assert_eq!(redact_endpoint(None), "<system-default>");
+    }
+
+    #[test]
+    fn audio_policy_selects_exactly_one_live_descendant_session() {
+        let descendants = HashSet::from([100, 101, 102]);
+        assert_eq!(select_audio_policy_target(100, &descendants, &[999, 102]).unwrap(), 102);
+        assert!(select_audio_policy_target(100, &descendants, &[999]).is_err());
+        assert!(select_audio_policy_target(100, &descendants, &[101, 102]).is_err());
     }
 }

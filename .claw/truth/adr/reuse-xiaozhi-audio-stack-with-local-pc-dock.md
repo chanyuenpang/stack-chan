@@ -1,4 +1,4 @@
-# ADR: 复用 XiaoZhi 设备音频栈并由 PC Dock 提供本地服务
+﻿# ADR: 复用 XiaoZhi 设备音频栈并由 PC Dock 提供本地服务
 
 ## Context
 
@@ -22,6 +22,8 @@ PC 侧也同时使用了多个 Python `sounddevice`/PortAudio 进程衔接 VB-CA
 6. 旧 raw PCM/UDP、自定义 speaker frame 和 codec owner 先由 feature flag 停用；新路线完成产品验收后再删除，避免在迁移期间失去回滚和取证能力。
 7. 再次刷固件前必须通过 PC-only 协议与音频数据血缘门禁；实机只承担离线无法证明的最后一层 HIL。
 8. Windows BLE 配置以 HTTP(S) bootstrap URL 为官方模式合同，只有设备明确通知 `wifiAudioConfigured` 才算成功；旧 WS(S) endpoint 仅为 raw-PCM 回滚兼容。已知源上行 HIL 走设备现有 `/dev/inject_prompt`，不启用当前被刻意禁用的 USB serial task。
+9. Codex 回复文本显示复用 XiaoZhi 字幕帧：同一回复的首段建立 response-level `subtitle_id`，后续文本以 `tts:sentence_append` 追加，只有新回复或 `response_end` 才重置。设备端保留当前像素滚动，只在新增文本时按真实字体度量裁去已完全离开左侧视口的完整 UTF-8 前缀；长字幕滚完或短字幕展示 1.6 秒完成时只隐藏已消费显示、保留 active ID，使延迟 append 仅以新 delta 开始新 pass，不重播旧文本。不恢复旧的句子 enqueue/替换交接，也不把字幕发送门控到 WASAPI/Opus 音频。为抑制 PC/机器人双播，Windows 音频操作限定到 Dock 捕获的 Codex PID：设备认证期间以 `AudioPolicyConfig` 将该应用的渲染端点路由到 VB-Cable `CABLE Input`，设备断线、Dock 退出或 broker stdin EOF 时清除临时路由；不得静音 Codex 会话、修改系统主音量或影响无关应用。
+10. 正常产品入口由 Electron 主进程以 owner mode 承载唯一 Dock runtime；它独占 bootstrap `8766`、WebSocket `8765` 和一个 WASAPI broker。独立 Dock 仅用于诊断，不得与该 owner 并行启动或作为正常产品入口。
 
 ## Alternatives
 
@@ -53,6 +55,8 @@ PC 侧也同时使用了多个 Python `sounddevice`/PortAudio 进程衔接 VB-CA
 - 代价：需要迁移/停用大量已完成但不可交付的 Wi-Fi MVP 代码，并实现一个可靠的本地 WebSocket server 与 Rust WASAPI broker。
 - 风险：仓库 vendor 的 XiaoZhi/StackChan 代码可能落后于上游发布；实施前必须固定 exact commit/版本和本地差异，不以官网营销说明代替源码事实。
 - 风险：摸头/舵机触发崩溃是独立生产风险，必须保留回归门禁，但不得再次混入音质判断。
+- 约束：进程树 loopback 负责复制音频；应用级端点路由是独立的输出控制层，只能作用于 Dock 捕获的 Codex PID，且必须在断线、Dock 卸载或 broker stdin EOF 时清除。该控制不得使用会话静音。
+- 约束：runtime 所有权转移只允许一次受控 cutover；启动 Electron owner 前必须确认独立 Dock 已退出且两个端口空闲，以避免双 broker、端口冲突或机器人重认证循环。
 - 验收：架构完成不等于产品完成。最终必须由用户确认录音和扬声器听感，并证明 Codex Voice、MCP 表情动作、半双工恢复和断 USB 工作。
 
 ## Current validation boundary (2026-08-09)
@@ -68,6 +72,9 @@ PC 侧也同时使用了多个 Python `sounddevice`/PortAudio 进程衔接 VB-CA
 - 最终无 USB 验收已经通过：物理断开 USB 后，PC 不再枚举 StackChan USB/COM 接口，机器人保持 Wi-Fi 在线；用户再次完成 Codex Voice 语音对话，并在同一窗口确认 MCP `happy` 屏幕表情可见。因此本 ADR 所定义的 V1（Wi-Fi 麦克风、Wi-Fi 喇叭、PC MCP 屏幕表情控制、正常使用不依赖 USB）状态为 **Accepted / Implemented / Product PASS**。
 - 运维约束：本地 Dock 同时拥有 OTA bootstrap 和音频/MCP WebSocket。机器人启动时必须能够访问 bootstrap，使用期间 Dock 也必须持续运行；不得把 standalone 验收进程的清理规则误用为“可以关闭产品 Dock”。正常 Codex MCP 入口负责持有该运行时，独立脚本只用于没有 MCP stdio owner 时的诊断或恢复。
 - 本次完成不包含舵机动作验收。待机随机头动继续由配置隔离，显式舵机动作稳定性另行修复，不阻塞 V1 交付。
+- 2026-08-10 收口确认当前输出控制层作用于 Codex 子进程 `9072`：连接期将其输出路由至 `CABLE Input`，两次 `1006` 断连均清除一个临时应用路由；同一连接还发送了 4 条官方 `tts:sentence_start` 字幕。该证据只证明本功能闭环，不改变其他既有产品验收边界。
+- 字幕 presenter 已实现 response-level `subtitle_id` 的 append-only 连续显示：后续文本在当前跑马灯尾部接续且不重置；设备只在新增文本时裁去已完全离屏的完整 UTF-8 前缀并保留像素滚动。Dock 回归、固件构建、app-only 写入校验、受控唯一 owner 重启和用户长中文回复确认均已完成。该验收不宣称完整句子队列或“某段首个 Opus 前切换字幕”已实现，也不扩大既有音频或触摸验收范围。
+- 受控切换完成后，Electron owner 已成为当前唯一 Dock owner，且机器人重新认证由用户确认。此结论限定为运行时所有权与认证验收；不扩大为新的音频或字幕质量验收。
 
 <!-- state: history -->
 
@@ -78,3 +85,27 @@ PC 侧也同时使用了多个 Python `sounddevice`/PortAudio 进程衔接 VB-CA
 ### 取代自研 Wi-Fi Audio MVP 主线
 
 旧计划在 raw PCM/UDP、Opus、socket、I2S owner、任务栈、DMA buffer 和 VB-CABLE 上形成了大量局部证据，但没有交付稳定产品。本 ADR 不否定这些诊断资产；它改变的是产品所有权边界：官方 XiaoZhi 负责机器人音频，PC Dock 负责本地服务和 Codex 适配。
+
+<!-- dated: 2026-08-10 -->
+
+### 以应用级输出路由取代会话静音
+
+原先为避免 PC 与机器人双播而静音 Codex 渲染会话；但 broker 的 application-loopback 同时采集该会话，静音会让机器人失去回复音频。当前决策改为在认证期将 Codex PID 的应用级输出路由到 VB-Cable `CABLE Input`，让 loopback 继续获得完整音频而 PC 默认扬声器不播放。路由必须在断线、Dock 卸载和 broker stdin EOF 时清除，以避免异常退出遗留偏好。
+
+<!-- dated: 2026-08-10 -->
+
+### 将唯一 Dock runtime 收敛到 Electron
+
+独立 Dock 曾是验收和诊断入口。完成一次受控 cutover 后，Electron 主进程承担 bootstrap、WebSocket、WASAPI broker、机器人会话和字幕桥的单一运行时所有权。保留独立入口用于诊断，但正常产品不能恢复两个 owner 并行的模式。
+
+<!-- dated: 2026-08-10 -->
+
+### 将字幕策略收敛为响应级追加
+
+字幕不再把后续累计转写替换为新的句子帧或依赖句子-音频段关联。选择 response-level `subtitle_id` 加 append-only 帧，使设备能在同一跑马灯尾部继续显示后续文本；新回复和明确结束是唯一重置边界。设备端以真实字体度量和当前像素偏移裁剪已完全离屏的 UTF-8 前缀，避免字符计数裁剪破坏滚动连续性。此策略明确与 Opus、WASAPI、触摸和首次字幕时序解耦。
+
+<!-- dated: 2026-08-10 -->
+
+### 将显示过期与响应结束分离
+
+选择让 `DefaultSpeechBubble` 在长文本完整离屏或短文本展示满 1.6 秒后隐藏气泡，而不是清空 active `subtitle_id`。该 ID 仍可接受延迟 append，但新 pass 只显示新 delta，避免旧文本重播。这样将视觉生命周期限定在显示层，保持 response-level append、像素 trim 与音频路径的既有边界；长句 append 偶发视觉跳动被接受为当前限制，不以未经授权的调速或音频改动换取平滑效果。

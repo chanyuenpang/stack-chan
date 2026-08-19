@@ -39,6 +39,7 @@
 #include "lvgl.h"
 #include "settings.h"
 #include "stackchan/stackchan.h"
+#include "volume_gesture.h"
 #include "web_socket.h"
 #include <lwip/inet.h>
 #include <lwip/netdb.h>
@@ -98,9 +99,6 @@ constexpr size_t kWifiPhysicalMicrophoneChannel = CONFIG_STACKCHAN_WIFI_AUDIO_CA
 static_assert(kWifiPhysicalMicrophoneChannel <= 1, "CoreS3 only exposes physical MIC1 and MIC2");
 constexpr size_t kMaxSpeechBytes = 320;
 constexpr uint32_t kManualLedEffectMs = 1500;
-constexpr int kVolumeGestureScreenWidth = 320;
-constexpr int kVolumeGestureScreenHeight = 240;
-constexpr int kVolumeGestureActivationPixels = 8;
 
 struct RgbColor {
     uint8_t red;
@@ -255,113 +253,6 @@ enum class TransportState {
 };
 
 std::atomic<TransportState> s_transport_state{TransportState::WaitingDockConfiguration};
-
-class WifiAudioVolumeGesture {
-public:
-    void update()
-    {
-        lv_indev_t* indev = GetHAL().lvTouchpad;
-        if (!indev) return;
-
-        const lv_indev_state_t state = lv_indev_get_state(indev);
-        lv_point_t current_point{};
-        lv_indev_get_point(indev, &current_point);
-
-        if (state == LV_INDEV_STATE_PR && last_state_ == LV_INDEV_STATE_REL) {
-            start_point_ = current_point;
-            start_volume_ = GetHAL().getSpeakerVolume();
-            current_volume_ = start_volume_;
-            tracking_ = true;
-            active_ = false;
-        } else if (state == LV_INDEV_STATE_PR && tracking_) {
-            const int vertical_delta = start_point_.y - current_point.y;
-            const int horizontal_delta = std::abs(current_point.x - start_point_.x);
-            if (!active_) {
-                if (std::abs(vertical_delta) < kVolumeGestureActivationPixels ||
-                    std::abs(vertical_delta) < horizontal_delta) {
-                    last_state_ = state;
-                    return;
-                }
-                active_ = true;
-                create_overlay();
-            }
-
-            const int target_volume = std::clamp(
-                start_volume_ + vertical_delta * 100 / kVolumeGestureScreenHeight, 0, 100);
-            if (target_volume != current_volume_) {
-                current_volume_ = target_volume;
-                GetHAL().setSpeakerVolume(current_volume_, false);
-            }
-            render_overlay();
-        } else if (state == LV_INDEV_STATE_REL && last_state_ == LV_INDEV_STATE_PR) {
-            if (tracking_ && active_) {
-                GetHAL().setSpeakerVolume(current_volume_, true);
-            }
-            destroy_overlay();
-            tracking_ = false;
-            active_ = false;
-        }
-
-        last_state_ = state;
-    }
-
-private:
-    void create_overlay()
-    {
-        if (volume_overlay_) return;
-
-        volume_overlay_ = lv_obj_create(lv_screen_active());
-        lv_obj_remove_style_all(volume_overlay_);
-        lv_obj_set_size(volume_overlay_, kVolumeGestureScreenWidth,
-                        kVolumeGestureScreenHeight);
-        lv_obj_set_pos(volume_overlay_, 0, 0);
-        lv_obj_set_style_bg_color(volume_overlay_, lv_color_hex(0x000000), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(volume_overlay_, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_remove_flag(volume_overlay_, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_remove_flag(volume_overlay_, LV_OBJ_FLAG_SCROLLABLE);
-
-        volume_fill_ = lv_obj_create(volume_overlay_);
-        lv_obj_remove_style_all(volume_fill_);
-        lv_obj_set_width(volume_fill_, kVolumeGestureScreenWidth);
-        lv_obj_set_style_bg_color(volume_fill_, lv_color_hex(0x00FF00), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(volume_fill_, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_remove_flag(volume_fill_, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_remove_flag(volume_fill_, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(volume_fill_, LV_ALIGN_BOTTOM_MID, 0, 0);
-        lv_obj_move_foreground(volume_overlay_);
-    }
-
-    void render_overlay()
-    {
-        if (!volume_fill_) return;
-        const int fill_height = current_volume_ * kVolumeGestureScreenHeight / 100;
-        lv_obj_set_height(volume_fill_, fill_height);
-        lv_obj_align(volume_fill_, LV_ALIGN_BOTTOM_MID, 0, 0);
-        if (fill_height == 0) {
-            lv_obj_add_flag(volume_fill_, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_remove_flag(volume_fill_, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-
-    void destroy_overlay()
-    {
-        if (volume_overlay_) lv_obj_del(volume_overlay_);
-        volume_overlay_ = nullptr;
-        volume_fill_ = nullptr;
-    }
-
-    bool tracking_ = false;
-    bool active_ = false;
-    lv_indev_state_t last_state_ = LV_INDEV_STATE_REL;
-    lv_point_t start_point_{};
-    int start_volume_ = 0;
-    int current_volume_ = 0;
-    lv_obj_t* volume_overlay_ = nullptr;
-    lv_obj_t* volume_fill_ = nullptr;
-};
-
-WifiAudioVolumeGesture s_volume_gesture;
 
 std::shared_ptr<WebSocket> current_socket_for_generation(uint32_t generation)
 {
@@ -2163,7 +2054,7 @@ esp_err_t start_stackchan_wifi_audio_dock_mvp()
 
 void update_stackchan_wifi_audio_volume_gesture()
 {
-    s_volume_gesture.update();
+    update_stackchan_volume_gesture();
 }
 
 const char* stackchan_wifi_audio_transport_state()

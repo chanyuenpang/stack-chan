@@ -1,4 +1,5 @@
 #include "cores3_audio_codec.h"
+#include "hal/hal_audio_performance_diagnostics.h"
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -781,9 +782,20 @@ int CoreS3AudioCodec::Write(const int16_t* data, int samples) {
             output_stereo_buffer_[static_cast<size_t>(i) * 2] = data[i];
             output_stereo_buffer_[static_cast<size_t>(i) * 2 + 1] = data[i];
         }
-        ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_write(
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        const uint32_t write_start_us = stackchan_audio_diag::NowUs();
+#endif
+        const int write_result = esp_codec_dev_write(
             output_dev_, output_stereo_buffer_.data(),
-            output_stereo_buffer_.size() * sizeof(int16_t)));
+            output_stereo_buffer_.size() * sizeof(int16_t));
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        stackchan_audio_diag::RecordI2sWrite(
+            static_cast<uint32_t>(stackchan_audio_diag::NowUs() - write_start_us),
+            write_result == ESP_CODEC_DEV_OK);
+#endif
+        ESP_ERROR_CHECK_WITHOUT_ABORT(write_result);
     }
     return samples;
 }

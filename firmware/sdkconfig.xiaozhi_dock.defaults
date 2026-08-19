@@ -4,6 +4,7 @@ CONFIG_STACKCHAN_USB_UAC_MVP=n
 CONFIG_STACKCHAN_WIFI_AUDIO_MVP=n
 CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK=y
 CONFIG_STACKCHAN_XIAOZHI_DISABLE_IDLE_HEAD_MOTION=y
+CONFIG_STACKCHAN_XIAOZHI_DISABLE_POWER_SAVE=y
 
 # The retired composite USB MVP made the application own TinyUSB's descriptors.
 # The official XiaoZhi profile does not initialize that transport, so leave the

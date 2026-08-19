@@ -1,4 +1,4 @@
-# ReadPos / LVGL lock / Servo bus 黑屏卡死链路
+﻿# ReadPos / LVGL lock / Servo bus 黑屏卡死链路
 
 ## 结论
 

@@ -1,4 +1,4 @@
-# ADR: 开发流程归档、验证与 bisect 统一约束
+﻿# ADR: 开发流程归档、验证与 bisect 统一约束
 
 ## Status
 

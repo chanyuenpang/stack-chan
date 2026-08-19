@@ -1,4 +1,4 @@
-# StackChan Truth Summary
+﻿# StackChan Truth Summary
 
 | 文档 | 主题 | 可检索摘要 |
 | ---- | ---- | ---- |

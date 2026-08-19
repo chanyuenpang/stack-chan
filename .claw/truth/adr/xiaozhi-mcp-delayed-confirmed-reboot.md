@@ -1,4 +1,4 @@
-# ADR: XiaoZhi MCP delayed confirmed reboot
+﻿# ADR: XiaoZhi MCP delayed confirmed reboot
 ## Status
 
 accepted

@@ -1,4 +1,4 @@
-# ADR: force OTA 回退闭环与完成判定收口
+﻿# ADR: force OTA 回退闭环与完成判定收口
 
 ## Status
 

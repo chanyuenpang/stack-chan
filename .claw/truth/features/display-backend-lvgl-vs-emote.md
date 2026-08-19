@@ -1,4 +1,4 @@
-# StackChan 显示后端：LVGL vs Emote
+﻿# StackChan 显示后端：LVGL vs Emote
 
 ## 结论
 

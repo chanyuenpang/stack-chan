@@ -408,6 +408,56 @@ void StackChanAvatarDisplay::SetChatMessage(const char* role, const char* conten
     }
 }
 
+bool StackChanAvatarDisplay::BeginStreamingAssistantSubtitle(uint32_t subtitle_id, const char* content)
+{
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar() || !content) {
+        return false;
+    }
+    DisplayLockGuard lock(this);
+    return stackchan.avatar().beginStreamingSpeech(subtitle_id, content);
+}
+
+bool StackChanAvatarDisplay::AppendStreamingAssistantSubtitle(uint32_t subtitle_id, const char* text, bool trim_after_append)
+{
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar() || !text) return false;
+    DisplayLockGuard lock(this);
+    return stackchan.avatar().appendStreamingSpeech(subtitle_id, text, trim_after_append);
+}
+
+bool StackChanAvatarDisplay::TrimStreamingAssistantSubtitle(uint32_t subtitle_id)
+{
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar()) return false;
+    DisplayLockGuard lock(this);
+    return stackchan.avatar().trimStreamingSpeech(subtitle_id);
+}
+
+bool StackChanAvatarDisplay::EndStreamingAssistantSubtitle(uint32_t subtitle_id)
+{
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar()) return false;
+    DisplayLockGuard lock(this);
+    return stackchan.avatar().endStreamingSpeech(subtitle_id);
+}
+
+bool StackChanAvatarDisplay::CancelStreamingAssistantSubtitle(uint32_t subtitle_id)
+{
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar()) return false;
+    DisplayLockGuard lock(this);
+    return stackchan.avatar().cancelStreamingSpeech(subtitle_id);
+}
+
+bool StackChanAvatarDisplay::EnqueueStreamingAssistantSubtitle(uint32_t subtitle_id, const char* text)
+{
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar() || !text) return false;
+    DisplayLockGuard lock(this);
+    return stackchan.avatar().enqueueStreamingSpeech(subtitle_id, text);
+}
+
 void StackChanAvatarDisplay::ClearChatMessages()
 {
     auto& stackchan = GetStackChan();

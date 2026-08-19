@@ -1,4 +1,4 @@
-# ADR: force OTA 一次性下发并自动恢复
+﻿# ADR: force OTA 一次性下发并自动恢复
 
 ## Status
 

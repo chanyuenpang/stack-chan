@@ -1,4 +1,4 @@
-# StackChan dev local HTTP control and XiaoZhi celebrate chain
+﻿# StackChan dev local HTTP control and XiaoZhi celebrate chain
 
 ## 结论
 

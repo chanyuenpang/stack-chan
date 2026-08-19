@@ -87,14 +87,40 @@ test("server authenticates headers, replaces old robots, and routes official v1 
   const downlinkMessages = [];
   first.socket.on("message", (message, isBinary) => downlinkMessages.push({ message: Buffer.from(message), isBinary }));
   server.sendTtsStart();
-  server.sendTtsSentence("hello");
-  server.sendDownlinkOpus(Buffer.from([9, 8, 7]));
+  server.sendTtsSentence("hello", 7);
+  server.sendTtsSentenceAppend(7, " world", { trimAfterAppend: true });
+  server.sendTtsSentenceEnqueue(8, "world");
+  server.sendTtsSubtitleTrim(8);
+  server.sendTtsResponseEnd(8);
+  server.sendTtsSubtitleCancel(8);
+  const downlinkQueued = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("downlink send callback was not invoked")), 1_000);
+    server.sendDownlinkOpus(Buffer.from([9, 8, 7]), (error) => {
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+  assert.ok(Number.isInteger(server.downlinkBufferedAmount));
   server.sendEmotion("happy", "😀");
   server.sendMcp({ jsonrpc: "2.0", id: 7, method: "tools/list", params: {} });
   server.sendTtsStop();
+  await downlinkQueued;
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.deepEqual(downlinkMessages.map(({ isBinary }) => isBinary), [false, false, true, false, false, false]);
-  assert.deepEqual(downlinkMessages[2].message, Buffer.from([9, 8, 7]));
+  assert.deepEqual(downlinkMessages.map(({ isBinary }) => isBinary), [false, false, false, false, false, false, false, true, false, false, false]);
+  const subtitleMessages = downlinkMessages
+    .filter(({ isBinary }) => !isBinary)
+    .map(({ message }) => JSON.parse(message.toString("utf8")))
+    .filter(({ type, state }) => type === "tts" && ["sentence_start", "sentence_append", "sentence_enqueue", "subtitle_trim", "response_end", "subtitle_cancel"].includes(state));
+  assert.deepEqual(subtitleMessages, [
+    { session_id: first.identity.sessionId, type: "tts", state: "sentence_start", subtitle_id: 7, text: "hello" },
+    { session_id: first.identity.sessionId, type: "tts", state: "sentence_append", subtitle_id: 7, text: " world", trim_after_append: true },
+    { session_id: first.identity.sessionId, type: "tts", state: "sentence_enqueue", subtitle_id: 8, text: "world" },
+    { session_id: first.identity.sessionId, type: "tts", state: "subtitle_trim", subtitle_id: 8 },
+    { session_id: first.identity.sessionId, type: "tts", state: "response_end", subtitle_id: 8 },
+    { session_id: first.identity.sessionId, type: "tts", state: "subtitle_cancel", subtitle_id: 8 },
+  ]);
+  assert.deepEqual(downlinkMessages[7].message, Buffer.from([9, 8, 7]));
 
   const firstClosed = once(first.socket, "close");
   const second = await openAndHello(server, address);

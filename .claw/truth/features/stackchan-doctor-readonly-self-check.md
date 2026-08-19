@@ -1,4 +1,4 @@
-# StackChan `stackchan-doctor` 只读自检入口
+﻿# StackChan `stackchan-doctor` 只读自检入口
 
 ## 结论
 

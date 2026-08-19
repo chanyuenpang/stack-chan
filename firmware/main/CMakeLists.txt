@@ -20,6 +20,14 @@ set(STACK_CHAN_INCLUDE_DIRS
 )
 list(APPEND STACK_CHAN_SOURCES main.cpp)
 
+# The local Codex Dock needs only the Launcher as a safe recovery surface,
+# Setup for on-device configuration, and AI.Agent to enter the official
+# XiaoZhi runtime. Keep the other Mooncake applications in normal firmware
+# builds, but do not link their code or assets into this constrained profile.
+if(CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK)
+    list(FILTER STACK_CHAN_SOURCES EXCLUDE REGEX "/apps/app_(app_center|avatar|dance|espnow_ctrl|ezdata|template)/")
+endif()
+
 # Define source files
 set(SOURCES "audio/audio_codec.cc"
             "audio/audio_service.cc"
@@ -331,10 +339,6 @@ idf_component_register(SRCS ${SOURCES}
                         smooth_ui_toolkit
                         ${DEV_SERIAL_PRIV_REQUIRES}
                     )
-
-if(CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE AUDIO_SERVICE_DIAG_ENABLED=0)
-endif()
 
 # usb_device_uac normally owns TinyUSB's configuration and descriptors.  In
 # composite mode the application owns those pieces, but the component's UAC

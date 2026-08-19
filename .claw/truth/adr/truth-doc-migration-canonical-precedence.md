@@ -1,4 +1,4 @@
-# ADR: Truth doc migration uses current .claw/truth canonical precedence
+﻿# ADR: Truth doc migration uses current .claw/truth canonical precedence
 
 ## Status
 

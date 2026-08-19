@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "hal.h"
+#include "hal_audio_performance_diagnostics.h"
 #include "board/hal_bridge.h"
 #include "drivers/PY32IOExpander_Class/PY32IOExpander_Class.hpp"
 #include <mooncake_log.h>
@@ -71,7 +72,16 @@ void Hal::setRgbColor(uint8_t index, uint8_t r, uint8_t g, uint8_t b)
     if (!_io_expander) {
         return;
     }
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+    const uint32_t start_us = stackchan_audio_diag::NowUs();
+#endif
     _io_expander->setLedColor(index, r, g, b);
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+    stackchan_audio_diag::RecordLedSetI2c(
+        static_cast<uint32_t>(stackchan_audio_diag::NowUs() - start_us));
+#endif
 }
 
 void Hal::refreshRgb()
@@ -79,7 +89,16 @@ void Hal::refreshRgb()
     if (!_io_expander) {
         return;
     }
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+    const uint32_t start_us = stackchan_audio_diag::NowUs();
+#endif
     _io_expander->refreshLeds();
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+    stackchan_audio_diag::RecordLedRefreshI2c(
+        static_cast<uint32_t>(stackchan_audio_diag::NowUs() - start_us));
+#endif
 }
 
 void Hal::showRgbColor(uint8_t r, uint8_t g, uint8_t b)

@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 
 import { XIAOZHI_BOOTSTRAP_PATH, XiaozhiBootstrapServer } from "./xiaozhi-bootstrap-server.mjs";
 import { XiaozhiStackchanDock } from "./xiaozhi-dock.mjs";
-import { XiaozhiWasapiBridge, XiaozhiWasapiBroker } from "./xiaozhi-wasapi-bridge.mjs";
+import { resolveCurrentChatGptRootPid, XiaozhiWasapiBridge, XiaozhiWasapiBroker } from "./xiaozhi-wasapi-bridge.mjs";
 import { XIAOZHI_WEBSOCKET_PATH, XiaozhiWebSocketServer } from "./xiaozhi-websocket-server.mjs";
 
 function reject(message) {
@@ -46,8 +46,11 @@ export class XiaozhiDockRuntime extends EventEmitter {
     binaryPath,
     codexPid,
     renderDevice = "CABLE Input",
+    outputGainPercent = 100,
     server,
     broker,
+    resolveCodexRootPid = broker ? async () => broker.rootPid : resolveCurrentChatGptRootPid,
+    startupPrebufferFrames = 0,
     bootstrapFactory = (options) => new XiaozhiBootstrapServer(options),
   } = {}) {
     super();
@@ -68,16 +71,27 @@ export class XiaozhiDockRuntime extends EventEmitter {
     this.#websocketListen = { host: websocketHost, port: websocketPort, path: websocketPath };
     this.#bootstrapListen = { host: bootstrapHost, port: bootstrapPort, path: bootstrapPath };
     this.#server = server ?? new XiaozhiWebSocketServer({ token, expectedDeviceId });
-    this.#broker = broker ?? new XiaozhiWasapiBroker({ binaryPath, pid: codexPid, renderDevice });
+    this.#broker = broker ?? new XiaozhiWasapiBroker({ binaryPath, pid: codexPid, renderDevice, outputGainPercent });
     this.#bootstrapFactory = bootstrapFactory;
     this.#dock = new XiaozhiStackchanDock({ server: this.#server });
-    this.#bridge = new XiaozhiWasapiBridge({ server: this.#server, broker: this.#broker });
+    this.#bridge = new XiaozhiWasapiBridge({
+      server: this.#server,
+      broker: this.#broker,
+      resolveRootPid: resolveCodexRootPid,
+      brokerFactory: broker ? null : (pid) => new XiaozhiWasapiBroker({ binaryPath, pid, renderDevice, outputGainPercent }),
+      startupPrebufferFrames,
+    });
   }
 
   get dock() { return this.#dock; }
   get server() { return this.#server; }
-  get broker() { return this.#broker; }
+  get broker() { return this.#bridge.broker; }
   get started() { return this.#started; }
+
+  async ensureBroker() {
+    if (!this.#started) throw new Error("XiaoZhi runtime is not started");
+    return this.#bridge.ensureBroker();
+  }
 
   async start() {
     if (this.#started) throw new Error("XiaoZhi runtime is already started");
@@ -122,21 +136,32 @@ export class XiaozhiDockRuntime extends EventEmitter {
     await this.#server.close().catch((error) => this.emit("runtimeError", error));
     this.#bridge.detach();
     this.#dock.detach();
-    await this.#broker.stop().catch((error) => this.emit("runtimeError", error));
+    await this.#bridge.stopBroker().catch((error) => this.emit("runtimeError", error));
     for (const [emitter, event, listener] of this.#listeners) emitter.off(event, listener);
     this.#listeners = [];
   }
 
   #wireDiagnostics() {
     this.#listen(this.#server, "authenticated", (details) => this.emit("authenticated", details));
+    this.#listen(this.#server, "audioPerformanceSummary", (summary) => this.emit("audioPerformanceSummary", summary));
+    this.#listen(this.#server, "audioPerformanceRejected", (details) => this.emit("audioPerformanceRejected", details));
+    this.#listen(this.#server, "audioPerformanceDropped", (details) => this.emit("audioPerformanceDropped", details));
+    this.#listen(this.#server, "subtitleTransport", (details) => this.emit("subtitleTiming", details));
     this.#listen(this.#server, "disconnected", (details) => this.emit("disconnected", details));
     this.#listen(this.#server, "protocolError", (error) => this.emit("runtimeError", error));
     this.#listen(this.#server, "serverError", (error) => this.emit("runtimeError", error));
     this.#listen(this.#server, "socketError", (error) => this.emit("runtimeError", error));
-    this.#listen(this.#broker, "diagnostic", (message) => this.emit("diagnostic", message));
-    this.#listen(this.#broker, "error", (error) => this.emit("runtimeError", error));
-    this.#listen(this.#broker, "exit", (details) => this.emit("brokerExit", details));
+    this.#listen(this.#bridge, "brokerPreflight", (details) => this.emit("brokerPreflight", details));
+    this.#listen(this.#bridge, "brokerDiagnostic", (message) => this.emit("diagnostic", message));
+    this.#listen(this.#bridge, "brokerError", (error) => this.emit("runtimeError", error));
+    this.#listen(this.#bridge, "brokerExit", (details) => this.emit("brokerExit", details));
+    this.#listen(this.#bridge, "brokerReplaced", (details) => this.emit("brokerReplaced", details));
     this.#listen(this.#bridge, "speaking", (speaking) => this.emit("speaking", speaking));
+    this.#listen(this.#bridge, "timing", (details) => this.emit("subtitleTiming", details));
+    this.#listen(this.#bridge, "prebufferTiming", (details) => this.emit("prebufferTiming", details));
+    this.#listen(this.#bridge, "downlinkOpusReceived", () => this.emit("brokerDownlinkOpus"));
+    this.#listen(this.#bridge, "downlinkOpusSent", () => this.emit("downlinkOpusSent"));
+    this.#listen(this.#bridge, "downlinkDropped", (details) => this.emit("downlinkDropped", details));
     this.#listen(this.#bridge, "error", (error) => this.emit("runtimeError", error));
     this.#listen(this.#dock, "protocolError", (error) => this.emit("runtimeError", error));
   }

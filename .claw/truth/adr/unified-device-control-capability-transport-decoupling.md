@@ -1,4 +1,4 @@
-# ADR: unified device control uses capability-transport decoupling
+﻿# ADR: unified device control uses capability-transport decoupling
 
 ## Status
 

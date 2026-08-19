@@ -1,4 +1,4 @@
-# StackChan speaking 阶段 panic：优先排查 `strtof` 与 body 生命周期，不要先怪 celebrate
+﻿# StackChan speaking 阶段 panic：优先排查 `strtof` 与 body 生命周期，不要先怪 celebrate
 
 ## 结论
 

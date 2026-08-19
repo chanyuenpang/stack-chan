@@ -16,6 +16,11 @@
 #include <lvgl_image.h>
 #include <string_view>
 
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+#include "hal_audio_performance_diagnostics.h"
+#endif
+
 /**
  * @brief
  *
@@ -333,10 +338,36 @@ class LvglLockGuard {
 public:
     LvglLockGuard()
     {
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        const uint32_t wait_start_us = stackchan_audio_diag::NowUs();
+#endif
         GetHAL().lvglLock();
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        hold_start_us_ = stackchan_audio_diag::NowUs();
+        wait_us_ = static_cast<uint32_t>(hold_start_us_ - wait_start_us);
+#endif
     }
     ~LvglLockGuard()
     {
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        const uint32_t span_us =
+            static_cast<uint32_t>(stackchan_audio_diag::NowUs() - hold_start_us_);
+#endif
         GetHAL().lvglUnlock();
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        stackchan_audio_diag::RecordLvglGuardWait(wait_us_);
+        stackchan_audio_diag::RecordLvglGuardSpan(span_us);
+#endif
     }
+
+private:
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+    uint32_t wait_us_ = 0;
+    uint32_t hold_start_us_ = 0;
+#endif
 };

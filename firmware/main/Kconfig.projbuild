@@ -28,6 +28,35 @@ config STACKCHAN_XIAOZHI_LOCAL_DOCK
         a local OTA bootstrap URL and pairing token; the bootstrap response
         supplies the WebSocket URL/token/version to the existing protocol.
 
+config STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+    bool "Enable numeric XiaoZhi playback performance diagnostics"
+    default n
+    depends on STACKCHAN_XIAOZHI_LOCAL_DOCK
+    help
+        Collect queue depths, drops, stage latency histograms, I2S write timing,
+        and display/LVGL/LED-I2C contention in a shared five-second window.
+        This instrumentation records only numeric counters and durations; it
+        never stores or logs Opus/PCM payloads, transcripts, or subtitle text.
+
+config STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_BOOST
+    bool "Raise the Local-Dock audio output task priority from 4 to 5"
+    default n
+    depends on STACKCHAN_XIAOZHI_LOCAL_DOCK
+    help
+        Opt in to a single-variable scheduling experiment for the official
+        XiaoZhi AudioService output task. This changes neither task affinity,
+        frame duration, queue capacity, I2S/DMA configuration, nor ownership.
+
+config STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_BOOST
+    bool "Raise the Local-Dock Opus codec task priority from 2 to 3"
+    default n
+    depends on STACKCHAN_XIAOZHI_LOCAL_DOCK
+    help
+        Opt in to a single-variable scheduling experiment for the shared Opus
+        encode/decode task. Priority 3 remains below audio output priority 4
+        and audio input priority 8; this changes no affinity, queue capacity,
+        frame duration, codec parameter, audio route, or ownership.
+
 config STACKCHAN_XIAOZHI_LOCAL_ALLOW_INSECURE_HTTP
     bool "Allow an http:// local XiaoZhi bootstrap endpoint (development only)"
     default n
@@ -45,6 +74,16 @@ config STACKCHAN_XIAOZHI_DISABLE_IDLE_HEAD_MOTION
         IdleMotionModifier while the local Codex Dock product is running.
         Explicit MCP head commands remain available. Enable this containment
         when automatic standby motion can destabilize the servo bus.
+
+config STACKCHAN_XIAOZHI_DISABLE_POWER_SAVE
+    bool "Disable automatic display sleep and shutdown in local Dock mode"
+    default n
+    depends on STACKCHAN_XIAOZHI_LOCAL_DOCK
+    help
+        Keep the Local-Dock robot awake while it is idle. This disables only
+        automatic display sleep and automatic shutdown; manual power actions
+        and the normal external-power path are unchanged. Use this as a
+        reversible containment switch while diagnosing idle-time failures.
 
 config STACKCHAN_WIFI_AUDIO_AUTOSTART
     bool "Start Wi-Fi Audio runtime at boot"

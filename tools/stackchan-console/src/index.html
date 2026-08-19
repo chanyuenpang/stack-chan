@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>StackChan 控制台</title>
+  <link rel="stylesheet" href="renderer.css">
+</head>
+<body data-connection="connecting">
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="wordmark" href="#overview" aria-label="StackChan 控制台首页">StackChan<span>Dock</span></a>
+      <div class="topbar-actions">
+        <span id="connection-badge" class="connection-badge" role="status" aria-live="polite"><i aria-hidden="true"></i><span>连接中</span></span>
+        <button id="refresh" class="icon-button" type="button" aria-label="刷新状态" title="刷新状态">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15-3M4 5v4h4M4 13a8.1 8.1 0 0 0 15 3m1 3v-4h-4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="overview">
+      <section class="hero" aria-labelledby="connection-title">
+        <div class="hero-copy">
+          <p id="connection-kicker" class="kicker">CONNECTION STATUS</p>
+          <h1 id="connection-title">正在连接 StackChan</h1>
+          <p id="connection-detail" class="lede">正在读取机器人的状态。</p>
+          <div class="status-summary" aria-label="当前运行摘要">
+            <span class="summary-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M8 7l4-4 4 4M6 17l6 4 6-4"/></svg><strong id="robot-name">StackChan</strong></span>
+            <span class="summary-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h3l2-6 4 11 2-5h5"/></svg><span id="runtime-state">准备中</span></span>
+          </div>
+        </div>
+        <div class="robot-stage" aria-label="StackChan 机器人产品图">
+          <div class="orb orb-one"></div><div class="orb orb-two"></div>
+          <img id="robot-image" src="https://cdn.shopify.com/s/files/1/0056/7689/2250/files/1_29c1c66c-6170-4270-ba77-7d3bf4793c7b_1200x1200.webp?v=1776925002" alt="M5Stack StackChan 桌面机器人" referrerpolicy="no-referrer">
+          <div id="robot-fallback" class="robot-fallback" aria-hidden="true"><span class="robot-face">◕‿◕</span><span class="robot-base"></span></div>
+          <span class="image-credit">StackChan by M5Stack</span>
+        </div>
+      </section>
+
+      <section class="audio-control" aria-labelledby="audio-control-title">
+        <div class="audio-control-heading">
+          <div class="preference-icon audio-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4h3l4 4V6l-4 4H5ZM16 9a4 4 0 0 1 0 6M18.5 6.5a7 7 0 0 1 0 11"/></svg></div>
+          <div class="audio-control-copy"><p class="kicker">SOUND LEVEL</p><h2 id="audio-control-title">扬声器音量</h2><p id="speaker-volume-detail" aria-live="polite">正在读取实际音量</p></div>
+        </div>
+        <div class="audio-control-range"><span>0</span><input id="speaker-volume" class="preview-range" type="range" min="0" max="150" value="0" disabled aria-label="机器人扬声器音量（101 至 150 为 Dock 安全增益）"><span>150</span></div>
+        <p class="audio-control-note">100% 以下直接控制机器人扬声器；101–150% 使用 Dock 安全增益。</p>
+      </section>
+
+      <section class="overview-grid" aria-label="机器人概览">
+        <article class="status-card primary-status" aria-labelledby="connection-card-title">
+          <div class="card-icon signal-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h2M8 14h2M12 10h2M16 6h2M20 2h0"/></svg></div>
+          <div><p class="card-label">连接</p><h2 id="connection-card-title">正在检查</h2><p id="connection-card-detail">Dock 状态将在此显示</p></div>
+        </article>
+        <article class="status-card">
+          <div class="card-icon voice-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg></div>
+          <div><p class="card-label">语音</p><h2 id="voice-state">等待状态</h2><p>保持原有语音路径</p></div>
+        </article>
+        <article class="status-card">
+          <div class="card-icon subtitle-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v12H8l-4 3V5ZM8 10h8M8 13h5"/></svg></div>
+          <div><p class="card-label">字幕</p><h2 id="subtitle-state">等待状态</h2><p>显示状态由 Dock 回报</p></div>
+        </article>
+        <article class="status-card">
+          <div class="card-icon battery-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12v10H6zM18 10h2v4h-2M9 10v4"/></svg></div>
+          <div><p class="card-label">电池</p><h2 id="battery-state">状态不可用</h2><p id="battery-detail">每分钟更新一次</p></div>
+        </article>
+        <article class="status-card">
+          <div id="led-icon" class="card-icon led-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M8 14h8l-1-6a3 3 0 0 0-6 0l-1 6ZM12 3v2"/></svg></div>
+          <div><p class="card-label">LED</p><h2 id="led-state">状态色未知</h2><p id="led-detail">运行状态推导</p></div>
+        </article>
+      </section>
+
+      <section id="live-subtitle-panel" class="live-subtitle" data-phase="unavailable" aria-labelledby="live-subtitle-title">
+        <div class="live-subtitle-heading"><p class="kicker">LIVE SUBTITLE</p><h2 id="live-subtitle-title">实时字幕</h2></div>
+        <p id="live-subtitle-text" class="live-subtitle-text" aria-live="polite">等待机器人回复时的已提交字幕</p>
+      </section>
+
+      <section class="preferences" aria-labelledby="preferences-title">
+        <div class="section-heading"><div><p class="kicker">PREFERENCES</p><h2 id="preferences-title">Dock 偏好</h2></div><p>设置会在机器人认证后同步</p></div>
+        <div class="preference-list">
+          <div class="preference-row">
+            <div class="preference-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v12H8l-4 3V5ZM8 10h8M8 13h5"/></svg></div>
+            <div class="preference-copy"><strong>字幕显示</strong><span id="subtitle-display-detail">已开启：机器人端显示当前回复字幕</span></div>
+            <button id="subtitle-display-toggle" class="preview-switch is-on" type="button" role="switch" aria-checked="true" aria-label="Dock 字幕显示"><span></span></button>
+          </div>
+          <div class="preference-row">
+            <div class="preference-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h3l4 3V6L8 9H5Zm10.5.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg></div>
+            <div class="preference-copy"><strong>喇叭模式</strong><span id="speaker-mode-detail">关闭：屏幕关闭会完整断开会话</span></div>
+            <button id="speaker-mode-toggle" class="preview-switch" type="button" role="switch" aria-checked="false" aria-label="喇叭模式"><span></span></button>
+          </div>
+        </div>
+      </section>
+
+      <details class="technical-details">
+        <summary>运行详情</summary>
+        <dl id="technical-status"></dl>
+      </details>
+      <p id="error" role="alert"></p>
+    </main>
+  </div>
+  <script type="module" src="renderer.mjs"></script>
+</body>
+</html>

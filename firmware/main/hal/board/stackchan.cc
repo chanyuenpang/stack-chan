@@ -5,6 +5,7 @@
 #include "application.h"
 #include "config.h"
 #include "power_save_timer.h"
+#include "hal/black_screen_flight_recorder.h"
 #include "i2c_device.h"
 #include "axp2101.h"
 #include "settings.h"
@@ -136,6 +137,7 @@ public:
     {
         pmic_->SetBrightness(target_brightness_);
         brightness_ = target_brightness_;
+        stackchan_black_screen_flight::BacklightChanged(brightness_);
     }
 
 private:
@@ -257,7 +259,13 @@ private:
 
     bool ShouldEnablePowerSave(bool has_external_power, bool is_discharging) const
     {
+#if CONFIG_STACKCHAN_XIAOZHI_DISABLE_POWER_SAVE
+        (void)has_external_power;
+        (void)is_discharging;
+        return false;
+#else
         return is_discharging || (has_external_power && xiaozhi_config_.allowShutdownWhenCharging);
+#endif
     }
 
     void UpdatePowerSaveEnabled(bool has_external_power, bool is_discharging)

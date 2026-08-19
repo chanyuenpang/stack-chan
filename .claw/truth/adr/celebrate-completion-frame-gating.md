@@ -1,4 +1,4 @@
-# ADR: celebrate 完成判定与帧推进门控
+﻿# ADR: celebrate 完成判定与帧推进门控
 
 ## Status
 

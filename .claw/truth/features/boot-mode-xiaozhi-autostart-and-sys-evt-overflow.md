@@ -1,4 +1,4 @@
-# StackChan boot mode / XiaoZhi autostart 与 `sys_evt` 栈溢出
+﻿# StackChan boot mode / XiaoZhi autostart 与 `sys_evt` 栈溢出
 
 ## 结论
 

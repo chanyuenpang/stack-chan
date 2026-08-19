@@ -1,4 +1,4 @@
-# ADR: LAN Dev HTTP 作为黄金控制入口，USB Serial/JTAG 仅作日志观察口
+﻿# ADR: LAN Dev HTTP 作为黄金控制入口，USB Serial/JTAG 仅作日志观察口
 
 ## Status
 

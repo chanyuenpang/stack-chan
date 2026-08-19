@@ -279,12 +279,18 @@ extern "C" void app_main(void)
     }
     GetMooncake().installApp(std::move(launcher));
     GetMooncake().installApp(std::make_unique<AppAiAgent>());
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+    // This product profile deliberately keeps only the touch-reachable
+    // settings/recovery UI and the official AI.Agent entrypoint.
+    GetMooncake().installApp(std::make_unique<AppSetup>());
+#else
     GetMooncake().installApp(std::make_unique<AppAvatar>());
     GetMooncake().installApp(std::make_unique<AppEspnowControl>());
     GetMooncake().installApp(std::make_unique<AppAppCenter>());
     GetMooncake().installApp(std::make_unique<AppEzdata>());
     GetMooncake().installApp(std::make_unique<AppDance>());
     GetMooncake().installApp(std::make_unique<AppSetup>());
+#endif
 
     // Main loop
     while (1) {

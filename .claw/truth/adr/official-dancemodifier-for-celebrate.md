@@ -1,4 +1,4 @@
-# ADR: self.robot.celebrate 复用官方 DanceModifier/Timeline
+﻿# ADR: self.robot.celebrate 复用官方 DanceModifier/Timeline
 
 ## Status
 

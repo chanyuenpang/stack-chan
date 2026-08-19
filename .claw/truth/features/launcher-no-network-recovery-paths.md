@@ -1,4 +1,4 @@
-# StackChan Launcher 无网络停留态与 UI 脱困路径
+﻿# StackChan Launcher 无网络停留态与 UI 脱困路径
 
 ## 结论
 

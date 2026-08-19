@@ -1,4 +1,4 @@
-# StackChan celebrate power / servo stability
+﻿# StackChan celebrate power / servo stability
 
 ## 结论
 

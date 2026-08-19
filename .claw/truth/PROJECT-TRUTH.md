@@ -1,4 +1,4 @@
-# StackChan Project Truth
+﻿# StackChan Project Truth
 
 ## 项目级规则
 

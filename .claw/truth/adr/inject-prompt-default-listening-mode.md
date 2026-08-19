@@ -1,4 +1,4 @@
-# ADR: Inject prompt uses default listening mode for chat-state recovery
+﻿# ADR: Inject prompt uses default listening mode for chat-state recovery
 
 ## Status
 

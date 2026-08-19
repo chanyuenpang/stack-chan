@@ -1,4 +1,4 @@
-# ADR: StackChan remote celebration control boundaries
+﻿# ADR: StackChan remote celebration control boundaries
 
 ## Status
 

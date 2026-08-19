@@ -1,4 +1,4 @@
-# Launcher 自主 OTA 检查机制
+﻿# Launcher 自主 OTA 检查机制
 
 ## 结论
 

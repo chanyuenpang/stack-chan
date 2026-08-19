@@ -1,4 +1,4 @@
-# StackChan OTA firmware update chain
+﻿# StackChan OTA firmware update chain
 
 ## 结论
 

@@ -1,4 +1,4 @@
-# ADR: Defer Dev Local HTTP until XiaoZhi ready
+﻿# ADR: Defer Dev Local HTTP until XiaoZhi ready
 
 ## Status
 

@@ -11,6 +11,22 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function decodeToolJsonResult(result) {
+  // XiaoZhi MCP wraps a tool's JSON return value in the standard content text
+  // block. Keep direct-object compatibility for older test doubles and tools
+  // that already return a JSON object.
+  if (!isPlainObject(result) || !Array.isArray(result.content)) return result;
+  const text = result.content.find((entry) => isPlainObject(entry) && entry.type === "text" && typeof entry.text === "string")?.text;
+  if (text === undefined) throw new Error("StackChan MCP status response has no text content");
+  try {
+    const decoded = JSON.parse(text);
+    if (!isPlainObject(decoded)) throw new Error("not an object");
+    return decoded;
+  } catch {
+    throw new Error("StackChan MCP status response contains invalid JSON");
+  }
+}
+
 export class XiaozhiMcpError extends Error {
   constructor(message, { code, data } = {}) {
     super(message);
@@ -105,7 +121,7 @@ export class XiaozhiStackchanDock extends EventEmitter {
   }
 
   async getStatus() {
-    const device = await this.callTool("self.get_device_status");
+    const device = decodeToolJsonResult(await this.callTool("self.get_device_status"));
     return {
       transport: "xiaozhi-websocket-v1",
       connected: true,
@@ -154,7 +170,15 @@ export class XiaozhiStackchanDock extends EventEmitter {
   }
 
   #handleMcp(payload) {
-    if (!isPlainObject(payload) || payload.jsonrpc !== "2.0" || !Number.isInteger(payload.id)) {
+    if (!isPlainObject(payload) || payload.jsonrpc !== "2.0") {
+      this.emit("protocolError", new Error("invalid StackChan MCP response"));
+      return;
+    }
+    if (typeof payload.method === "string" && payload.method.startsWith("notifications/")) {
+      this.emit("notification", structuredClone(payload));
+      return;
+    }
+    if (!Number.isInteger(payload.id)) {
       this.emit("protocolError", new Error("invalid StackChan MCP response"));
       return;
     }

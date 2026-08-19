@@ -1,4 +1,5 @@
 #include "application.h"
+#include "hal/black_screen_flight_recorder.h"
 #include "board.h"
 #include "display.h"
 #include "system_info.h"
@@ -9,8 +10,18 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include <hal/hal.h>
+#include <hal/hal_local_dock_led.h>
+#include <hal/volume_gesture.h>
+#include <sdkconfig.h>
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+#include <hal/hal_audio_performance_diagnostics.h>
+#endif
 
 #include <cstring>
+#include <cstdint>
+#include <inttypes.h>
 #include <esp_log.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
@@ -28,6 +39,14 @@ constexpr const char* kBootAutoStartOnceKey = "start_once";
 constexpr const char* kBootAutoStartFailCountKey = "fail_count";
 constexpr const char* kBootDefaultXiaozhi = "xiaozhi";
 constexpr int64_t kSpeakingWatchdogTimeoutUs = 30LL * 1000 * 1000;
+
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+void ForwardAudioPerformanceSummary(const std::string& notification_json)
+{
+    Application::GetInstance().OfferAudioPerformanceSummary(notification_json);
+}
+#endif
 
 void SetXiaozhiBootPolicyAfterOta()
 {
@@ -85,6 +104,11 @@ void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
 
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+    stackchan_audio_diag::SetSummarySink(ForwardAudioPerformanceSummary);
+#endif
+
     // Setup the display
     auto display = board.GetDisplay();
     display->SetupUI();
@@ -110,6 +134,9 @@ void Application::Initialize() {
 
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
+        if (old_state == kDeviceStateConnecting && new_state == kDeviceStateListening) {
+            dock_connected_to_listening_ = true;
+        }
         xEventGroupSetBits(event_group_, MAIN_EVENT_STATE_CHANGED);
     });
 
@@ -120,6 +147,13 @@ void Application::Initialize() {
     auto& mcp_server = McpServer::GetInstance();
     mcp_server.AddCommonTools();
     mcp_server.AddUserOnlyTools();
+    mcp_server.AddTool("self.stackchan.set_speaker_mode",
+        "Set whether the StackChan screen close action only mutes microphone input while preserving the active Dock session and speaker output.",
+        PropertyList({ Property("enabled", kPropertyTypeBoolean) }),
+        [this](const PropertyList& properties) -> ReturnValue {
+            SetScreenCloseSpeakerMode(properties["enabled"].value<bool>());
+            return true;
+        });
 
     // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
@@ -202,10 +236,22 @@ void Application::Run() {
         MAIN_EVENT_START_LISTENING |
         MAIN_EVENT_STOP_LISTENING |
         MAIN_EVENT_ACTIVATION_DONE |
-        MAIN_EVENT_STATE_CHANGED;
+        MAIN_EVENT_STATE_CHANGED |
+        MAIN_EVENT_AUDIO_PERF_REPORT;
+
+    #if CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+    start_stackchan_volume_gesture_task();
+    stackchan_black_screen_flight::Initialize();
+    #endif
 
     while (true) {
-        auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
+        stackchan_black_screen_flight::MainHeartbeat();
+#if CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+        constexpr TickType_t kEventWaitTicks = portMAX_DELAY;
+#else
+        constexpr TickType_t kEventWaitTicks = portMAX_DELAY;
+#endif
+        auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, kEventWaitTicks);
 
         if (bits & MAIN_EVENT_ERROR) {
             SetDeviceState(kDeviceStateIdle);
@@ -242,11 +288,32 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_SEND_AUDIO) {
             while (auto packet = audio_service_.PopPacketFromSendQueue()) {
+                // A screen-close mute must never leak buffered microphone
+                // frames, while downlink audio and the WebSocket stay intact.
+                if (screen_input_muted_.load(std::memory_order_acquire)) continue;
                 if (protocol_ && !protocol_->SendAudio(std::move(packet))) {
                     break;
                 }
             }
         }
+
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        if (bits & MAIN_EVENT_AUDIO_PERF_REPORT) {
+            std::string notification;
+            uint32_t generation = 0;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                notification.swap(audio_performance_summary_pending_);
+                generation = audio_performance_summary_generation_;
+            }
+            if (!notification.empty() &&
+                generation == audio_performance_session_generation_.load(std::memory_order_acquire) &&
+                protocol_ && protocol_->IsAudioChannelOpened()) {
+                protocol_->SendMcpMessage(notification);
+            }
+        }
+#endif
 
         if (bits & MAIN_EVENT_WAKE_WORD_DETECTED) {
             HandleWakeWordDetectedEvent();
@@ -269,6 +336,20 @@ void Application::Run() {
         }
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
+            if (protocol_ && protocol_->IsAudioChannelOpened()) {
+                stackchan_black_screen_flight::NetworkSessionHeartbeat();
+            }
+            // A Protocol object can exist before its WebSocket/audio transport
+            // is authenticated. Do not create retry debt on every clock tick:
+            // publish one retained checkpoint only after the live channel is
+            // confirmed, then suppress it for this boot.
+            if (protocol_ && protocol_->IsAudioChannelOpened()) {
+                const auto pending_flight_record = stackchan_black_screen_flight::PendingRecordNotification();
+                if (!pending_flight_record.empty()) {
+                    protocol_->SendMcpMessage(pending_flight_record);
+                    stackchan_black_screen_flight::MarkRecordPublished();
+                }
+            }
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
@@ -283,6 +364,7 @@ void Application::Run() {
 }
 
 void Application::HandleNetworkConnectedEvent() {
+    stackchan_black_screen_flight::NetworkHeartbeat();
     ESP_LOGI(TAG, "Network connected");
     auto state = GetDeviceState();
 
@@ -527,6 +609,14 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        audio_performance_session_generation_.fetch_add(1, std::memory_order_acq_rel);
+        // A capture-gate pause can split one authenticated reply into several
+        // Speaking segments. Anchor the reporting window to the channel
+        // session so those segment transitions cannot starve the first report.
+        stackchan_audio_diag::ResetWindow();
+#endif
         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
         if (protocol_->server_sample_rate() != codec->output_sample_rate()) {
             ESP_LOGW(TAG, "Server sample rate %d does not match device output sample rate %d, resampling may cause distortion",
@@ -535,10 +625,19 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnAudioChannelClosed([this, &board]() {
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+        audio_performance_session_generation_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+        stackchan_black_screen_flight::AudioChannelClosed();
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Schedule([this]() {
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
+            // Keep decoder ownership with the audio pipeline while the
+            // channel-close callback is unwinding. ResetDecoder is still used
+            // at the established voice-processing handoff, but doing it here
+            // races the final playback/close transition.
             SetDeviceState(kDeviceStateIdle);
         });
     });
@@ -567,11 +666,101 @@ void Application::InitializeProtocol() {
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
                 auto text = cJSON_GetObjectItem(root, "text");
+                auto subtitle_trace = cJSON_GetObjectItem(root, "subtitle_trace");
                 if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
                     MarkSpeakingProgress();
-                    Schedule([display, message = std::string(text->valuestring)]() {
-                        display->SetChatMessage("assistant", message.c_str());
+                    auto subtitle_id = cJSON_GetObjectItem(root, "subtitle_id");
+                    const bool has_subtitle_id = cJSON_IsNumber(subtitle_id) && subtitle_id->valuedouble > 0 &&
+                                                 subtitle_id->valuedouble <= UINT32_MAX;
+                    const bool trace_subtitle = cJSON_IsTrue(subtitle_trace) && has_subtitle_id;
+                    const uint32_t stream_id = has_subtitle_id ? static_cast<uint32_t>(subtitle_id->valuedouble) : 0;
+                    if (trace_subtitle) protocol_->SendSubtitleAck(stream_id, "sentence_start", "received");
+                    Schedule([this, display, message = std::string(text->valuestring), has_subtitle_id, trace_subtitle,
+                              stream_id]() {
+                        const bool shown = has_subtitle_id && display->BeginStreamingAssistantSubtitle(stream_id, message.c_str());
+                        if (!shown) {
+                            display->SetChatMessage("assistant", message.c_str());
+                        }
+                        if (trace_subtitle && protocol_) protocol_->SendSubtitleAck(stream_id, "sentence_start", shown ? "display_accepted" : "display_ignored");
+                    });
+                }
+            } else if (strcmp(state->valuestring, "sentence_enqueue") == 0) {
+                auto text = cJSON_GetObjectItem(root, "text");
+                auto subtitle_id = cJSON_GetObjectItem(root, "subtitle_id");
+                auto subtitle_trace = cJSON_GetObjectItem(root, "subtitle_trace");
+                if (cJSON_IsString(text) && cJSON_IsNumber(subtitle_id) && subtitle_id->valuedouble > 0 &&
+                    subtitle_id->valuedouble <= UINT32_MAX) {
+                    MarkSpeakingProgress();
+                    ESP_LOGI(TAG, "subtitle_timing enqueue_received id=%" PRIu32, static_cast<uint32_t>(subtitle_id->valuedouble));
+                    const bool trace_subtitle = cJSON_IsTrue(subtitle_trace);
+                    const uint32_t stream_id = static_cast<uint32_t>(subtitle_id->valuedouble);
+                    if (trace_subtitle) protocol_->SendSubtitleAck(stream_id, "sentence_enqueue", "received");
+                    Schedule([this, display, message = std::string(text->valuestring), trace_subtitle,
+                              stream_id]() {
+                        ESP_LOGI(TAG, "subtitle_timing enqueue_scheduled id=%" PRIu32, stream_id);
+                        const bool accepted = display->EnqueueStreamingAssistantSubtitle(stream_id, message.c_str());
+                        if (!accepted) {
+                            ESP_LOGW(TAG, "Ignoring queued subtitle %" PRIu32, stream_id);
+                        }
+                        if (trace_subtitle && protocol_) protocol_->SendSubtitleAck(stream_id, "sentence_enqueue", accepted ? "display_accepted" : "display_ignored");
+                    });
+                }
+            } else if (strcmp(state->valuestring, "sentence_append") == 0) {
+                auto text = cJSON_GetObjectItem(root, "text");
+                auto subtitle_id = cJSON_GetObjectItem(root, "subtitle_id");
+                auto subtitle_trace = cJSON_GetObjectItem(root, "subtitle_trace");
+                auto trim_after_append = cJSON_GetObjectItem(root, "trim_after_append");
+                if (cJSON_IsString(text) && cJSON_IsNumber(subtitle_id) && subtitle_id->valuedouble > 0 &&
+                    subtitle_id->valuedouble <= UINT32_MAX) {
+                    MarkSpeakingProgress();
+                    const bool trace_subtitle = cJSON_IsTrue(subtitle_trace);
+                    const bool trim_requested = cJSON_IsTrue(trim_after_append);
+                    const uint32_t stream_id = static_cast<uint32_t>(subtitle_id->valuedouble);
+                    if (trace_subtitle) protocol_->SendSubtitleAck(stream_id, "sentence_append", "received");
+                    Schedule([this, display, message = std::string(text->valuestring), trace_subtitle, trim_requested, stream_id]() {
+                        const bool accepted = display->AppendStreamingAssistantSubtitle(stream_id, message.c_str(), trim_requested);
+                        if (!accepted) {
+                            ESP_LOGW(TAG, "Ignoring subtitle append for inactive sentence %" PRIu32, stream_id);
+                        }
+                        if (trace_subtitle && protocol_) protocol_->SendSubtitleAck(stream_id, "sentence_append", accepted ? "display_accepted" : "display_ignored");
+                    });
+                }
+            } else if (strcmp(state->valuestring, "subtitle_trim") == 0) {
+                auto subtitle_id = cJSON_GetObjectItem(root, "subtitle_id");
+                auto subtitle_trace = cJSON_GetObjectItem(root, "subtitle_trace");
+                if (cJSON_IsNumber(subtitle_id) && subtitle_id->valuedouble > 0 &&
+                    subtitle_id->valuedouble <= UINT32_MAX) {
+                    const bool trace_subtitle = cJSON_IsTrue(subtitle_trace);
+                    const uint32_t stream_id = static_cast<uint32_t>(subtitle_id->valuedouble);
+                    if (trace_subtitle) protocol_->SendSubtitleAck(stream_id, "subtitle_trim", "received");
+                    Schedule([this, display, trace_subtitle, stream_id]() {
+                        const bool accepted = display->TrimStreamingAssistantSubtitle(stream_id);
+                        if (trace_subtitle && protocol_) protocol_->SendSubtitleAck(stream_id, "subtitle_trim", accepted ? "display_accepted" : "display_ignored");
+                    });
+                }
+            } else if (strcmp(state->valuestring, "response_end") == 0) {
+                auto subtitle_id = cJSON_GetObjectItem(root, "subtitle_id");
+                auto subtitle_trace = cJSON_GetObjectItem(root, "subtitle_trace");
+                if (cJSON_IsNumber(subtitle_id) && subtitle_id->valuedouble > 0 && subtitle_id->valuedouble <= UINT32_MAX) {
+                    const bool trace_subtitle = cJSON_IsTrue(subtitle_trace);
+                    const uint32_t stream_id = static_cast<uint32_t>(subtitle_id->valuedouble);
+                    if (trace_subtitle) protocol_->SendSubtitleAck(stream_id, "response_end", "received");
+                    Schedule([this, display, trace_subtitle, stream_id]() {
+                        const bool accepted = display->EndStreamingAssistantSubtitle(stream_id);
+                        if (trace_subtitle && protocol_) protocol_->SendSubtitleAck(stream_id, "response_end", accepted ? "display_accepted" : "display_ignored");
+                    });
+                }
+            } else if (strcmp(state->valuestring, "subtitle_cancel") == 0) {
+                auto subtitle_id = cJSON_GetObjectItem(root, "subtitle_id");
+                auto subtitle_trace = cJSON_GetObjectItem(root, "subtitle_trace");
+                if (cJSON_IsNumber(subtitle_id) && subtitle_id->valuedouble > 0 && subtitle_id->valuedouble <= UINT32_MAX) {
+                    const bool trace_subtitle = cJSON_IsTrue(subtitle_trace);
+                    const uint32_t stream_id = static_cast<uint32_t>(subtitle_id->valuedouble);
+                    if (trace_subtitle) protocol_->SendSubtitleAck(stream_id, "subtitle_cancel", "received");
+                    Schedule([this, display, trace_subtitle, stream_id]() {
+                        const bool accepted = display->CancelStreamingAssistantSubtitle(stream_id);
+                        if (trace_subtitle && protocol_) protocol_->SendSubtitleAck(stream_id, "subtitle_cancel", accepted ? "display_accepted" : "display_ignored");
                     });
                 }
             }
@@ -704,6 +893,7 @@ void Application::StopListening() {
 
 void Application::StartListeningDefaultMode() {
     Schedule([this]() {
+        if (screen_input_muted_.load(std::memory_order_acquire)) return;
         auto state = GetDeviceState();
 
         if (state == kDeviceStateActivating) {
@@ -762,6 +952,43 @@ void Application::HandleToggleChatEvent() {
         return;
     }
 
+    if (screen_close_speaker_mode_.load(std::memory_order_acquire)) {
+        if (screen_input_muted_.exchange(false, std::memory_order_acq_rel)) {
+            NotifyScreenInputMuteChanged(false);
+            ListeningMode mode = GetDefaultListeningMode();
+            if (!protocol_->IsAudioChannelOpened()) {
+                SetDeviceState(kDeviceStateConnecting);
+                Schedule([this, mode]() { ContinueOpenAudioChannel(mode); });
+            } else {
+                SetListeningMode(mode);
+            }
+            return;
+        }
+
+        screen_input_muted_.store(true, std::memory_order_release);
+        while (audio_service_.PopPacketFromSendQueue());
+        audio_service_.EnableVoiceProcessing(false);
+        audio_service_.EnableWakeWordDetection(false);
+        if (state == kDeviceStateListening) {
+            protocol_->SendStopListening();
+            SetDeviceState(kDeviceStateIdle);
+        }
+        // Do not abort TTS, reset the decoder, or close the channel. A
+        // speaking realtime turn continues through the robot speaker.
+        NotifyScreenInputMuteChanged(true);
+        return;
+    }
+
+    if (state == kDeviceStateSpeaking) {
+        ESP_LOGI(TAG, "screen_chat_toggle_cancel state=speaking");
+        AbortSpeaking(kAbortReasonNone);
+        protocol_->CloseAudioChannel();
+        audio_service_.ResetDecoder();
+        stackchan_local_dock_user_disconnect_led_off();
+        SetDeviceState(kDeviceStateIdle);
+        return;
+    }
+
     if (state == kDeviceStateIdle) {
         ListeningMode mode = GetDefaultListeningMode();
         if (!protocol_->IsAudioChannelOpened()) {
@@ -773,9 +1000,10 @@ void Application::HandleToggleChatEvent() {
             return;
         }
         SetListeningMode(mode);
-    } else if (state == kDeviceStateSpeaking) {
-        AbortSpeaking(kAbortReasonNone);
     } else if (state == kDeviceStateListening) {
+        // The explicit screen disconnect runs locally before the channel is
+        // torn down, so both lights can reliably turn off without a Host write.
+        stackchan_local_dock_user_disconnect_led_off();
         protocol_->CloseAudioChannel();
     }
 }
@@ -796,6 +1024,7 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
 }
 
 void Application::HandleStartListeningEvent() {
+    if (screen_input_muted_.load(std::memory_order_acquire)) return;
     auto state = GetDeviceState();
     
     if (state == kDeviceStateActivating) {
@@ -844,6 +1073,7 @@ void Application::HandleStopListeningEvent() {
 }
 
 void Application::HandleWakeWordDetectedEvent() {
+    if (screen_input_muted_.load(std::memory_order_acquire)) return;
     if (!protocol_) {
         return;
     }
@@ -956,6 +1186,10 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+
+            if (dock_connected_to_listening_.exchange(false)) {
+                stackchan_local_dock_connected_led_green();
+            }
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
@@ -1153,6 +1387,35 @@ void Application::SendMcpMessage(const std::string& payload) {
         }
     });
 }
+
+void Application::SetScreenCloseSpeakerMode(bool enabled) {
+    screen_close_speaker_mode_.store(enabled, std::memory_order_release);
+    // Turning the preference off restores the legacy state machine for the
+    // next touch. It does not persist any setting on the device.
+    if (!enabled && screen_input_muted_.exchange(false, std::memory_order_acq_rel)) {
+        NotifyScreenInputMuteChanged(false);
+    }
+}
+
+void Application::NotifyScreenInputMuteChanged(bool muted) {
+    if (!protocol_ || !protocol_->IsAudioChannelOpened()) return;
+    protocol_->SendMcpMessage(std::string("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/stackchan_input_mute_changed\",\"params\":{\"input_muted\":") + (muted ? "true" : "false") + "}}");
+}
+
+#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
+    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
+void Application::OfferAudioPerformanceSummary(const std::string& notification_json) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // This is deliberately one replaceable slot, not a queue. A slow main
+        // task can lose diagnostic windows but can never build telemetry debt.
+        audio_performance_summary_pending_ = notification_json;
+        audio_performance_summary_generation_ =
+            audio_performance_session_generation_.load(std::memory_order_acquire);
+    }
+    xEventGroupSetBits(event_group_, MAIN_EVENT_AUDIO_PERF_REPORT);
+}
+#endif
 
 void Application::SetAecMode(AecMode mode) {
     aec_mode_ = mode;

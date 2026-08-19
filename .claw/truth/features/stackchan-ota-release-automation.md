@@ -1,4 +1,4 @@
-# StackChan `stackchan-ota-release` 一键 OTA 发布脚本
+﻿# StackChan `stackchan-ota-release` 一键 OTA 发布脚本
 
 ## 结论
 

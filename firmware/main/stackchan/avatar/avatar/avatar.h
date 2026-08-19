@@ -7,6 +7,7 @@
 #include "elements/key_elements.h"
 #include "decorator.h"
 #include <memory>
+#include <cstdint>
 
 namespace stackchan::avatar {
 
@@ -88,6 +89,36 @@ public:
         if (getKeyElements().speechBubble) {
             getKeyElements().speechBubble->clearSpeech();
         }
+    }
+
+    bool beginStreamingSpeech(uint32_t subtitle_id, std::string_view text)
+    {
+        return getKeyElements().speechBubble && getKeyElements().speechBubble->beginStreamingSpeech(subtitle_id, text);
+    }
+
+    bool appendStreamingSpeech(uint32_t subtitle_id, std::string_view text, bool trim_after_append = false)
+    {
+        return getKeyElements().speechBubble && getKeyElements().speechBubble->appendStreamingSpeech(subtitle_id, text, trim_after_append);
+    }
+
+    bool trimStreamingSpeech(uint32_t subtitle_id)
+    {
+        return getKeyElements().speechBubble && getKeyElements().speechBubble->trimStreamingSpeech(subtitle_id);
+    }
+
+    bool endStreamingSpeech(uint32_t subtitle_id)
+    {
+        return getKeyElements().speechBubble && getKeyElements().speechBubble->endStreamingSpeech(subtitle_id);
+    }
+
+    bool cancelStreamingSpeech(uint32_t subtitle_id)
+    {
+        return getKeyElements().speechBubble && getKeyElements().speechBubble->cancelStreamingSpeech(subtitle_id);
+    }
+
+    bool enqueueStreamingSpeech(uint32_t subtitle_id, std::string_view text)
+    {
+        return getKeyElements().speechBubble && getKeyElements().speechBubble->enqueueStreamingSpeech(subtitle_id, text);
     }
 
     void setSpeechTextFont(void* font)

@@ -2,7 +2,11 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { createStackchanMcpServer } from "../src/mcp.mjs";
+import { CodexVoiceTranscriptSource } from "../src/codex-voice-transcript-source.mjs";
 import { XiaozhiDockRuntime } from "../src/xiaozhi-runtime.mjs";
+import { XiaozhiTranscriptPresenter } from "../src/xiaozhi-transcript-presenter.mjs";
+import { XiaozhiWebSocketServer } from "../src/xiaozhi-websocket-server.mjs";
+import { XiaozhiLocalAdmin } from "../src/xiaozhi-local-admin.mjs";
 
 const args = process.argv.slice(2);
 const standalone = args.includes("--standalone");
@@ -34,6 +38,8 @@ if (!token || !expectedDeviceId || !advertiseHost || !Number.isInteger(codexPid)
   );
 }
 
+const server = new XiaozhiWebSocketServer({ token, expectedDeviceId });
+const transcriptPresenter = new XiaozhiTranscriptPresenter(server);
 const runtime = new XiaozhiDockRuntime({
   token,
   expectedDeviceId,
@@ -43,15 +49,62 @@ const runtime = new XiaozhiDockRuntime({
   binaryPath,
   codexPid,
   renderDevice,
+  server,
+  subtitlePresenter: transcriptPresenter,
 });
-runtime.on("authenticated", ({ deviceId }) => process.stderr.write(`StackChan XiaoZhi authenticated device=${deviceId}\n`));
-runtime.on("disconnected", ({ code, reason }) => process.stderr.write(`StackChan XiaoZhi disconnected code=${code} reason=${reason}\n`));
-runtime.on("speaking", (speaking) => process.stderr.write(`StackChan half_duplex_speaking=${speaking}\n`));
+const transcriptSource = new CodexVoiceTranscriptSource({ databasePath: process.env.CODEX_LOGS_DATABASE || undefined });
+const consoleStatus = { runtime: "starting", voice: "idle", subtitle: "idle", last_error: null };
+runtime.on("authenticated", ({ deviceId }) => { consoleStatus.runtime = "connected"; consoleStatus.last_error = null; process.stderr.write(`StackChan XiaoZhi authenticated device=${deviceId}\n`); });
+runtime.on("disconnected", ({ code, reason }) => { consoleStatus.runtime = "disconnected"; process.stderr.write(`StackChan XiaoZhi disconnected code=${code} reason=${reason}\n`); });
+runtime.on("speaking", (speaking) => { consoleStatus.voice = speaking ? "speaking" : "idle"; process.stderr.write(`StackChan half_duplex_speaking=${speaking}\n`); });
+runtime.on("subtitleWaiting", ({ waitMs }) => process.stderr.write(`StackChan subtitle waiting for text max_ms=${waitMs}\n`));
+runtime.on("subtitleFailOpen", ({ waitMs, bufferedPackets }) => process.stderr.write(`StackChan subtitle fail-open wait_ms=${waitMs} buffered_packets=${bufferedPackets}\n`));
+runtime.on("subtitleLate", () => process.stderr.write("StackChan subtitle arrived after audio fail-open\n"));
 runtime.on("diagnostic", (message) => process.stderr.write(message));
-runtime.on("runtimeError", (error) => process.stderr.write(`StackChan XiaoZhi runtime error: ${error.message}\n`));
+runtime.on("runtimeError", (error) => { consoleStatus.runtime = "error"; consoleStatus.last_error = error.message; process.stderr.write(`StackChan XiaoZhi runtime error: ${error.message}\n`); });
 runtime.on("brokerExit", ({ code, signal }) => process.stderr.write(`StackChan WASAPI broker exited code=${code} signal=${signal}\n`));
+transcriptSource.on("started", ({ databasePath }) => process.stderr.write(`StackChan Codex transcript source ${databasePath}\n`));
+transcriptSource.on("sourceError", (error) => process.stderr.write(`StackChan Codex transcript source error: ${error.message}\n`));
+transcriptSource.on("assistantResponseStarted", () => transcriptPresenter.beginAssistantResponse());
+transcriptSource.on("assistantTextDelta", ({ text }) => transcriptPresenter.appendAssistantText(text));
+transcriptSource.on("assistantTextDone", ({ text }) => transcriptPresenter.completeAssistantText(text));
+transcriptSource.on("userSpeechStarted", () => transcriptPresenter.clear());
+transcriptSource.on("sourceError", () => transcriptPresenter.clear());
+let subtitleDiagnosticCount = 0;
+let subtitleDiagnosticLastLog = 0;
+transcriptPresenter.on("presented", ({ text }) => {
+  subtitleDiagnosticCount += 1;
+  const now = Date.now();
+  if (now - subtitleDiagnosticLastLog < 1_000) return;
+  process.stderr.write(`StackChan subtitle updates=${subtitleDiagnosticCount} latest_chars=${text.length}\n`);
+  subtitleDiagnosticCount = 0;
+  subtitleDiagnosticLastLog = now;
+});
+transcriptPresenter.on("presentationError", (error) => process.stderr.write(`StackChan transcript display error: ${error.message}\n`));
 
-const address = await runtime.start();
+transcriptSource.start();
+let address;
+const localAdmin = new XiaozhiLocalAdmin({
+  dock: runtime.dock,
+  token,
+  statusProvider: () => ({
+    dock: { connected: runtime.dock.connected, device_id: runtime.dock.deviceId, session_id: runtime.dock.sessionId },
+    voice: consoleStatus.voice,
+    subtitle: consoleStatus.subtitle,
+    runtime: consoleStatus.runtime,
+    last_error: consoleStatus.last_error,
+  }),
+});
+try {
+  address = await runtime.start();
+  await localAdmin.start();
+  if (consoleStatus.runtime === "starting") consoleStatus.runtime = "waiting_for_robot";
+} catch (error) {
+  transcriptSource.stop();
+  transcriptPresenter.dispose();
+  await localAdmin.stop().catch(() => {});
+  throw error;
+}
 let mcpServer = null;
 if (!standalone) {
   mcpServer = createStackchanMcpServer(runtime.dock);
@@ -59,12 +112,16 @@ if (!standalone) {
 }
 process.stderr.write(`StackChan bootstrap ${address.bootstrap.url}\n`);
 process.stderr.write(`StackChan XiaoZhi websocket ${address.websocket.url}\n`);
+process.stderr.write(`StackChan local volume admin ${localAdmin.pipePath}\n`);
 if (standalone) process.stderr.write("StackChan XiaoZhi standalone diagnostics ready\n");
 
 let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
+  transcriptSource.stop();
+  transcriptPresenter.dispose();
+  await localAdmin.stop();
   await mcpServer?.close();
   await runtime.stop();
 }

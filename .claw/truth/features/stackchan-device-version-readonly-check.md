@@ -1,4 +1,4 @@
-# StackChan `stackchan-device-version` 只读版本检查工具
+﻿# StackChan `stackchan-device-version` 只读版本检查工具
 
 ## 结论
 

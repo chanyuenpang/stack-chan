@@ -58,6 +58,17 @@ test("status is bound to the active authenticated XiaoZhi session", async () => 
   dock.detach();
 });
 
+test("status decodes the official XiaoZhi MCP text-content JSON envelope", async () => {
+  const server = new FakeServer();
+  const dock = new XiaozhiStackchanDock({ server }).attach();
+  const status = dock.getStatus();
+  server.emit("mcp", { jsonrpc: "2.0", id: 1, result: {
+    content: [{ type: "text", text: '{"audio_speaker":{"volume":42}}' }], isError: false,
+  } });
+  assert.equal((await status).device.audio_speaker.volume, 42);
+  dock.detach();
+});
+
 test("expression uses the official llm emotion message and audio control is not falsely acknowledged", async () => {
   const server = new FakeServer();
   const dock = new XiaozhiStackchanDock({ server }).attach();
@@ -100,5 +111,15 @@ test("JSON-RPC errors and request timeouts are explicit", async () => {
   server.emit("mcp", { jsonrpc: "2.0", id: 1, error: { code: -32_001, message: "motion unavailable" } });
   await assert.rejects(failed, (error) => error instanceof XiaozhiMcpError && error.code === -32_001);
   await assert.rejects(dock.getHead(), /timed out/);
+  dock.detach();
+});
+
+test("authenticated device notifications do not collide with MCP request replies", () => {
+  const server = new FakeServer();
+  const dock = new XiaozhiStackchanDock({ server }).attach();
+  const notifications = [];
+  dock.on("notification", (payload) => notifications.push(payload));
+  server.emit("mcp", { jsonrpc: "2.0", method: "notifications/stackchan_input_mute_changed", params: { input_muted: true } });
+  assert.deepEqual(notifications, [{ jsonrpc: "2.0", method: "notifications/stackchan_input_mute_changed", params: { input_muted: true } }]);
   dock.detach();
 });

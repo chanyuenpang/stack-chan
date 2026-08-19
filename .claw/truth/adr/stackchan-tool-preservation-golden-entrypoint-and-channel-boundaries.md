@@ -1,4 +1,4 @@
-# ADR: StackChan tool preservation uses golden entrypoint and channel boundaries
+﻿# ADR: StackChan tool preservation uses golden entrypoint and channel boundaries
 
 ## Status
 

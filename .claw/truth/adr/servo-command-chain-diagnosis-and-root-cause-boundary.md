@@ -1,4 +1,4 @@
-# ADR: Servo command chain diagnosis and root-cause repair boundary
+﻿# ADR: Servo command chain diagnosis and root-cause repair boundary
 
 ## Status
 

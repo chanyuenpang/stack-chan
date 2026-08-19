@@ -1,4 +1,4 @@
-# Launcher 到 XiaoZhi 启动链路与自动启动可行性
+﻿# Launcher 到 XiaoZhi 启动链路与自动启动可行性
 
 > Last updated: 2026-05-19
 

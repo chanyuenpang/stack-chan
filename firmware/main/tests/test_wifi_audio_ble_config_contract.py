@@ -721,18 +721,20 @@ class WifiAudioBleConfigContractTests(unittest.TestCase):
         self.assertIn('handle_command(frame.data.data(), frame.length, frame.generation);', WIFI_AUDIO_SOURCE)
         self.assertIn('current_socket_for_generation(frame.generation)', WIFI_AUDIO_SOURCE)
 
-    def test_wifi_volume_gesture_uses_the_whole_screen_and_live_green_fill(self):
-        self.assertIn('class WifiAudioVolumeGesture', WIFI_AUDIO_SOURCE)
-        self.assertIn('constexpr int kVolumeGestureScreenWidth = 320;', WIFI_AUDIO_SOURCE)
-        self.assertIn('constexpr int kVolumeGestureScreenHeight = 240;', WIFI_AUDIO_SOURCE)
-        self.assertIn('constexpr int kVolumeGestureActivationPixels = 8;', WIFI_AUDIO_SOURCE)
-        self.assertIn('start_volume_ + vertical_delta * 100 / kVolumeGestureScreenHeight', WIFI_AUDIO_SOURCE)
-        self.assertIn('lv_color_hex(0x000000)', WIFI_AUDIO_SOURCE)
-        self.assertIn('lv_color_hex(0x00FF00)', WIFI_AUDIO_SOURCE)
-        self.assertIn('lv_obj_set_height(volume_fill_', WIFI_AUDIO_SOURCE)
-        self.assertIn('GetHAL().setSpeakerVolume(current_volume_, false);', WIFI_AUDIO_SOURCE)
-        self.assertIn('GetHAL().setSpeakerVolume(current_volume_, true);', WIFI_AUDIO_SOURCE)
+    def test_wifi_volume_gesture_uses_the_shared_whole_screen_live_green_fill(self):
+        volume_gesture = (FIRMWARE_ROOT / 'main' / 'hal' / 'volume_gesture.cpp').read_text(encoding='utf-8')
+        self.assertIn('class VolumeGesture', volume_gesture)
+        self.assertIn('constexpr int kVolumeGestureScreenWidth = 320;', volume_gesture)
+        self.assertIn('constexpr int kVolumeGestureScreenHeight = 240;', volume_gesture)
+        self.assertIn('constexpr int kVolumeGestureActivationPixels = 8;', volume_gesture)
+        self.assertIn('start_volume_ + vertical_delta * 100 / kVolumeGestureScreenHeight', volume_gesture)
+        self.assertIn('lv_color_hex(0x000000)', volume_gesture)
+        self.assertIn('lv_color_hex(0x00FF00)', volume_gesture)
+        self.assertIn('lv_obj_set_height(volume_fill_', volume_gesture)
+        self.assertIn('GetHAL().setSpeakerVolume(current_volume_, false);', volume_gesture)
+        self.assertIn('GetHAL().setSpeakerVolume(current_volume_, true);', volume_gesture)
         self.assertIn('void update_stackchan_wifi_audio_volume_gesture()', WIFI_AUDIO_SOURCE)
+        self.assertIn('update_stackchan_volume_gesture();', WIFI_AUDIO_SOURCE)
         self.assertIn('update_stackchan_wifi_audio_volume_gesture();', MAIN_SOURCE)
 
     def test_ble_exposes_non_secret_transport_progress(self):

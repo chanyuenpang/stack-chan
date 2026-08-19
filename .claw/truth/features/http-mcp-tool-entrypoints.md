@@ -1,4 +1,4 @@
-# StackChan HTTP MCP Tool Entrypoints
+﻿# StackChan HTTP MCP Tool Entrypoints
 
 ## 结论
 

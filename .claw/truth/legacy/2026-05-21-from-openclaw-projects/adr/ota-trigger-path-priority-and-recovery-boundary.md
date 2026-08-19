@@ -1,4 +1,4 @@
-# ADR: OTA trigger path priority and recovery boundary
+﻿# ADR: OTA trigger path priority and recovery boundary
 
 ## Status
 

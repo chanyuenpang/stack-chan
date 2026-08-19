@@ -1,4 +1,4 @@
-# ADR: Avoid 64-bit printf in SCS logs
+﻿# ADR: Avoid 64-bit printf in SCS logs
 
 ## Status
 

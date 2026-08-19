@@ -1,4 +1,4 @@
-# StackChan 对话状态机修复面：speaking/listening 脆弱性与注入闸门
+﻿# StackChan 对话状态机修复面：speaking/listening 脆弱性与注入闸门
 
 ## 结论
 

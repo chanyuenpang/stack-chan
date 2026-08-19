@@ -16,8 +16,8 @@ $backupSidecarPath = "$backupPath.sha256"
 $pythonPath = 'C:\Espressif\python_env\idf5.5_py3.14_env\Scripts\python.exe'
 $partitionTool = 'C:\Espressif\frameworks\esp-idf-v5.5.5\components\partition_table\gen_esp32part.py'
 
-$expectedCandidateSha256 = 'C484CC7CB3EA58FD2F261A03CF9A206C9CD8164EE162DCA51CFA2CF02D7787D5'
-$expectedCandidateLength = 5156944
+$expectedCandidateSha256 = 'B665DCA764BC687FA8DD10C778B0988DF66632AF9DD1757A1A9893B9C0DFB4C2'
+$expectedCandidateLength = 4952912
 $expectedBackupSha256 = '00DB4A753B86C5D5A41ACEDA960F7915905038C3B6094D47BF508D444164E236'
 $expectedMac = '44:1b:f6:e2:78:a8'
 $appOffset = 0x20000
