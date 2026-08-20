@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -35,6 +36,17 @@ BLACK_SCREEN_FLIGHT = (FIRMWARE_ROOT / "main" / "hal" / "black_screen_flight_rec
 
 
 class XiaozhiLocalDockContractTests(unittest.TestCase):
+    def test_boot_nvs_keys_fit_esp_idf_key_limit(self):
+        """Prevent a boot-time ESP_ERROR_CHECK loop from an overlong NVS key."""
+        boot_keys = dict(
+            re.findall(r'constexpr const char\* (kBoot\w+Key) = "([^"]+)";', MAIN)
+        )
+        self.assertIn("kBootAutoStartBuildKey", boot_keys)
+        for name, key in boot_keys.items():
+            with self.subTest(name=name, key=key):
+                self.assertLessEqual(len(key.encode("ascii")), 15)
+        self.assertIn('static_assert(sizeof("auto_start_ver") - 1 <= 15', MAIN)
+
     def test_profile_selects_official_application_runtime(self):
         self.assertIn("CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK=y", DEFAULTS)
         self.assertIn("CONFIG_STACKCHAN_USB_UAC_MVP=n", DEFAULTS)
@@ -88,6 +100,24 @@ class XiaozhiLocalDockContractTests(unittest.TestCase):
         self.assertNotIn('screen_chat_toggle_ignored state=speaking', toggle)
         self.assertIn('leftNeonLight().snapColor(0, 0, 0);', LOCAL_DOCK_LED)
         self.assertIn('rightNeonLight().snapColor(0, 0, 0);', LOCAL_DOCK_LED)
+
+    def test_speaker_mode_projects_input_mute_to_physical_feedback_without_closing_session(self):
+        toggle = APPLICATION.split('void Application::HandleToggleChatEvent()', 1)[1].split(
+            'void Application::ContinueOpenAudioChannel', 1
+        )[0]
+        speaker_mode = toggle.split('if (screen_close_speaker_mode_.load(std::memory_order_acquire)) {', 1)[1].split(
+            'if (state == kDeviceStateSpeaking) {', 1
+        )[0]
+        self.assertIn('display->SetChatMessage("system", "麦克风已关闭");', speaker_mode)
+        self.assertIn('display->SetChatMessage("system", "麦克风已开启");', speaker_mode)
+        self.assertIn('stackchan_local_dock_input_muted_led_off();', speaker_mode)
+        self.assertIn('stackchan_local_dock_input_unmuted_led_connected();', speaker_mode)
+        self.assertIn('NotifyScreenInputMuteChanged(true);', speaker_mode)
+        self.assertIn('NotifyScreenInputMuteChanged(false);', speaker_mode)
+        self.assertNotIn('protocol_->CloseAudioChannel();', speaker_mode)
+        self.assertNotIn('AbortSpeaking(', speaker_mode)
+        self.assertIn('void stackchan_local_dock_input_muted_led_off();', (FIRMWARE_ROOT / "main" / "hal" / "hal_local_dock_led.h").read_text(encoding="utf-8"))
+        self.assertIn('void stackchan_local_dock_input_unmuted_led_connected();', (FIRMWARE_ROOT / "main" / "hal" / "hal_local_dock_led.h").read_text(encoding="utf-8"))
 
     def test_first_connect_to_listening_syncs_both_neon_lights_without_touching_later_listening(self):
         self.assertIn('old_state == kDeviceStateConnecting && new_state == kDeviceStateListening', APPLICATION)

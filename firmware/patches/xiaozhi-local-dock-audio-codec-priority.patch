@@ -1,0 +1,29 @@
+diff --git a/main/audio/audio_service.cc b/main/audio/audio_service.cc
+--- a/main/audio/audio_service.cc
++++ b/main/audio/audio_service.cc
+@@ -188,7 +188,7 @@ void AudioService::Start() {
+         AudioService* audio_service = (AudioService*)arg;
+         audio_service->OpusCodecTask();
+         vTaskDelete(NULL);
+-    }, "opus_codec", 2048 * 12, this, 2, &opus_codec_task_handle_);
++    }, "opus_codec", 2048 * 12, this, AUDIO_SERVICE_CODEC_TASK_PRIORITY, &opus_codec_task_handle_);
+ }
+ 
+ void AudioService::Stop() {
+diff --git a/main/audio/audio_service.h b/main/audio/audio_service.h
+--- a/main/audio/audio_service.h
++++ b/main/audio/audio_service.h
+@@ -68,6 +68,13 @@
+ #define AUDIO_SERVICE_OUTPUT_TASK_PRIORITY 4
+ #endif
+ 
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_BOOST) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_CODEC_PRIORITY_BOOST
++#define AUDIO_SERVICE_CODEC_TASK_PRIORITY 3
++#else
++#define AUDIO_SERVICE_CODEC_TASK_PRIORITY 2
++#endif
++
+ #define AS_EVENT_AUDIO_TESTING_RUNNING      (1 << 0)
+ #define AS_EVENT_WAKE_WORD_RUNNING          (1 << 1)
+ #define AS_EVENT_AUDIO_PROCESSOR_RUNNING    (1 << 2)

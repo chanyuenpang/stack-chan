@@ -1,10 +1,14 @@
 import { createServer } from "node:net";
 
 const MAX_REQUEST_BYTES = 1_024;
+export const STACKCHAN_MCP_CONTRACT_VERSION = 1;
+export const STACKCHAN_HEAD_LIMITS = Object.freeze({ yaw: [-45, 45], pitch: [0, 45], speed: [100, 300] });
 
 function reject(message) { throw new TypeError(message); }
 
 function ledChannel(value) { return Number.isInteger(value) && value >= 0 && value <= 168; }
+
+function headAxis(value, [minimum, maximum]) { return Number.isInteger(value) && value >= minimum && value <= maximum; }
 
 function peerClosed(error) { return error?.code === "EPIPE" || error?.code === "ECONNRESET"; }
 
@@ -82,7 +86,11 @@ export class XiaozhiLocalAdmin {
     if (request.operation === "get-console-status") {
       // This is deliberately local, authenticated, and read-only. It lets a
       // desktop renderer observe the process that already owns robot/audio.
-      return { protocol_version: 1, ...this.#statusProvider() };
+      return {
+        contract_version: STACKCHAN_MCP_CONTRACT_VERSION,
+        owner: { state: "ready", admin_pipe: this.#pipePath },
+        ...this.#statusProvider(),
+      };
     }
     if (request.operation === "get-subtitle") {
       const subtitle = this.#statusProvider()?.subtitle;
@@ -105,6 +113,18 @@ export class XiaozhiLocalAdmin {
       if (!this.#ledController) throw new Error("robot LED control is unavailable in this Owner");
       const result = await this.#ledController.clearManual();
       return { ...result, automatic_control: "enabled" };
+    }
+    if (request.operation === "get-robot-head") {
+      if (typeof this.#dock.getHead !== "function") throw new Error("robot head control is unavailable in this Owner");
+      return { head: await this.#dock.getHead() };
+    }
+    if (request.operation === "set-robot-head") {
+      if (typeof this.#dock.setHead !== "function") throw new Error("robot head control is unavailable in this Owner");
+      if (!headAxis(request.yaw, STACKCHAN_HEAD_LIMITS.yaw) || !headAxis(request.pitch, STACKCHAN_HEAD_LIMITS.pitch) || !headAxis(request.speed, STACKCHAN_HEAD_LIMITS.speed)) {
+        throw new TypeError("head target is outside the Owner safety envelope");
+      }
+      await this.#dock.setHead(request.yaw, request.pitch, request.speed);
+      return { head: { yaw: request.yaw, pitch: request.pitch, speed: request.speed, source: "commanded" }, accepted: true };
     }
     throw new Error("unsupported local admin operation");
   }

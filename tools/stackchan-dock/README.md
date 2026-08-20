@@ -12,7 +12,37 @@ owns the authenticated bootstrap endpoint, WebSocket session, native event-drive
 WASAPI broker, half-duplex TTS boundary, and typed robot MCP adapter. It does not
 use the legacy raw-PCM/UDP/VB Python path.
 
-The Codex MCP entry point is:
+The historical `stackchan_wifi` entry point below starts a complete Dock runtime
+and is retained only for compatibility and diagnostics. It must not be launched
+while the Electron Dock Owner is running.
+
+### Unified Electron-Owner MCP
+
+The normal Codex integration is the single `stackchan` MCP proxy:
+
+```powershell
+.\scripts\start-stackchan-mcp.ps1
+```
+
+It does **not** create a Dock, WebSocket listener, bootstrap listener, or WASAPI
+broker. It decrypts the current-user local token only to authenticate one request
+at a time to the named-pipe management endpoint already hosted by the Electron
+Dock Owner. When Dock is stopped, calls fail visibly with `OWNER_UNAVAILABLE`;
+when the robot is not authenticated, device tools fail with `DEVICE_OFFLINE`.
+
+The v1 capability set is status/health, head pose, LED override, and physical
+robot speaker codec volume. The Owner remains the sole state and safety owner:
+head motion uses the same `yaw -45..45`, `pitch 0..45`, and `speed 100..300`
+envelope as the Dock UI; LED writes use its arbiter; volume writes require an
+Owner device read-back. Camera remains intentionally deferred.
+
+Migration: configure Codex with only this proxy as `mcp_servers.stackchan` and
+remove `stackchan_wifi` and `stackchan_volume` from normal startup after the
+Dock restart acceptance test. The legacy `stackchan_volume` entry can remain
+temporarily for callers that still use its old tool names, but it is not a
+second runtime and should be removed once callers migrate.
+
+The old full-runtime MCP entry point is:
 
 ```powershell
 .\scripts\start-xiaozhi-mcp.ps1

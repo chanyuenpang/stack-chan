@@ -18,6 +18,14 @@ test("speaker mode persists only after the active device acknowledges the MCP ca
   assert.equal(persisted(), true);
 });
 
+test("speaker mode accepts the firmware MCP tools/call true result wrapper", async () => {
+  const { controller, persisted } = harness({
+    result: { content: [{ type: "text", text: "true" }], isError: false },
+  });
+  await controller.set(true);
+  assert.equal(persisted(), true);
+});
+
 test("speaker mode preserves the last acknowledged preference on offline or failed delivery", async () => {
   const offline = harness({ connected: false, stored: false });
   await assert.rejects(offline.controller.set(true), /尚未认证/);
@@ -28,6 +36,10 @@ test("speaker mode preserves the last acknowledged preference on offline or fail
   await assert.rejects(rejected.controller.set(true), /未确认/);
   assert.equal(rejected.persisted(), false);
   assert.equal(rejected.controller.current.enabled, false);
+
+  const wrappedRejection = harness({ result: { content: [{ type: "text", text: "false" }], isError: false }, stored: false });
+  await assert.rejects(wrappedRejection.controller.set(true), /未确认/);
+  assert.equal(wrappedRejection.persisted(), false);
 });
 
 test("startup synchronization reapplies the Dock preference without rewriting it and accepts input mute status", async () => {

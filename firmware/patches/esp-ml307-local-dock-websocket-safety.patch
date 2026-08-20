@@ -1,0 +1,98 @@
+diff --git a/src/web_socket.cc b/src/web_socket.cc
+--- a/src/web_socket.cc
++++ b/src/web_socket.cc
+@@ -132,10 +132,27 @@ bool WebSocket::Connect(const char* uri) {
+     connected_ = false;
+     // 使用 tcp 建立连接
+     if (!tcp_->Connect(host, std::stoi(port))) {
+         ESP_LOGE(TAG, "Failed to connect to server");
+         return false;
+     }
+ 
++    // Install receive callbacks before Send(): Tcp::Connect may already have
++    // started its task and a peer may synchronously return HTTP 101.
++    handshake_completed_ = false;
++    receive_buffer_.clear();
++    xEventGroupClearBits(handshake_event_group_, HANDSHAKE_SUCCESS_BIT | HANDSHAKE_FAILED_BIT);
++    tcp_->OnStream([this](const std::string& data) {
++        this->OnTcpData(data);
++    });
++    tcp_->OnDisconnected([this]() {
++        if (connected_) {
++            connected_ = false;
++            if (on_disconnected_) {
++                on_disconnected_();
++            }
++        }
++    });
++
+     // 发送 WebSocket 握手请求
+     std::string request = "GET " + path + " HTTP/1.1\r\n";
+     if (headers_.find("Host") == headers_.end()) {
+@@ -149,26 +166,8 @@ bool WebSocket::Connect(const char* uri) {
+     if (tcp_->Send(request) < 0) {
+         ESP_LOGE(TAG, "Failed to send WebSocket handshake request");
+         return false;
+     }
+ 
+-    // 清除事件位
+-    xEventGroupClearBits(handshake_event_group_, HANDSHAKE_SUCCESS_BIT | HANDSHAKE_FAILED_BIT);
+-    
+-    // 设置数据接收回调来处理握手和后续的WebSocket帧
+-    tcp_->OnStream([this](const std::string& data) {
+-        this->OnTcpData(data);
+-    });
+-
+-    // 设置断开连接回调
+-    tcp_->OnDisconnected([this]() {
+-        if (connected_) {
+-            connected_ = false;
+-            if (on_disconnected_) {
+-                on_disconnected_();
+-            }
+-        }
+-    });
+-
+     // 等待握手完成，超时时间10秒
+     EventBits_t bits = xEventGroupWaitBits(
+         handshake_event_group_,
+@@ -340,10 +339,19 @@ void WebSocket::OnTcpData(const std::string& data) {
+         uint8_t mask_key[4] = {0};
+         if (mask) {
+             if (buffer_size - buffer_offset < header_length + 4) break; // 需要更多数据
+             memcpy(mask_key, buffer + buffer_offset + header_length, 4);
+             header_length += 4;
+         }
+ 
++        if (payload_length > receive_buffer_size_) {
++            ESP_LOGE(TAG, "WebSocket frame exceeds receive limit: payload=%llu limit=%u",
++                     static_cast<unsigned long long>(payload_length),
++                     static_cast<unsigned>(receive_buffer_size_));
++            current_message_.clear();
++            is_fragmented_ = false;
++            return;
++        }
++
+         if (buffer_size - buffer_offset < header_length + payload_length) break; // 需要更多数据
+ 
+         // 解码有效载荷
+@@ -369,9 +377,18 @@ void WebSocket::OnTcpData(const std::string& data) {
+                 if (opcode != 0x0) {
+                     is_fragmented_ = !fin;
+                     is_binary_ = (opcode == 0x2);
+                     current_message_.clear();
+                 }
+-                current_message_.insert(current_message_.end(), payload.begin(), payload.end());
++                if (payload.size() > receive_buffer_size_ - current_message_.size()) {
++                    ESP_LOGE(TAG, "WebSocket fragmented message exceeds receive limit: current=%u next=%u limit=%u",
++                             static_cast<unsigned>(current_message_.size()),
++                             static_cast<unsigned>(payload.size()),
++                             static_cast<unsigned>(receive_buffer_size_));
++                    current_message_.clear();
++                    is_fragmented_ = false;
++                    return;
++                }
++                current_message_.insert(current_message_.end(), payload.begin(), payload.end());
+                 if (fin) {
+                     if (on_data_) {
+                         on_data_(current_message_.data(), current_message_.size(), is_binary_);

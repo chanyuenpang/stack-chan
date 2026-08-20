@@ -12,6 +12,23 @@ void stackchan_local_dock_user_disconnect_led_off()
     GetStackChan().rightNeonLight().snapColor(0, 0, 0);
 }
 
+void stackchan_local_dock_input_muted_led_off()
+{
+    // This is a speaker-mode state projection, not a transport teardown.
+    LvglLockGuard lock;
+    GetStackChan().leftNeonLight().snapColor(0, 0, 0);
+    GetStackChan().rightNeonLight().snapColor(0, 0, 0);
+}
+
+void stackchan_local_dock_input_unmuted_led_connected()
+{
+    // Return to the established connected indication. Host LED updates can
+    // subsequently take back their existing session-state ownership.
+    LvglLockGuard lock;
+    GetStackChan().leftNeonLight().snapColor(0, 50, 0);
+    GetStackChan().rightNeonLight().snapColor(0, 50, 0);
+}
+
 void stackchan_local_dock_connected_led_green()
 {
     // The official display sets index 0 while entering Listening.  Apply the

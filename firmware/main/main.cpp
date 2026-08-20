@@ -31,6 +31,10 @@ constexpr const char* kBootNvsNamespace = "boot";
 constexpr const char* kBootDefaultModeKey = "default_mode";
 constexpr const char* kBootAutoStartOnceKey = "start_once";
 constexpr const char* kBootAutoStartFailCountKey = "fail_count";
+// ESP-IDF NVS limits key names to 15 bytes. Keep this distinct from the
+// human-readable build version stored as the value.
+constexpr const char* kBootAutoStartBuildKey = "auto_start_ver";
+static_assert(sizeof("auto_start_ver") - 1 <= 15, "NVS key must fit ESP-IDF's 15-byte limit");
 constexpr const char* kBootDefaultLauncher = "launcher";
 constexpr const char* kBootDefaultXiaozhi = "xiaozhi";
 constexpr int kBootAutoStartFailCountLimit = 3;
@@ -73,6 +77,35 @@ bool set_xiaozhi_boot_policy_on_ota_first_boot(esp_ota_img_states_t state)
                    "action=set_default_xiaozhi",
                    ota_state_to_string(state));
     return true;
+}
+
+// App-only maintenance flashes deliberately leave otadata untouched, so they
+// do not enter ESP-IDF's OTA pending-verify state.  Remembering the build that
+// last received the local-Dock auto-start policy gives that path the same
+// one-time recovery behaviour without weakening the later boot-loop guard.
+bool set_xiaozhi_boot_policy_on_new_local_dock_build()
+{
+#if !CONFIG_STACKCHAN_XIAOZHI_LOCAL_DOCK
+    return false;
+#else
+    const auto* app_desc = esp_app_get_description();
+    const std::string build_version = app_desc ? app_desc->version : "unknown";
+    Settings boot_settings(kBootNvsNamespace, false);
+    if (boot_settings.GetString(kBootAutoStartBuildKey, "") == build_version) {
+        return false;
+    }
+
+    Settings writable_boot_settings(kBootNvsNamespace, true);
+    writable_boot_settings.SetString(kBootAutoStartBuildKey, build_version);
+    writable_boot_settings.SetString(kBootDefaultModeKey, kBootDefaultXiaozhi);
+    writable_boot_settings.SetBool(kBootAutoStartOnceKey, false);
+    writable_boot_settings.SetInt(kBootAutoStartFailCountKey, 0);
+    mclog::tagInfo("BOOT-MODE",
+                   "route=xiaozhi_app_only event=new_local_dock_build build_version={} "
+                   "action=set_default_xiaozhi_reset_fail_count",
+                   build_version);
+    return true;
+#endif
 }
 
 bool log_running_partition_and_mark_valid_early()
@@ -122,7 +155,7 @@ void force_launcher_boot_after_xiaozhi_fail_limit(const char* source, int fail_c
                    source, fail_count, kBootAutoStartFailCountLimit);
 }
 
-const char* get_boot_mode_xiaozhi_auto_open_source(bool ota_first_boot)
+const char* get_boot_mode_xiaozhi_auto_open_source(bool ota_first_boot, bool new_local_dock_build)
 {
     Settings boot_settings(kBootNvsNamespace, false);
     const auto default_mode = boot_settings.GetString(kBootDefaultModeKey, kBootDefaultLauncher);
@@ -140,6 +173,16 @@ const char* get_boot_mode_xiaozhi_auto_open_source(bool ota_first_boot)
             "route=xiaozhi_ota event=auto_open_pending source=ota_first_boot fail_count=0 next_fail_count=1 limit={}",
             kBootAutoStartFailCountLimit);
         return "ota_first_boot";
+    }
+
+    if (new_local_dock_build) {
+        Settings writable_boot_settings(kBootNvsNamespace, true);
+        writable_boot_settings.SetInt(kBootAutoStartFailCountKey, 1);
+        mclog::tagInfo("BOOT-MODE",
+                       "route=xiaozhi_app_only event=auto_open_pending source=new_local_dock_build "
+                       "fail_count=0 next_fail_count=1 limit={}",
+                       kBootAutoStartFailCountLimit);
+        return "new_local_dock_build";
     }
 
     if (auto_start_once) {
@@ -207,6 +250,7 @@ extern "C" void app_main(void)
     // can reboot. Launcher-only boots may never call updateFirmwareEx(), so the
     // rollback state must be handled here, once NVS/board init is ready.
     [[maybe_unused]] const bool ota_first_boot = log_running_partition_and_mark_valid_early();
+    [[maybe_unused]] const bool new_local_dock_build = set_xiaozhi_boot_policy_on_new_local_dock_build();
 
     // Setup ui hal
     ui_hal::on_delay([](uint32_t ms) { GetHAL().delay(ms); });
@@ -266,7 +310,7 @@ extern "C" void app_main(void)
         GetHAL().delay(20);
     }
 #else
-    const char* auto_open_ai_agent_source = get_boot_mode_xiaozhi_auto_open_source(ota_first_boot);
+    const char* auto_open_ai_agent_source = get_boot_mode_xiaozhi_auto_open_source(ota_first_boot, new_local_dock_build);
 
     // Install apps
     auto launcher = std::make_unique<AppLauncher>();

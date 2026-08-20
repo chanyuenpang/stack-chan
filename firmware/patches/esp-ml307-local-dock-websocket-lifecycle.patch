@@ -1,0 +1,697 @@
+diff --git a/include/tcp.h b/include/tcp.h
+index 92d365b..7a4003a 100644
+--- a/include/tcp.h
++++ b/include/tcp.h
+@@ -4,6 +4,7 @@
+ 
+ #include <string>
+ #include <functional>
++#include <atomic>
+ 
+ class Tcp {
+ public:
+@@ -21,7 +22,7 @@ public:
+     }
+     
+     // 连接状态查询
+-    bool connected() const { return connected_; }
++    bool connected() const { return connected_.load(std::memory_order_acquire); }
+ 
+     // 获取最后一次错误码
+     virtual int GetLastError() = 0;
+@@ -31,7 +32,7 @@ protected:
+     std::function<void()> disconnect_callback_;
+     
+     // 连接状态管理
+-    bool connected_ = false;         // 是否可以正常读写数据
++    std::atomic<bool> connected_{false};  // 是否可以正常读写数据
+ };
+ 
+ #endif // TCP_H
+diff --git a/include/web_socket.h b/include/web_socket.h
+index cf7d092..e3a31c1 100644
+--- a/include/web_socket.h
++++ b/include/web_socket.h
+@@ -7,6 +7,7 @@
+ #include <vector>
+ #include <mutex>
+ #include <memory>
++#include <atomic>
+ #include <freertos/FreeRTOS.h>
+ #include <freertos/event_groups.h>
+ 
+@@ -44,7 +45,7 @@ private:
+     size_t receive_buffer_size_ = 2048;
+     std::string receive_buffer_;
+     bool handshake_completed_ = false;
+-    bool connected_ = false;
++    std::atomic<bool> connected_{false};
+ 
+     // Mutex for sending data and replying pong
+     std::mutex send_mutex_;
+diff --git a/src/esp/esp_ssl.cc b/src/esp/esp_ssl.cc
+index 6f541e7..4a4aefb 100644
+--- a/src/esp/esp_ssl.cc
++++ b/src/esp/esp_ssl.cc
+@@ -3,6 +3,7 @@
+ #include <esp_crt_bundle.h>
+ #include <cstring>
+ #include <unistd.h>
++#include <sys/socket.h>
+ 
+ static const char *TAG = "EspSsl";
+ 
+@@ -20,8 +21,13 @@ EspSsl::~EspSsl() {
+ }
+ 
+ bool EspSsl::Connect(const std::string& host, int port) {
+-    if (tls_client_ != nullptr) {
+-        ESP_LOGE(TAG, "tls client has been initialized");
++    if (receive_task_handle_ != nullptr || tls_client_ != nullptr ||
++        connected_.load(std::memory_order_acquire)) {
++        Disconnect();
++    }
++    if (event_group_ == nullptr) {
++        last_error_ = ESP_ERR_NO_MEM;
++        ESP_LOGE(TAG, "Failed to create TLS receive task event group");
+         return false;
+     }
+ 
+@@ -51,44 +57,115 @@ bool EspSsl::Connect(const std::string& host, int port) {
+         return false;
+     }
+ 
+-    connected_ = true;
++    connected_.store(true, std::memory_order_release);
+ 
+     xEventGroupClearBits(event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT);
+-    xTaskCreate([](void* arg) {
++    receive_task_state_.store(ReceiveTaskState::Running, std::memory_order_release);
++    const BaseType_t receive_task_result = xTaskCreate([](void* arg) {
+         EspSsl* ssl = (EspSsl*)arg;
+-        ssl->ReceiveTask();
+-        xEventGroupSetBits(ssl->event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT);
+-        vTaskDelete(NULL);
++        ssl->ReceiveTaskEntry();
+     }, "ssl_receive", 4096, this, 1, &receive_task_handle_);
++    if (receive_task_result != pdPASS) {
++        last_error_ = ESP_ERR_NO_MEM;
++        receive_task_handle_ = nullptr;
++        receive_task_state_.store(ReceiveTaskState::Stopped, std::memory_order_release);
++        connected_ = false;
++        esp_tls_conn_destroy(tls_client_);
++        tls_client_ = nullptr;
++        ESP_LOGE(TAG, "Failed to create TLS receive task");
++        return false;
++    }
+     return true;
+ }
+ 
+ void EspSsl::Disconnect() {
+-    connected_ = false;
+-    
+-    // Close socket if it is open
++    const bool notify_disconnect = connected_.exchange(false, std::memory_order_acq_rel);
++    const auto receive_state = receive_task_state_.load(std::memory_order_acquire);
++    const bool is_receive_task =
++        receive_state == ReceiveTaskState::Running &&
++        receive_task_handle_ != nullptr &&
++        receive_task_handle_ == xTaskGetCurrentTaskHandle();
++
++    // Wake a blocking TLS read, but keep the TLS object alive until the
++    // receive task has completed all callbacks and published Exited.
+     if (tls_client_ != nullptr) {
+-        int sockfd;
+-        ESP_ERROR_CHECK(esp_tls_get_conn_sockfd(tls_client_, &sockfd));
+-        if (sockfd >= 0) {
+-            close(sockfd);
+-        }
+-    
+-        auto bits = xEventGroupWaitBits(event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(10000));
+-        if (!(bits & ESP_SSL_EVENT_RECEIVE_TASK_EXIT)) {
+-            ESP_LOGE(TAG, "Failed to wait for receive task exit");
++        int sockfd = -1;
++        const esp_err_t socket_result = esp_tls_get_conn_sockfd(tls_client_, &sockfd);
++        if (socket_result == ESP_OK && sockfd >= 0) {
++            shutdown(sockfd, SHUT_RDWR);
++        } else if (socket_result != ESP_OK) {
++            ESP_LOGW(TAG, "Failed to get TLS socket during disconnect: err=0x%x", socket_result);
+         }
++    }
++
++    if (!is_receive_task) {
++        WaitForReceiveTask();
++    }
+ 
++    if (!is_receive_task && tls_client_ != nullptr) {
+         esp_tls_conn_destroy(tls_client_);
+         tls_client_ = nullptr;
+     }
++
++    if (notify_disconnect) {
++        auto disconnect_callback = disconnect_callback_;
++        if (disconnect_callback) {
++            disconnect_callback();
++        }
++    }
++}
++
++void EspSsl::ReceiveTaskEntry() {
++    ReceiveTask();
++
++    xEventGroupSetBits(event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT);
++    receive_task_state_.store(ReceiveTaskState::Exited, std::memory_order_release);
++    vTaskDelete(NULL);
++}
++
++void EspSsl::WaitForReceiveTask() {
++    auto receive_state = receive_task_state_.load(std::memory_order_acquire);
++    if (receive_task_handle_ == nullptr || receive_state == ReceiveTaskState::Stopped) {
++        return;
++    }
++    if (receive_state != ReceiveTaskState::Exited &&
++        receive_task_handle_ != nullptr &&
++        receive_task_handle_ == xTaskGetCurrentTaskHandle()) {
++        return;
++    }
++
++    TickType_t wait_ticks = pdMS_TO_TICKS(1000);
++    bool timeout_reported = false;
++    while (receive_state != ReceiveTaskState::Exited) {
++        const EventBits_t bits = xEventGroupWaitBits(
++            event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT,
++            pdFALSE, pdFALSE, wait_ticks);
++        receive_state = receive_task_state_.load(std::memory_order_acquire);
++        if (receive_state == ReceiveTaskState::Exited) {
++            break;
++        }
++        if (!(bits & ESP_SSL_EVENT_RECEIVE_TASK_EXIT) && !timeout_reported) {
++            ESP_LOGE(TAG, "TLS receive task still active after shutdown; waiting for safe exit");
++            timeout_reported = true;
++            wait_ticks = portMAX_DELAY;
++        } else {
++            // The event bit may wake this higher-priority owner just before the
++            // receiver publishes Exited. Block for one tick so the receiver can
++            // complete the authoritative release-store without starvation.
++            vTaskDelay(1);
++        }
++    }
++
++    receive_task_handle_ = nullptr;
++    receive_task_state_.store(ReceiveTaskState::Stopped, std::memory_order_release);
++    xEventGroupClearBits(event_group_, ESP_SSL_EVENT_RECEIVE_TASK_EXIT);
+ }
+ 
+ /* CONFIG_MBEDTLS_SSL_RENEGOTIATION should be disabled in sdkconfig.
+  * Otherwise, invalid memory access may be triggered.
+  */
+ int EspSsl::Send(const std::string& data) {
+-    if (!connected_) {
++    if (!connected_.load(std::memory_order_acquire)) {
+         ESP_LOGE(TAG, "Not connected");
+         return -1;
+     }
+@@ -117,7 +194,7 @@ int EspSsl::Send(const std::string& data) {
+ 
+ void EspSsl::ReceiveTask() {
+     std::string data;
+-    while (connected_) {
++    while (connected_.load(std::memory_order_acquire)) {
+         data.resize(1500);
+         int ret = esp_tls_conn_read(tls_client_, data.data(), data.size());
+ 
+@@ -129,17 +206,20 @@ void EspSsl::ReceiveTask() {
+             if (ret < 0) {
+                 ESP_LOGE(TAG, "SSL receive failed: %d", ret);
+             }
+-            connected_ = false;
+-            // 接收失败或连接断开时调用断连回调
+-            if (disconnect_callback_) {
+-                disconnect_callback_();
++            const bool notify_disconnect = connected_.exchange(false, std::memory_order_acq_rel);
++            if (notify_disconnect) {
++                auto disconnect_callback = disconnect_callback_;
++                if (disconnect_callback) {
++                    disconnect_callback();
++                }
+             }
+             break;
+         }
+         
+         if (stream_callback_) {
+             data.resize(ret);
+-            stream_callback_(data);
++            auto stream_callback = stream_callback_;
++            stream_callback(data);
+         }
+     }
+ }
+diff --git a/src/esp/esp_ssl.h b/src/esp/esp_ssl.h
+index cd2bf41..0f7c55e 100644
+--- a/src/esp/esp_ssl.h
++++ b/src/esp/esp_ssl.h
+@@ -8,6 +8,9 @@
+ #include <freertos/event_groups.h>
+ #include <freertos/task.h>
+ 
++#include <atomic>
++#include <cstdint>
++
+ #define ESP_SSL_EVENT_RECEIVE_TASK_EXIT 1
+ 
+ class EspSsl : public Tcp {
+@@ -22,12 +25,21 @@ public:
+     int GetLastError() override;
+ 
+ private:
++    enum class ReceiveTaskState : uint8_t {
++        Stopped,
++        Running,
++        Exited,
++    };
++
+     esp_tls_t* tls_client_ = nullptr;
+     EventGroupHandle_t event_group_ = nullptr;
+     TaskHandle_t receive_task_handle_ = nullptr;
++    std::atomic<ReceiveTaskState> receive_task_state_{ReceiveTaskState::Stopped};
+     int last_error_ = 0;
+ 
++    void ReceiveTaskEntry();
+     void ReceiveTask();
++    void WaitForReceiveTask();
+ };
+ 
+-#endif // _ESP_SSL_H_
+\ No newline at end of file
++#endif // _ESP_SSL_H_
+diff --git a/src/esp/esp_tcp.cc b/src/esp/esp_tcp.cc
+index 14a1719..11e40ed 100644
+--- a/src/esp/esp_tcp.cc
++++ b/src/esp/esp_tcp.cc
+@@ -24,10 +24,17 @@ EspTcp::~EspTcp() {
+ }
+ 
+ bool EspTcp::Connect(const std::string& host, int port) {
+-    // 确保先断开已有连接
+-    if (connected_) {
++    // A prior passive close may have cleared connected_ before its receive
++    // task published the final lifetime fence. Always reap that generation
++    // before reusing the event bit or task handle.
++    if (receive_task_handle_ != nullptr || connected_.load(std::memory_order_acquire)) {
+         Disconnect();
+     }
++    if (event_group_ == nullptr) {
++        last_error_ = ENOMEM;
++        ESP_LOGE(TAG, "Failed to create TCP receive task event group");
++        return false;
++    }
+ 
+     struct sockaddr_in server_addr;
+     bzero(&server_addr, sizeof(server_addr));
+@@ -42,69 +49,135 @@ bool EspTcp::Connect(const std::string& host, int port) {
+     }
+     memcpy(&server_addr.sin_addr, server->h_addr, server->h_length);
+ 
+-    tcp_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+-    if (tcp_fd_ < 0) {
++    int tcp_fd = socket(AF_INET, SOCK_STREAM, 0);
++    if (tcp_fd < 0) {
+         last_error_ = errno;
+         ESP_LOGE(TAG, "Failed to create socket");
+         return false;
+     }
++    tcp_fd_.store(tcp_fd, std::memory_order_release);
+ 
+-    int ret = connect(tcp_fd_, (struct sockaddr*)&server_addr, sizeof(server_addr));
++    int ret = connect(tcp_fd, (struct sockaddr*)&server_addr, sizeof(server_addr));
+     if (ret < 0) {
+         last_error_ = errno;
+         ESP_LOGE(TAG, "Failed to connect to %s:%d, code=0x%x", host.c_str(), port, last_error_);
+-        close(tcp_fd_);
+-        tcp_fd_ = -1;
++        close(tcp_fd_.exchange(-1, std::memory_order_acq_rel));
+         return false;
+     }
+ 
+-    connected_ = true;
++    connected_.store(true, std::memory_order_release);
+ 
+     xEventGroupClearBits(event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT);
+-    xTaskCreate([](void* arg) {
++    receive_task_state_.store(ReceiveTaskState::Running, std::memory_order_release);
++    const BaseType_t receive_task_result = xTaskCreate([](void* arg) {
+         EspTcp* tcp = (EspTcp*)arg;
+-        tcp->ReceiveTask();
+-        xEventGroupSetBits(tcp->event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT);
+-        vTaskDelete(NULL);
++        tcp->ReceiveTaskEntry();
+     }, "tcp_receive", 4096, this, 1, &receive_task_handle_);
++    if (receive_task_result != pdPASS) {
++        last_error_ = ENOMEM;
++        receive_task_handle_ = nullptr;
++        receive_task_state_.store(ReceiveTaskState::Stopped, std::memory_order_release);
++        connected_ = false;
++        const int failed_fd = tcp_fd_.exchange(-1, std::memory_order_acq_rel);
++        if (failed_fd != -1) {
++            shutdown(failed_fd, SHUT_RDWR);
++            close(failed_fd);
++        }
++        ESP_LOGE(TAG, "Failed to create TCP receive task");
++        return false;
++    }
+     return true;
+ }
+ 
+ void EspTcp::Disconnect() {
+-    // 如果已经断开，直接返回
+-    if (!connected_) {
+-        return;
+-    }
+-
+-    // 主动断开，需要等待接收任务退出
+-    DoDisconnect(true);
++    const auto receive_state = receive_task_state_.load(std::memory_order_acquire);
++    const bool is_receive_task =
++        receive_state == ReceiveTaskState::Running &&
++        receive_task_handle_ != nullptr &&
++        receive_task_handle_ == xTaskGetCurrentTaskHandle();
++    DoDisconnect(!is_receive_task);
+ }
+ 
+ void EspTcp::DoDisconnect(bool wait_for_task) {
+-    connected_ = false;
+-
+-    if (tcp_fd_ != -1) {
+-        close(tcp_fd_);
+-        tcp_fd_ = -1;
+-
+-        // 只有主动断开时才需要等待接收任务退出
+-        // 被动断开时，当前就是接收任务，不需要等待
+-        if (wait_for_task) {
+-            auto bits = xEventGroupWaitBits(event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(10000));
+-            if (!(bits & ESP_TCP_EVENT_RECEIVE_TASK_EXIT)) {
+-                ESP_LOGE(TAG, "Failed to wait for receive task exit");
+-            }
++    const bool notify_disconnect = connected_.exchange(false, std::memory_order_acq_rel);
++
++    // shutdown() wakes a blocking recv without releasing the descriptor for
++    // reuse. The non-receiver owner closes it only after the lifetime fence.
++    const int active_fd = tcp_fd_.load(std::memory_order_acquire);
++    if (active_fd != -1) {
++        shutdown(active_fd, SHUT_RDWR);
++    }
++
++    if (wait_for_task) {
++        WaitForReceiveTask();
++    }
++
++    const int fd_to_close = tcp_fd_.exchange(-1, std::memory_order_acq_rel);
++    if (fd_to_close != -1) {
++        close(fd_to_close);
++    }
++
++    if (notify_disconnect) {
++        auto disconnect_callback = disconnect_callback_;
++        if (disconnect_callback) {
++            disconnect_callback();
+         }
+     }
++}
+ 
+-    // 断开连接时触发断开回调
+-    if (disconnect_callback_) {
+-        disconnect_callback_();
++void EspTcp::ReceiveTaskEntry() {
++    ReceiveTask();
++
++    // xEventGroupSetBits can resume a waiter before the function itself has
++    // returned. The release-store after it returns is the authoritative final
++    // owner access; teardown must acquire Exited before freeing this object or
++    // its event group.
++    xEventGroupSetBits(event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT);
++    receive_task_state_.store(ReceiveTaskState::Exited, std::memory_order_release);
++    vTaskDelete(NULL);
++}
++
++void EspTcp::WaitForReceiveTask() {
++    auto receive_state = receive_task_state_.load(std::memory_order_acquire);
++    if (receive_task_handle_ == nullptr || receive_state == ReceiveTaskState::Stopped) {
++        return;
++    }
++    if (receive_state != ReceiveTaskState::Exited &&
++        receive_task_handle_ != nullptr &&
++        receive_task_handle_ == xTaskGetCurrentTaskHandle()) {
++        return;
++    }
++
++    TickType_t wait_ticks = pdMS_TO_TICKS(1000);
++    bool timeout_reported = false;
++    while (receive_state != ReceiveTaskState::Exited) {
++        const EventBits_t bits = xEventGroupWaitBits(
++            event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT,
++            pdFALSE, pdFALSE, wait_ticks);
++        receive_state = receive_task_state_.load(std::memory_order_acquire);
++        if (receive_state == ReceiveTaskState::Exited) {
++            break;
++        }
++        if (!(bits & ESP_TCP_EVENT_RECEIVE_TASK_EXIT) && !timeout_reported) {
++            ESP_LOGE(TAG, "TCP receive task still active after shutdown; waiting for safe exit");
++            timeout_reported = true;
++            wait_ticks = portMAX_DELAY;
++        } else {
++            // The wake bit is only a hint. Let the receiver complete the final
++            // release-store before checking the authoritative state again.
++            // A yield only schedules equal-priority tasks; a one-tick delay
++            // also lets a lower-priority receive task finish on this core.
++            vTaskDelay(1);
++        }
+     }
++
++    receive_task_handle_ = nullptr;
++    receive_task_state_.store(ReceiveTaskState::Stopped, std::memory_order_release);
++    xEventGroupClearBits(event_group_, ESP_TCP_EVENT_RECEIVE_TASK_EXIT);
+ }
+ 
+ int EspTcp::Send(const std::string& data) {
+-    if (!connected_) {
++    if (!connected_.load(std::memory_order_acquire)) {
+         ESP_LOGE(TAG, "Not connected");
+         return -1;
+     }
+@@ -114,7 +187,11 @@ int EspTcp::Send(const std::string& data) {
+     const char* data_ptr = data.data();
+ 
+     while (total_sent < data_size) {
+-        int ret = send(tcp_fd_, data_ptr + total_sent, data_size - total_sent, 0);
++        const int active_fd = tcp_fd_.load(std::memory_order_acquire);
++        if (active_fd == -1) {
++            return -1;
++        }
++        int ret = send(active_fd, data_ptr + total_sent, data_size - total_sent, 0);
+ 
+         if (ret <= 0) {
+             ESP_LOGE(TAG, "Send failed: ret=%d, errno=%d", ret, errno);
+@@ -129,21 +206,25 @@ int EspTcp::Send(const std::string& data) {
+ 
+ void EspTcp::ReceiveTask() {
+     std::string data;
+-    while (connected_) {
++    while (connected_.load(std::memory_order_acquire)) {
+         data.resize(1500);
+-        int ret = recv(tcp_fd_, data.data(), data.size(), 0);
++        const int active_fd = tcp_fd_.load(std::memory_order_acquire);
++        if (active_fd == -1) {
++            break;
++        }
++        int ret = recv(active_fd, data.data(), data.size(), 0);
+         if (ret <= 0) {
+             if (ret < 0) {
+                 ESP_LOGE(TAG, "TCP receive failed: %d", ret);
+             }
+-            // 被动断开，不需要等待接收任务退出（当前就是接收任务）
+             DoDisconnect(false);
+             break;
+         }
+ 
+         if (stream_callback_) {
+             data.resize(ret);
+-            stream_callback_(data);
++            auto stream_callback = stream_callback_;
++            stream_callback(data);
+         }
+     }
+ }
+diff --git a/src/esp/esp_tcp.h b/src/esp/esp_tcp.h
+index 38cf61d..21b1482 100644
+--- a/src/esp/esp_tcp.h
++++ b/src/esp/esp_tcp.h
+@@ -7,6 +7,9 @@
+ #include <freertos/event_groups.h>
+ #include <freertos/task.h>
+ 
++#include <atomic>
++#include <cstdint>
++
+ #define ESP_TCP_EVENT_RECEIVE_TASK_EXIT 1
+ 
+ class EspTcp : public Tcp {
+@@ -21,15 +24,22 @@ public:
+     int GetLastError() override;
+ 
+ private:
+-    int tcp_fd_ = -1;
++    enum class ReceiveTaskState : uint8_t {
++        Stopped,
++        Running,
++        Exited,
++    };
++
++    std::atomic<int> tcp_fd_{-1};
+     EventGroupHandle_t event_group_ = nullptr;
+     TaskHandle_t receive_task_handle_ = nullptr;
++    std::atomic<ReceiveTaskState> receive_task_state_{ReceiveTaskState::Stopped};
+     int last_error_ = 0;
+ 
++    void ReceiveTaskEntry();
+     void ReceiveTask();
+-    // 内部断开处理函数
+-    // wait_for_task: 是否等待接收任务退出（主动断开为true，被动断开为false）
++    void WaitForReceiveTask();
+     void DoDisconnect(bool wait_for_task);
+ };
+ 
+-#endif // _ESP_TCP_H_
+\ No newline at end of file
++#endif // _ESP_TCP_H_
+diff --git a/src/web_socket.cc b/src/web_socket.cc
+index 80c33b6..c46ecb1 100644
+--- a/src/web_socket.cc
++++ b/src/web_socket.cc
+@@ -46,7 +46,10 @@ WebSocket::WebSocket(NetworkInterface* network, int connect_id) : network_(netwo
+ }
+ 
+ WebSocket::~WebSocket() {
+-    if (connected_) {
++    if (tcp_) {
++        // The transport lifetime is independent of the protocol connected
++        // flag. Keep the callback target alive while Disconnect drains the
++        // receive task, including after passive close or failed handshake.
+         tcp_->Disconnect();
+     }
+     if (handshake_event_group_) {
+@@ -63,7 +66,7 @@ void WebSocket::SetReceiveBufferSize(size_t size) {
+ }
+ 
+ bool WebSocket::IsConnected() const {
+-    return connected_;
++    return connected_.load(std::memory_order_acquire);
+ }
+ 
+ bool WebSocket::Connect(const char* uri) {
+@@ -129,15 +132,9 @@ bool WebSocket::Connect(const char* uri) {
+         tcp_ = network_->CreateTcp(connect_id_);
+     }
+ 
+-    connected_ = false;
+-    // 使用 tcp 建立连接
+-    if (!tcp_->Connect(host, std::stoi(port))) {
+-        ESP_LOGE(TAG, "Failed to connect to server");
+-        return false;
+-    }
+-
+-    // Install receive callbacks before Send(): Tcp::Connect may already have
+-    // started its task and a peer may synchronously return HTTP 101.
++    connected_.store(false, std::memory_order_release);
++    // Install receive callbacks before Send() and before Tcp::Connect starts
++    // its receive task. No callback target is mutated while that task is live.
+     handshake_completed_ = false;
+     receive_buffer_.clear();
+     xEventGroupClearBits(handshake_event_group_, HANDSHAKE_SUCCESS_BIT | HANDSHAKE_FAILED_BIT);
+@@ -145,14 +142,20 @@ bool WebSocket::Connect(const char* uri) {
+         this->OnTcpData(data);
+     });
+     tcp_->OnDisconnected([this]() {
+-        if (connected_) {
+-            connected_ = false;
+-            if (on_disconnected_) {
+-                on_disconnected_();
++        if (connected_.exchange(false, std::memory_order_acq_rel)) {
++            auto on_disconnected = on_disconnected_;
++            if (on_disconnected) {
++                on_disconnected();
+             }
+         }
+     });
+ 
++    // 使用 tcp 建立连接
++    if (!tcp_->Connect(host, std::stoi(port))) {
++        ESP_LOGE(TAG, "Failed to connect to server");
++        return false;
++    }
++
+     // 发送 WebSocket 握手请求
+     std::string request = "GET " + path + " HTTP/1.1\r\n";
+     if (headers_.find("Host") == headers_.end()) {
+@@ -165,6 +168,7 @@ bool WebSocket::Connect(const char* uri) {
+ 
+     if (tcp_->Send(request) < 0) {
+         ESP_LOGE(TAG, "Failed to send WebSocket handshake request");
++        tcp_->Disconnect();
+         return false;
+     }
+ 
+@@ -178,19 +182,21 @@ bool WebSocket::Connect(const char* uri) {
+     );
+ 
+     if (bits & HANDSHAKE_SUCCESS_BIT) {
+-        connected_ = true;
++        connected_.store(true, std::memory_order_release);
+         if (on_connected_) {
+             on_connected_();
+         }
+         return true;
+     } else if (bits & HANDSHAKE_FAILED_BIT) {
+         ESP_LOGE(TAG, "WebSocket handshake failed");
++        tcp_->Disconnect();
+         if (on_error_) {
+             on_error_(-1);
+         }
+         return false;
+     } else {
+         ESP_LOGE(TAG, "WebSocket handshake timeout");
++        tcp_->Disconnect();
+         return false;
+     }
+ }
+@@ -254,7 +260,7 @@ void WebSocket::Ping() {
+ }
+ 
+ void WebSocket::Close() {
+-    if (connected_) {
++    if (connected_.load(std::memory_order_acquire)) {
+         SendControlFrame(0x8, nullptr, 0);
+     }
+ }
+@@ -398,9 +404,11 @@ void WebSocket::OnTcpData(const std::string& data) {
+                 }
+                 break;
+             case 0x8: // 关闭帧
+-                connected_ = false;
+-                if (on_disconnected_) {
+-                    on_disconnected_();
++                if (connected_.exchange(false, std::memory_order_acq_rel)) {
++                    auto on_disconnected = on_disconnected_;
++                    if (on_disconnected) {
++                        on_disconnected();
++                    }
+                 }
+                 break;
+             case 0x9: // Ping
+@@ -455,4 +463,4 @@ bool WebSocket::SendControlFrame(uint8_t opcode, const void* data, size_t len) {
+     // 发送帧
+     std::lock_guard<std::mutex> lock(send_mutex_);
+     return tcp_->Send(frame) >= 0;
+-}
+\ No newline at end of file
++}
+

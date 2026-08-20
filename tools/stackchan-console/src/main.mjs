@@ -217,8 +217,15 @@ function createController() {
     const stop = runtime.stop.bind(runtime);
     runtime.start = async () => {
       const result = await start();
-      try { await localAdmin.start(); }
-      catch (error) { await stop(); throw error; }
+      try {
+        journal.write("mcp_admin", "starting", { transport: "named_pipe", contract_version: 1 });
+        await localAdmin.start();
+        journal.write("mcp_admin", "ready", { transport: "named_pipe", pipe: localAdmin.pipePath, contract_version: 1 });
+      } catch (error) {
+        journal.write("mcp_admin", "failed", { message: error.message });
+        await stop();
+        throw error;
+      }
       if (cpuCorrelationEnabled) {
         const brokerPid = runtime.broker.processId;
         if (!Number.isInteger(brokerPid) || brokerPid <= 0) throw new Error("WASAPI broker PID is unavailable for CPU correlation");
@@ -233,7 +240,7 @@ function createController() {
       cpuCorrelation?.start();
       return result;
     };
-    runtime.stop = async () => { journal.write("owner", "stopping"); cpuCorrelation?.stop(); voiceStatus.detach(); transcripts.stop(); presenter.dispose(); await localAdmin.stop(); await stop(); await audioPerformance?.close(); await subtitleTrace.close(); journal.write("owner", "stopped"); journal.close(); };
+    runtime.stop = async () => { journal.write("owner", "stopping"); journal.write("mcp_admin", "stopping"); cpuCorrelation?.stop(); voiceStatus.detach(); transcripts.stop(); presenter.dispose(); await localAdmin.stop(); journal.write("mcp_admin", "stopped"); await stop(); await audioPerformance?.close(); await subtitleTrace.close(); journal.write("owner", "stopped"); journal.close(); };
     voiceStatus.on("error", (error) => console.error("StackChan voice status LED error:", error.message));
     return new StackchanConsoleController({ runtime, voiceStatus, ledArbiter, speakerVolume: speaker, subtitlePublication: subtitles });
   }

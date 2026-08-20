@@ -17,6 +17,10 @@ $ErrorActionPreference = 'Stop'
 $consoleDirectory = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path -LiteralPath $SecretPath -PathType Leaf)) { throw "StackChan secret was not found: $SecretPath" }
 if (-not (Test-Path -LiteralPath (Join-Path $consoleDirectory 'package.json') -PathType Leaf)) { throw "StackChan console package was not found: $consoleDirectory" }
+# Codex MCP and launcher contexts can omit PSModulePath, preventing automatic
+# discovery of this inbox module even though DPAPI is available to this user.
+$securityModule = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
+Import-Module -Name $securityModule -ErrorAction Stop
 
 # Without -Owner the console is an observer only. Owner mode hosts the one
 # Dock runtime, including the robot's authenticated OTA/bootstrap endpoint.

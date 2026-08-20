@@ -16,7 +16,7 @@ button, input { font: inherit; }
 .connection-badge { display: inline-flex; align-items: center; gap: 7px; color: #515157; font-size: 13px; font-weight: 600; }
 .connection-badge i { width: 8px; height: 8px; border-radius: 50%; background: #ff9f0a; box-shadow: 0 0 0 4px rgba(255,159,10,.13); }
 body[data-connection="connected"] .connection-badge i { background: #34c759; box-shadow: 0 0 0 4px rgba(52,199,89,.13); }
-body[data-connection="disconnected"] .connection-badge i, body[data-connection="unavailable"] .connection-badge i, body[data-connection="offline"] .connection-badge i { background: #ff453a; box-shadow: 0 0 0 4px rgba(255,69,58,.12); }
+body[data-connection="disconnected"] .connection-badge i, body[data-connection="microphone-muted"] .connection-badge i, body[data-connection="unavailable"] .connection-badge i, body[data-connection="offline"] .connection-badge i { background: #ff453a; box-shadow: 0 0 0 4px rgba(255,69,58,.12); }
 .icon-button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid #d2d2d7; border-radius: 50%; color: #3a3a3c; background: rgba(255,255,255,.72); cursor: pointer; transition: .18s ease; }
 .icon-button:hover { transform: rotate(24deg); border-color: #9da0a6; background: #fff; }
 .icon-button:focus-visible, summary:focus-visible { outline: 3px solid rgba(0,122,255,.4); outline-offset: 3px; }
@@ -74,7 +74,7 @@ body {
 }
 
 body[data-connection="connected"] { --connection-ink: #146c31; --connection-signal: #248a45; --connection-wash: rgba(52,199,89,.20); --connection-page-a: #f5fcf7; --connection-page-b: #e9f7ee; }
-body[data-connection="disconnected"], body[data-connection="offline"] { --connection-ink: #a12720; --connection-signal: #d83a32; --connection-wash: rgba(255,69,58,.18); --connection-page-a: #fff8f7; --connection-page-b: #fff0ed; }
+body[data-connection="disconnected"], body[data-connection="microphone-muted"], body[data-connection="offline"] { --connection-ink: #a12720; --connection-signal: #d83a32; --connection-wash: rgba(255,69,58,.18); --connection-page-a: #fff8f7; --connection-page-b: #fff0ed; }
 body[data-connection="unavailable"] { --connection-ink: #7a4300; --connection-signal: #a85d00; --connection-wash: rgba(255,159,10,.20); --connection-page-a: #fffaf1; --connection-page-b: #fff2dc; }
 
 .connection-badge {

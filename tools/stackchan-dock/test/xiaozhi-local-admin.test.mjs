@@ -145,3 +145,28 @@ test("local admin exposes the Owner's current subtitle as a token-protected read
     await admin.stop();
   }
 });
+
+test("local admin keeps head moves inside the same Owner safety envelope as the Dock UI", async () => {
+  const pipePath = `\\\\.\\pipe\\stackchan-local-admin-head-${process.pid}-${randomUUID()}`;
+  const calls = [];
+  const admin = new XiaozhiLocalAdmin({
+    token, pipePath,
+    dock: {
+      async getStatus() { return speakerStatus(50); },
+      async callTool() { throw new Error("not expected"); },
+      async getHead() { return { yaw: 1, pitch: 2 }; },
+      async setHead(yaw, pitch, speed) { calls.push({ yaw, pitch, speed }); },
+    },
+  });
+  await admin.start();
+  try {
+    assert.deepEqual(await requestXiaozhiLocalAdmin({ token, operation: "get-robot-head", pipePath }), { head: { yaw: 1, pitch: 2 } });
+    assert.deepEqual(await requestXiaozhiLocalAdmin({ token, operation: "set-robot-head", yaw: 10, pitch: 20, speed: 180, pipePath }), {
+      accepted: true, head: { yaw: 10, pitch: 20, speed: 180, source: "commanded" },
+    });
+    assert.deepEqual(calls, [{ yaw: 10, pitch: 20, speed: 180 }]);
+    assert.throws(() => requestXiaozhiLocalAdmin({ token, operation: "set-robot-head", yaw: 46, pitch: 20, speed: 180, pipePath }), /safety envelope/);
+  } finally {
+    await admin.stop();
+  }
+});

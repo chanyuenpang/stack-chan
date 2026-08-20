@@ -22,7 +22,7 @@ function parseLocalAdminResponse(output) {
   return response.result;
 }
 
-function requestOnce({ token, operation, volume, red, green, blue, pipePath, connect, timeoutMs }) {
+function requestOnce({ token, operation, volume, red, green, blue, yaw, pitch, speed, pipePath, connect, timeoutMs }) {
   return new Promise((resolve, rejectRequest) => {
     const socket = connect(pipePath);
     let output = "";
@@ -57,15 +57,17 @@ function requestOnce({ token, operation, volume, red, green, blue, pipePath, con
     socket.once("connect", () => socket.write(`${JSON.stringify({ token, operation,
       ...(operation === "set-speaker-volume" ? { volume } : {}),
       ...(operation === "set-robot-led-color" ? { red, green, blue } : {}),
+      ...(operation === "set-robot-head" ? { yaw, pitch, speed } : {}),
     })}\n`));
   });
 }
 
-export function requestXiaozhiLocalAdmin({ token, operation, volume, red, green, blue, pipePath = DEFAULT_XIAOZHI_LOCAL_ADMIN_PIPE, connect = createConnection, timeoutMs = 1_500 } = {}) {
+export function requestXiaozhiLocalAdmin({ token, operation, volume, red, green, blue, yaw, pitch, speed, pipePath = DEFAULT_XIAOZHI_LOCAL_ADMIN_PIPE, connect = createConnection, timeoutMs = 1_500 } = {}) {
   if (typeof token !== "string" || !/^[0-9a-f]{64}$/i.test(token)) reject("local Dock token is invalid");
-  if (!["get-subtitle", "get-speaker-volume", "set-speaker-volume", "set-robot-led-color", "clear-robot-led-override"].includes(operation)) reject("local admin operation is not allowlisted");
+  if (!["get-console-status", "get-subtitle", "get-speaker-volume", "set-speaker-volume", "set-robot-led-color", "clear-robot-led-override", "get-robot-head", "set-robot-head"].includes(operation)) reject("local admin operation is not allowlisted");
   if (operation === "set-speaker-volume" && (!Number.isInteger(volume) || volume < 0 || volume > 100)) reject("volume must be an integer from 0 to 100");
   if (operation === "set-robot-led-color" && ![red, green, blue].every((value) => Number.isInteger(value) && value >= 0 && value <= 168)) reject("LED channels must be integers from 0 to 168");
+  if (operation === "set-robot-head" && (!Number.isInteger(yaw) || yaw < -45 || yaw > 45 || !Number.isInteger(pitch) || pitch < 0 || pitch > 45 || !Number.isInteger(speed) || speed < 100 || speed > 300)) reject("head target is outside the Owner safety envelope");
   if (typeof pipePath !== "string" || !pipePath.startsWith("\\\\.\\pipe\\")) reject("pipePath must be a local Windows named pipe");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) reject("timeoutMs must be a positive integer");
   // Windows named pipes accept only a small number of pending instances.
@@ -73,7 +75,7 @@ export function requestXiaozhiLocalAdmin({ token, operation, volume, red, green,
   // from being closed before the Owner can read their request.
   const readKey = `${pipePath}\u0000${token}`;
   if (operation === "get-speaker-volume" && activeSpeakerReads.has(readKey)) return activeSpeakerReads.get(readKey);
-  const operationPromise = localAdminRequestTail.then(() => requestOnce({ token, operation, volume, red, green, blue, pipePath, connect, timeoutMs }));
+  const operationPromise = localAdminRequestTail.then(() => requestOnce({ token, operation, volume, red, green, blue, yaw, pitch, speed, pipePath, connect, timeoutMs }));
   localAdminRequestTail = operationPromise.catch(() => {});
   if (operation === "get-speaker-volume") {
     const sharedRead = operationPromise.finally(() => {

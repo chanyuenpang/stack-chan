@@ -1,0 +1,423 @@
+diff --git a/main/audio/audio_service.cc b/main/audio/audio_service.cc
+index 350ac58..0aca30b 100644
+--- a/main/audio/audio_service.cc
++++ b/main/audio/audio_service.cc
+@@ -1,4 +1,7 @@
+ #include "audio_service.h"
++#if AUDIO_SERVICE_DIAG_ENABLED
++#include <hal/hal_audio_performance_diagnostics.h>
++#endif
+ #include <esp_log.h>
+ #include <cstring>
+ 
+@@ -37,6 +40,25 @@
+ 
+ #define TAG "AudioService"
+ 
++#if AUDIO_SERVICE_DIAG_ENABLED
++void AudioService::AudioDiagReportMaybe() {
++    uint32_t elapsed_us = 0;
++    if (!stackchan_audio_diag::TryBeginReportWindow(elapsed_us)) {
++        return;
++    }
++    stackchan_audio_diag::QueueDepths queues;
++    queues.window_ms = elapsed_us / 1000;
++    {
++        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
++        queues.decode = static_cast<uint32_t>(audio_decode_queue_.size());
++        queues.playback = static_cast<uint32_t>(audio_playback_queue_.size());
++        queues.encode = static_cast<uint32_t>(audio_encode_queue_.size());
++        queues.send = static_cast<uint32_t>(audio_send_queue_.size());
++    }
++    stackchan_audio_diag::QueueReport(queues);
++}
++#endif
++
+ AudioService::AudioService() {
+     event_group_ = xEventGroupCreate();
+ }
+@@ -60,6 +82,9 @@ AudioService::~AudioService() {
+ }
+ 
+ void AudioService::Initialize(AudioCodec* codec) {
++#if AUDIO_SERVICE_DIAG_ENABLED
++    stackchan_audio_diag::InitializeReporter();
++#endif
+     codec_ = codec;
+     codec_->Start();
+ 
+@@ -173,11 +198,19 @@ void AudioService::Stop() {
+         AS_EVENT_WAKE_WORD_RUNNING |
+         AS_EVENT_AUDIO_PROCESSOR_RUNNING);
+ 
++#if AUDIO_SERVICE_DIAG_ENABLED
++    stackchan_audio_diag::ResetWindow();
++#endif
+     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+     audio_encode_queue_.clear();
+     audio_decode_queue_.clear();
+     audio_playback_queue_.clear();
+     audio_testing_queue_.clear();
++#if AUDIO_SERVICE_DIAG_ENABLED
++    audio_decode_ingress_us_.clear();
++    audio_diag_last_output_start_us_.store(0, std::memory_order_relaxed);
++    audio_diag_last_output_end_us_.store(0, std::memory_order_relaxed);
++#endif
+     audio_queue_cv_.notify_all();
+ }
+ 
+@@ -306,7 +339,41 @@ void AudioService::AudioOutputTask() {
+             codec_->EnableOutput(true);
+         }
+ 
++#if AUDIO_SERVICE_DIAG_ENABLED
++        const uint32_t output_start_us = stackchan_audio_diag::NowUs();
++        const uint32_t last_output_start_us =
++            audio_diag_last_output_start_us_.exchange(output_start_us, std::memory_order_relaxed);
++        const bool has_output_gap = last_output_start_us != 0;
++        const uint32_t output_gap_us =
++            has_output_gap ? static_cast<uint32_t>(output_start_us - last_output_start_us) : 0;
++        const uint32_t last_output_end_us =
++            audio_diag_last_output_end_us_.load(std::memory_order_relaxed);
++        const auto gap_decomposition = stackchan_audio_diag::DecomposeOutputGap(
++            has_output_gap, last_output_start_us, last_output_end_us,
++            task->diag_decode_ready_us != 0, task->diag_decode_ready_us, output_start_us);
++#endif
+         codec_->OutputData(task->pcm);
++#if AUDIO_SERVICE_DIAG_ENABLED
++        const uint32_t output_end_us = stackchan_audio_diag::NowUs();
++        const uint32_t output_us = static_cast<uint32_t>(output_end_us - output_start_us);
++        audio_diag_last_output_end_us_.store(output_end_us, std::memory_order_relaxed);
++        const bool has_ingress_timestamp = task->diag_ingress_us != 0;
++        const bool has_decode_ready_timestamp = task->diag_decode_ready_us != 0;
++        stackchan_audio_diag::RecordOutput(
++            has_ingress_timestamp,
++            has_ingress_timestamp
++                ? static_cast<uint32_t>(output_start_us - task->diag_ingress_us)
++                : 0,
++            has_decode_ready_timestamp,
++            has_decode_ready_timestamp
++                ? static_cast<uint32_t>(output_start_us - task->diag_decode_ready_us)
++                : 0,
++            output_us, has_output_gap, output_gap_us,
++            has_output_gap && output_gap_us > AUDIO_SERVICE_DIAG_GAP_WARN_MS * 1000,
++            gap_decomposition.valid, gap_decomposition.previous_output_us,
++            gap_decomposition.ready_late_us, gap_decomposition.ready_wait_us);
++        AudioDiagReportMaybe();
++#endif
+ 
+         /* Update the last output time */
+         last_output_time_ = std::chrono::steady_clock::now();
+@@ -340,12 +407,24 @@ void AudioService::OpusCodecTask() {
+         if (!audio_decode_queue_.empty() && audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE) {
+             auto packet = std::move(audio_decode_queue_.front());
+             audio_decode_queue_.pop_front();
++#if AUDIO_SERVICE_DIAG_ENABLED
++            uint32_t ingress_us = 0;
++            if (!audio_decode_ingress_us_.empty()) {
++                ingress_us = audio_decode_ingress_us_.front();
++                audio_decode_ingress_us_.pop_front();
++            } else {
++                stackchan_audio_diag::RecordIngressTimestampMissing();
++            }
++#endif
+             audio_queue_cv_.notify_all();
+             lock.unlock();
+ 
+             auto task = std::make_unique<AudioTask>();
+             task->type = kAudioTaskTypeDecodeToPlaybackQueue;
+             task->timestamp = packet->timestamp;
++#if AUDIO_SERVICE_DIAG_ENABLED
++            task->diag_ingress_us = ingress_us;
++#endif
+ 
+             SetDecodeSampleRate(packet->sample_rate, packet->frame_duration);
+             if (opus_decoder_ != nullptr) {
+@@ -362,12 +441,29 @@ void AudioService::OpusCodecTask() {
+                     .decoded_size = 0,
+                 };
+                 esp_audio_dec_info_t dec_info = {};
++#if AUDIO_SERVICE_DIAG_ENABLED
++                const uint32_t decode_start_us = stackchan_audio_diag::NowUs();
++#endif
+                 std::unique_lock<std::mutex> decoder_lock(decoder_mutex_);
++#if AUDIO_SERVICE_DIAG_ENABLED
++                const uint32_t decoder_lock_acquired_us = stackchan_audio_diag::NowUs();
++#endif
+                 auto ret = esp_opus_dec_decode(opus_decoder_, &raw, &out_frame, &dec_info);
+                 decoder_lock.unlock();
++#if AUDIO_SERVICE_DIAG_ENABLED
++                const uint32_t decode_end_us = stackchan_audio_diag::NowUs();
++                const uint32_t decoder_lock_wait_us =
++                    static_cast<uint32_t>(decoder_lock_acquired_us - decode_start_us);
++                const uint32_t decode_us =
++                    static_cast<uint32_t>(decode_end_us - decoder_lock_acquired_us);
++                uint32_t resample_us = 0;
++#endif
+                 if (ret == ESP_AUDIO_ERR_OK) {
+                     task->pcm.resize(out_frame.decoded_size / sizeof(int16_t));
+                     if (decoder_sample_rate_ != codec_->output_sample_rate() && output_resampler_ != nullptr) {
++#if AUDIO_SERVICE_DIAG_ENABLED
++                        const uint32_t resample_start_us = stackchan_audio_diag::NowUs();
++#endif
+                         uint32_t target_size = 0;
+                         esp_ae_rate_cvt_get_max_out_sample_num(output_resampler_, task->pcm.size(), &target_size);
+                         std::vector<int16_t> resampled(target_size);
+@@ -376,16 +472,40 @@ void AudioService::OpusCodecTask() {
+                                                 (esp_ae_sample_t)resampled.data(), &actual_output);
+                         resampled.resize(actual_output);
+                         task->pcm = std::move(resampled);
++#if AUDIO_SERVICE_DIAG_ENABLED
++                        resample_us = static_cast<uint32_t>(
++                            stackchan_audio_diag::NowUs() - resample_start_us);
++#endif
+                     }
++#if AUDIO_SERVICE_DIAG_ENABLED
++                    const bool has_ingress_timestamp = task->diag_ingress_us != 0;
++                    stackchan_audio_diag::RecordDecode(
++                        has_ingress_timestamp,
++                        has_ingress_timestamp
++                            ? static_cast<uint32_t>(decode_start_us - task->diag_ingress_us)
++                            : 0,
++                        decoder_lock_wait_us, decode_us, resample_us);
++                    task->diag_decode_ready_us = stackchan_audio_diag::NowUs();
++#endif
+                     lock.lock();
+                     audio_playback_queue_.push_back(std::move(task));
++#if AUDIO_SERVICE_DIAG_ENABLED
++                    stackchan_audio_diag::RecordPlaybackQueueDepth(
++                        static_cast<uint32_t>(audio_playback_queue_.size()));
++#endif
+                     audio_queue_cv_.notify_all();
+                     debug_statistics_.decode_count++;
+                 } else {
++#if AUDIO_SERVICE_DIAG_ENABLED
++                    stackchan_audio_diag::RecordDecodeFailure();
++#endif
+                     ESP_LOGE(TAG, "Failed to decode audio after resize, error code: %d", ret);
+                     lock.lock();
+                 }
+             } else {
++#if AUDIO_SERVICE_DIAG_ENABLED
++                stackchan_audio_diag::RecordDecodeFailure();
++#endif
+                 ESP_LOGE(TAG, "Audio decoder is not configured");
+                 lock.lock();
+             }
+@@ -506,13 +626,36 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
+-bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait) {
++bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait,
++                                           bool track_network_ingress) {
++#if AUDIO_SERVICE_DIAG_ENABLED
++    const uint32_t ingress_us =
++        track_network_ingress ? stackchan_audio_diag::NowUs() : 0;
++    const uint32_t queue_wait_start_us = ingress_us;
++#else
++    (void)track_network_ingress;
++#endif
+     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+     if (audio_decode_queue_.size() >= MAX_DECODE_PACKETS_IN_QUEUE) {
+         if (wait) {
+             audio_queue_cv_.wait(lock, [this]() { return audio_decode_queue_.size() < MAX_DECODE_PACKETS_IN_QUEUE; });
+         } else {
++#if AUDIO_SERVICE_DIAG_ENABLED
++            if (track_network_ingress) {
++                stackchan_audio_diag::RecordIngress(
++                    false, static_cast<uint32_t>(audio_decode_queue_.size()),
++                    static_cast<uint32_t>(stackchan_audio_diag::NowUs() - queue_wait_start_us));
++            }
++#endif
+             return false;
+         }
+     }
+     audio_decode_queue_.push_back(std::move(packet));
++#if AUDIO_SERVICE_DIAG_ENABLED
++    audio_decode_ingress_us_.push_back(ingress_us);
++    if (track_network_ingress) {
++        stackchan_audio_diag::RecordIngress(
++            true, static_cast<uint32_t>(audio_decode_queue_.size()),
++            static_cast<uint32_t>(stackchan_audio_diag::NowUs() - queue_wait_start_us));
++    }
++#endif
+     audio_queue_cv_.notify_all();
+     return true;
+ }
+@@ -612,6 +755,9 @@ void AudioService::EnableAudioTesting(bool enable) {
+         /* Copy audio_testing_queue_ to audio_decode_queue_ */
+         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+         audio_decode_queue_ = std::move(audio_testing_queue_);
++#if AUDIO_SERVICE_DIAG_ENABLED
++        audio_decode_ingress_us_.assign(audio_decode_queue_.size(), 0);
++#endif
+         audio_queue_cv_.notify_all();
+     }
+ }
+@@ -647,7 +793,7 @@ void AudioService::PlaySound(const std::string_view& ogg) {
+         packet->frame_duration = 60;
+         packet->payload.resize(size);
+         std::memcpy(packet->payload.data(), data, size);
+-        PushPacketToDecodeQueue(std::move(packet), true);
++        PushPacketToDecodeQueue(std::move(packet), true, false);
+     });
+     demuxer->Reset();
+     demuxer->Process(buf, size);
+@@ -676,5 +825,10 @@ void AudioService::ResetDecoder() {
+     audio_decode_queue_.clear();
+     audio_playback_queue_.clear();
+     audio_testing_queue_.clear();
++#if AUDIO_SERVICE_DIAG_ENABLED
++    audio_decode_ingress_us_.clear();
++    audio_diag_last_output_start_us_.store(0, std::memory_order_relaxed);
++    audio_diag_last_output_end_us_.store(0, std::memory_order_relaxed);
++#endif
+     audio_queue_cv_.notify_all();
+ }
+diff --git a/main/audio/audio_service.h b/main/audio/audio_service.h
+index 99db546..d305511 100644
+--- a/main/audio/audio_service.h
++++ b/main/audio/audio_service.h
+@@ -6,7 +6,10 @@
+ #include <condition_variable>
+ #include <chrono>
+ #include <mutex>
++#include <vector>
++#include <atomic>
+ 
++#include <sdkconfig.h>
+ #include <freertos/FreeRTOS.h>
+ #include <freertos/task.h>
+ #include <freertos/event_groups.h>
+@@ -47,6 +50,17 @@
+ #define AUDIO_POWER_TIMEOUT_MS 15000
+ #define AUDIO_POWER_CHECK_INTERVAL_MS 1000
+ 
++#ifndef AUDIO_SERVICE_DIAG_ENABLED
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
++#define AUDIO_SERVICE_DIAG_ENABLED 1
++#else
++#define AUDIO_SERVICE_DIAG_ENABLED 0
++#endif
++#endif
++#define AUDIO_SERVICE_DIAG_GAP_WARN_MS 80
++#define AUDIO_SERVICE_DIAG_GAP_CRIT_MS 120
++
+ #define AS_EVENT_AUDIO_TESTING_RUNNING      (1 << 0)
+ #define AS_EVENT_WAKE_WORD_RUNNING          (1 << 1)
+ #define AS_EVENT_AUDIO_PROCESSOR_RUNNING    (1 << 2)
+@@ -93,6 +107,10 @@ struct AudioTask {
+     AudioTaskType type;
+     std::vector<int16_t> pcm;
+     uint32_t timestamp;
++#if AUDIO_SERVICE_DIAG_ENABLED
++    uint32_t diag_ingress_us = 0;
++    uint32_t diag_decode_ready_us = 0;
++#endif
+ };
+ 
+ struct DebugStatistics {
+@@ -127,5 +145,6 @@ public:
+ 
+     void SetCallbacks(AudioServiceCallbacks& callbacks);
+ 
+-    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
++    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false,
++                                 bool track_network_ingress = true);
+     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
+@@ -171,6 +190,11 @@ private:
+     std::deque<std::unique_ptr<AudioStreamPacket>> audio_testing_queue_;
+     std::deque<std::unique_ptr<AudioTask>> audio_encode_queue_;
+     std::deque<std::unique_ptr<AudioTask>> audio_playback_queue_;
++#if AUDIO_SERVICE_DIAG_ENABLED
++    std::deque<uint32_t> audio_decode_ingress_us_;
++    std::atomic<uint32_t> audio_diag_last_output_start_us_{0};
++    std::atomic<uint32_t> audio_diag_last_output_end_us_{0};
++#endif
+     // For server AEC
+     std::deque<uint32_t> timestamp_queue_;
+ 
+@@ -184,6 +208,10 @@ private:
+     std::chrono::steady_clock::time_point last_input_time_;
+     std::chrono::steady_clock::time_point last_output_time_;
+ 
++#if AUDIO_SERVICE_DIAG_ENABLED
++    void AudioDiagReportMaybe();
++#endif
++
+     void AudioInputTask();
+     void AudioOutputTask();
+     void OpusCodecTask();
+@@ -192,4 +220,4 @@ private:
+     void CheckAndUpdateAudioPowerState();
+ };
+ 
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/main/display/display.h b/main/display/display.h
+index 9e73014..a1c8676 100644
+--- a/main/display/display.h
++++ b/main/display/display.h
+@@ -14,6 +14,12 @@
+ 
+ #include <string>
+ #include <chrono>
++#include <cstdint>
++
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
++#include <hal/hal_audio_performance_diagnostics.h>
++#endif
+ 
+ class Theme {
+ public:
+@@ -64,16 +70,48 @@ protected:
+ class DisplayLockGuard {
+ public:
+     DisplayLockGuard(Display *display) : display_(display) {
+-        if (!display_->Lock(30000)) {
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
++        const uint32_t wait_start_us = stackchan_audio_diag::NowUs();
++#endif
++        const bool locked = display_->Lock(30000);
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
++        hold_start_us_ = stackchan_audio_diag::NowUs();
++        locked_ = locked;
++        wait_us_ = static_cast<uint32_t>(hold_start_us_ - wait_start_us);
++#endif
++        if (!locked) {
+             ESP_LOGE("Display", "Failed to lock display");
+         }
+     }
+     ~DisplayLockGuard() {
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
++        const uint32_t span_us = locked_
++            ? static_cast<uint32_t>(stackchan_audio_diag::NowUs() - hold_start_us_)
++            : 0;
++#endif
++        // Preserve the existing unlock-on-destruction behavior. Lock-success
++        // semantics are a separate lifecycle fix and are not changed here.
+         display_->Unlock();
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
++        stackchan_audio_diag::RecordDisplayGuardWait(wait_us_, locked_);
++        if (locked_) {
++            stackchan_audio_diag::RecordDisplayGuardSpan(span_us);
++        }
++#endif
+     }
+ 
+ private:
+     Display *display_;
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_PERFORMANCE_DIAGNOSTICS
++    bool locked_ = false;
++    uint32_t wait_us_ = 0;
++    uint32_t hold_start_us_ = 0;
++#endif
+ };
+ 
+ class NoDisplay : public Display {

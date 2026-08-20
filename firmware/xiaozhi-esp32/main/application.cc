@@ -954,7 +954,6 @@ void Application::HandleToggleChatEvent() {
 
     if (screen_close_speaker_mode_.load(std::memory_order_acquire)) {
         if (screen_input_muted_.exchange(false, std::memory_order_acq_rel)) {
-            NotifyScreenInputMuteChanged(false);
             ListeningMode mode = GetDefaultListeningMode();
             if (!protocol_->IsAudioChannelOpened()) {
                 SetDeviceState(kDeviceStateConnecting);
@@ -962,6 +961,13 @@ void Application::HandleToggleChatEvent() {
             } else {
                 SetListeningMode(mode);
             }
+            // Speaker mode is still connected.  Project the restored input
+            // state locally after the normal state update, without touching
+            // the audio channel or speaker output.
+            auto display = Board::GetInstance().GetDisplay();
+            display->SetChatMessage("system", "麦克风已开启");
+            stackchan_local_dock_input_unmuted_led_connected();
+            NotifyScreenInputMuteChanged(false);
             return;
         }
 
@@ -975,6 +981,9 @@ void Application::HandleToggleChatEvent() {
         }
         // Do not abort TTS, reset the decoder, or close the channel. A
         // speaking realtime turn continues through the robot speaker.
+        auto display = Board::GetInstance().GetDisplay();
+        display->SetChatMessage("system", "麦克风已关闭");
+        stackchan_local_dock_input_muted_led_off();
         NotifyScreenInputMuteChanged(true);
         return;
     }

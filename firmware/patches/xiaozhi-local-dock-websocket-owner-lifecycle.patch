@@ -1,0 +1,14 @@
+diff --git a/main/protocols/websocket_protocol.cc b/main/protocols/websocket_protocol.cc
+index f0cc034..a75f6d7 100644
+--- a/main/protocols/websocket_protocol.cc
++++ b/main/protocols/websocket_protocol.cc
+@@ -17,6 +17,9 @@ WebsocketProtocol::WebsocketProtocol() {
+ }
+ 
+ WebsocketProtocol::~WebsocketProtocol() {
++    // WebSocket callbacks capture this protocol and may signal its event
++    // group. Drain the transport before releasing callback-owned state.
++    websocket_.reset();
+     vEventGroupDelete(event_group_handle_);
+ }
+ 

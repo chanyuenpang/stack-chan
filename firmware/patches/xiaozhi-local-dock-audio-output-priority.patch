@@ -1,0 +1,38 @@
+diff --git a/main/audio/audio_service.cc b/main/audio/audio_service.cc
+index 0aca30b..9c1fd43 100644
+--- a/main/audio/audio_service.cc
++++ b/main/audio/audio_service.cc
+@@ -166,6 +166,6 @@ void AudioService::Start() {
+         audio_service->AudioOutputTask();
+         vTaskDelete(NULL);
+-    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_);
++    }, "audio_output", 2048 * 2, this, AUDIO_SERVICE_OUTPUT_TASK_PRIORITY, &audio_output_task_handle_);
+ #else
+     /* Start the audio input task */
+     xTaskCreate([](void* arg) {
+@@ -180,6 +180,6 @@ void AudioService::Start() {
+         audio_service->AudioOutputTask();
+         vTaskDelete(NULL);
+-    }, "audio_output", 2048, this, 4, &audio_output_task_handle_);
++    }, "audio_output", 2048, this, AUDIO_SERVICE_OUTPUT_TASK_PRIORITY, &audio_output_task_handle_);
+ #endif
+ 
+     /* Start the opus codec task */
+diff --git a/main/audio/audio_service.h b/main/audio/audio_service.h
+index d305511..2e2b8ac 100644
+--- a/main/audio/audio_service.h
++++ b/main/audio/audio_service.h
+@@ -61,6 +61,13 @@
+ #define AUDIO_SERVICE_DIAG_GAP_WARN_MS 80
+ #define AUDIO_SERVICE_DIAG_GAP_CRIT_MS 120
+ 
++#if defined(CONFIG_STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_BOOST) && \
++    CONFIG_STACKCHAN_XIAOZHI_AUDIO_OUTPUT_PRIORITY_BOOST
++#define AUDIO_SERVICE_OUTPUT_TASK_PRIORITY 5
++#else
++#define AUDIO_SERVICE_OUTPUT_TASK_PRIORITY 4
++#endif
++
+ #define AS_EVENT_AUDIO_TESTING_RUNNING      (1 << 0)
+ #define AS_EVENT_WAKE_WORD_RUNNING          (1 << 1)
+ #define AS_EVENT_AUDIO_PROCESSOR_RUNNING    (1 << 2)

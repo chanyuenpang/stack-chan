@@ -12,6 +12,8 @@ let speakerVolumeRead = null;
 let speakerModeBusy = false;
 let previousConnectionPhase = null;
 let latestRevision = -1;
+let latestState = {};
+let latestSpeakerMode = {};
 
 function renderSubtitle(subtitle = {}) {
   const phase = subtitle.phase ?? "unavailable";
@@ -34,6 +36,7 @@ async function setSubtitleEnabled() {
 }
 
 function renderSpeakerMode(mode = {}) {
+  latestSpeakerMode = mode;
   const enabled = mode.enabled === true;
   speakerModeToggle.classList.toggle("is-on", enabled);
   speakerModeToggle.setAttribute("aria-checked", String(enabled));
@@ -41,8 +44,9 @@ function renderSpeakerMode(mode = {}) {
   if (mode.pending) speakerModeDetail.textContent = "正在同步到机器人…";
   else if (mode.error) speakerModeDetail.textContent = `未同步：${mode.error}`;
   else if (!mode.synchronized) speakerModeDetail.textContent = "等待机器人认证后同步";
-  else if (enabled) speakerModeDetail.textContent = mode.input_muted ? "已开启：麦克风输入已静音，喇叭仍可播报" : "已开启：屏幕关闭仅静音麦克风输入，保留喇叭输出";
+  else if (enabled) speakerModeDetail.textContent = mode.input_muted ? "已关闭麦克风输入；喇叭播放和 Dock 连接保持。" : "开启后，屏幕关闭仅关闭麦克风输入；喇叭播放和 Dock 连接保持。";
   else speakerModeDetail.textContent = "关闭：屏幕关闭会完整断开会话";
+  renderConnectionProjection(latestState);
 }
 
 async function readSpeakerMode() {
@@ -116,6 +120,39 @@ const phaseCopy = {
   offline: { badge: "不可用", kicker: "STATUS UNAVAILABLE", title: "状态暂不可用", detail: "控制台未能读取 Dock 状态。", card: "不可用", cardDetail: "请稍后刷新" },
 };
 
+// This keeps the transport fact separate from its UI projection.  A muted
+// microphone is deliberately rendered with the established disconnected red
+// layout, while the underlying connection phase remains connected.
+const microphoneMutedCopy = {
+  ...phaseCopy.disconnected,
+  badge: "已关闭麦克风",
+  kicker: "MICROPHONE MUTED",
+  title: "麦克风已关闭",
+  detail: "喇叭播放和 Dock 连接保持。",
+  card: "已关闭麦克风",
+  cardDetail: "喇叭播放和 Dock 连接保持",
+};
+
+function renderConnectionProjection(state = {}) {
+  const phase = state.connection?.phase ?? "connecting";
+  const microphoneMuted = phase === "connected"
+    && latestSpeakerMode.enabled === true
+    && latestSpeakerMode.synchronized === true
+    && latestSpeakerMode.input_muted === true;
+  const projection = microphoneMuted ? "microphone-muted" : phase;
+  const copy = microphoneMuted ? microphoneMutedCopy : (phaseCopy[phase] ?? phaseCopy.unavailable);
+
+  document.body.dataset.connection = projection;
+  const badge = document.querySelector("#connection-badge");
+  badge.lastElementChild.textContent = copy.badge;
+  badge.setAttribute("aria-label", `机器人连接状态：${copy.badge}`);
+  document.querySelector("#connection-kicker").textContent = copy.kicker;
+  document.querySelector("#connection-title").textContent = copy.title;
+  document.querySelector("#connection-detail").textContent = copy.detail;
+  document.querySelector("#connection-card-title").textContent = copy.card;
+  document.querySelector("#connection-card-detail").textContent = copy.cardDetail;
+}
+
 function compactValue(value) {
   if (value === null || value === undefined || value === "") return "—";
   return typeof value === "object" ? "已提供" : String(value);
@@ -139,23 +176,15 @@ function render(state = {}) {
   const revision = Number.isInteger(state.revision) ? state.revision : 0;
   if (revision < latestRevision) return;
   latestRevision = revision;
+  latestState = state;
   const phase = state.connection?.phase ?? "connecting";
-  const copy = phaseCopy[phase] ?? phaseCopy.unavailable;
   const subtitle = state.voice?.subtitle ?? {};
   const voicePhase = state.voice?.phase ?? state.voice?.status ?? "等待状态";
   const robot = state.robot ?? {};
   const battery = robot.battery ?? {};
   const led = robot.led ?? {};
 
-  document.body.dataset.connection = phase;
-  const badge = document.querySelector("#connection-badge");
-  badge.lastElementChild.textContent = copy.badge;
-  badge.setAttribute("aria-label", `机器人连接状态：${copy.badge}`);
-  document.querySelector("#connection-kicker").textContent = copy.kicker;
-  document.querySelector("#connection-title").textContent = copy.title;
-  document.querySelector("#connection-detail").textContent = copy.detail;
-  document.querySelector("#connection-card-title").textContent = copy.card;
-  document.querySelector("#connection-card-detail").textContent = copy.cardDetail;
+  renderConnectionProjection(state);
   document.querySelector("#runtime-state").textContent = compactValue(state.health?.runtime ?? (phase === "connected" ? "已就绪" : "准备中"));
   document.querySelector("#robot-name").textContent = compactValue(robot.name ?? robot.displayName ?? "StackChan");
   document.querySelector("#voice-state").textContent = compactValue(voicePhase);

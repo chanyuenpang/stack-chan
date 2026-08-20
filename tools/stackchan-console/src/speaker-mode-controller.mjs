@@ -2,6 +2,14 @@ import { EventEmitter } from "node:events";
 
 const TOOL_NAME = "self.stackchan.set_speaker_mode";
 
+function isSpeakerModeAcknowledged(result) {
+  if (result === true) return true;
+  if (!result || typeof result !== "object" || result.isError !== false || !Array.isArray(result.content)) return false;
+  return result.content.length === 1 &&
+    result.content[0]?.type === "text" &&
+    result.content[0]?.text === "true";
+}
+
 function snapshot({ enabled, synchronized = false, pending = false, error = null, inputMuted = null }) {
   return { enabled, synchronized, pending, error, input_muted: inputMuted };
 }
@@ -43,7 +51,7 @@ export class SpeakerModeController extends EventEmitter {
     this.#publish({ ...this.#state, pending: true, error: null, synchronized: false });
     try {
       const result = await this.#dock.callTool(TOOL_NAME, { enabled });
-      if (result !== true) throw new Error("机器人未确认喇叭模式设置");
+      if (!isSpeakerModeAcknowledged(result)) throw new Error("机器人未确认喇叭模式设置");
       if (persist) this.#stateStore.save(enabled);
       this.#publish(snapshot({ enabled, synchronized: true, inputMuted: this.#state.input_muted }));
       return this.current;
